@@ -1,0 +1,22 @@
+# Python
+backend/__pycache__/
+backend/**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Reports (可选：若需入库版本库可删除下行)
+backend/reports/*.txt
+
+# AI 生成文件
+backend/analysis/daily/*.txt
+backend/analysis/cache/*.md
+
+# IDE
+.idea/
+.vscode/

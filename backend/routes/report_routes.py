@@ -7,7 +7,13 @@ from threading import Thread
 
 from flask import Blueprint, jsonify, request
 
-from utils.file_utils import list_reports_filtered, load_report_for_edit, save_report_file
+from utils.file_utils import (
+    delete_previous_report_if_replaced,
+    delete_report_files,
+    list_reports_filtered,
+    load_report_for_edit,
+    save_report_file,
+)
 
 bp = Blueprint("report", __name__, url_prefix="/api")
 
@@ -52,7 +58,22 @@ def save_report():
 
         display_name = str(name).strip()
         date_clean = str(date_str).strip()
+
+        replace_name = (data.get("replace_name") or "").strip()
+        replace_date = (data.get("replace_date") or "").strip()
+
         filename, path = save_report_file(display_name, date_clean, str(content))
+
+        if replace_name and replace_date:
+            try:
+                delete_previous_report_if_replaced(
+                    replace_name, replace_date, display_name, date_clean
+                )
+            except ValueError:
+                pass
+            except Exception as e:
+                print(f"[report save] remove old file: {e}")
+
         Thread(
             target=_async_daily_ai_analysis,
             args=(display_name, date_clean, path, filename),
@@ -80,6 +101,24 @@ def get_reports():
         end_date = request.args.get("end_date")
         items = list_reports_filtered(name=name, start_date=start_date, end_date=end_date)
         return jsonify({"success": True, "reports": items})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@bp.route("/report", methods=["DELETE"])
+def delete_report():
+    """删除指定姓名与日期的日报文件及对应 analysis/daily 缓存。"""
+    try:
+        name = request.args.get("name", "").strip()
+        date_str = request.args.get("date", "").strip()
+        if not name or not date_str:
+            return jsonify({"success": False, "message": "请提供 name 与 date 参数"}), 400
+        removed = delete_report_files(name, date_str)
+        if not removed:
+            return jsonify({"success": False, "message": "未找到该日报文件"}), 404
+        return jsonify({"success": True, "message": "已删除"})
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 

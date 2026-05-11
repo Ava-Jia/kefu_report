@@ -65,6 +65,56 @@ def parse_header_name_date(raw: str) -> Tuple[Optional[str], Optional[str]]:
     return name_val, date_val
 
 
+def delete_report_files(name: str, date_str: str) -> bool:
+    """
+    删除 reports 目录下对应 txt；若存在 analysis/daily 下同姓名的单日 AI 结果一并删除。
+    返回是否删除了日报文件（不存在则为 False）。
+    """
+    d = str(date_str).strip()
+    datetime.strptime(d, "%Y-%m-%d")
+    path = get_reports_dir() / f"{sanitize_name_for_filename(name)}_{d}.txt"
+    existed = path.is_file()
+    if existed:
+        path.unlink()
+    try:
+        from utils.analysis_storage import daily_summary_path
+
+        dp = daily_summary_path(name, d)
+        if dp.is_file():
+            dp.unlink()
+    except Exception:
+        pass
+    return existed
+
+
+def delete_previous_report_if_replaced(
+    old_name: str, old_date: str, new_name: str, new_date: str
+) -> bool:
+    """
+    编辑保存后：若旧文件路径与新路径不同，删除旧 reports 下 txt，
+    并尝试删除对应 analysis/daily 下同名键的 AI 结果。
+    姓名+日期未变则视为覆盖同一文件，不删除。
+    """
+    od = str(old_date).strip()
+    nd = str(new_date).strip()
+    old_path = get_reports_dir() / f"{sanitize_name_for_filename(old_name)}_{od}.txt"
+    new_path = get_reports_dir() / f"{sanitize_name_for_filename(new_name)}_{nd}.txt"
+    if old_path.resolve() == new_path.resolve():
+        return False
+    if not old_path.is_file():
+        return False
+    old_path.unlink()
+    try:
+        from utils.analysis_storage import daily_summary_path
+
+        dp = daily_summary_path(old_name, od)
+        if dp.is_file():
+            dp.unlink()
+    except Exception:
+        pass
+    return True
+
+
 def save_report_file(name: str, date_str: str, content: str) -> Tuple[str, Path]:
     safe_name = sanitize_name_for_filename(name)
     # 校验日期格式

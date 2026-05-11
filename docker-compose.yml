@@ -1,0 +1,27 @@
+services:
+  backend:
+    image: crpi-hitbvew6o79ovt1g.cn-shanghai.personal.cr.aliyuncs.com/avajia_ns/kefu_report_backend:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    volumes:
+      - reports_data:/app/reports
+      - analysis_data:/app/analysis
+    restart: unless-stopped
+
+  web:
+    image: crpi-hitbvew6o79ovt1g.cn-shanghai.personal.cr.aliyuncs.com/avajia_ns/kefu_report_web:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    ports:
+      - "8082:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  reports_data:
+  analysis_data:

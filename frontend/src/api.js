@@ -23,6 +23,13 @@ export async function fetchReport(name, date) {
   return data;
 }
 
+export async function deleteReport(name, date) {
+  const { data } = await client.delete("/report", {
+    params: { name, date },
+  });
+  return data;
+}
+
 export async function analyzeReports(payload) {
   const { data } = await client.post("/analyze", payload);
   return data;

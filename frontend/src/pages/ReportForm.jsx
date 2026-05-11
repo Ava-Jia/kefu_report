@@ -7,6 +7,7 @@ import {
   Form,
   Input,
   Modal,
+  Popconfirm,
   Space,
   Table,
   Tag,
@@ -14,9 +15,9 @@ import {
   Typography,
   message,
 } from "antd";
-import { PlusOutlined, EditOutlined, FileTextOutlined } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, DeleteOutlined, FileTextOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
-import { fetchReport, fetchReports, saveReport } from "../api";
+import { deleteReport, fetchReport, fetchReports, saveReport } from "../api";
 
 const { TextArea } = Input;
 const { Title, Text } = Typography;
@@ -28,6 +29,10 @@ export default function ReportForm() {
   const [reports, setReports] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("create");
+  /** 编辑入口对应的原列表键，保存时若改了姓名/日期则让后端删旧文件 */
+  const [editOriginal, setEditOriginal] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const loadList = useCallback(async () => {
     setListLoading(true);
@@ -49,6 +54,17 @@ export default function ReportForm() {
     loadList();
   }, [loadList]);
 
+  /** 数据变少时避免当前页超出范围；受控分页需配合 total */
+  useEffect(() => {
+    const total = reports.length;
+    if (total === 0) {
+      setPage(1);
+      return;
+    }
+    const maxPage = Math.max(1, Math.ceil(total / pageSize));
+    if (page > maxPage) setPage(maxPage);
+  }, [reports.length, pageSize, page]);
+
   const resetFormForCreate = () => {
     form.resetFields();
     form.setFieldsValue({
@@ -60,12 +76,14 @@ export default function ReportForm() {
 
   const openCreate = () => {
     setModalMode("create");
+    setEditOriginal(null);
     resetFormForCreate();
     setModalOpen(true);
   };
 
   const closeModal = () => {
     setModalOpen(false);
+    setEditOriginal(null);
     resetFormForCreate();
   };
 
@@ -73,11 +91,16 @@ export default function ReportForm() {
     setLoading(true);
     try {
       const dateStr = values.date.format("YYYY-MM-DD");
-      const res = await saveReport({
+      const payload = {
         name: values.name.trim(),
         date: dateStr,
         content: values.content ?? "",
-      });
+      };
+      if (modalMode === "edit" && editOriginal) {
+        payload.replace_name = editOriginal.name;
+        payload.replace_date = editOriginal.date;
+      }
+      const res = await saveReport(payload);
       if (res.success) {
         message.success(res.message || "保存成功");
         closeModal();
@@ -98,6 +121,7 @@ export default function ReportForm() {
         const res = await fetchReport(record.name, record.date);
         if (res.success) {
           setModalMode("edit");
+          setEditOriginal({ name: record.name, date: record.date });
           form.setFieldsValue({
             name: res.name,
             date: dayjs(res.date, "YYYY-MM-DD"),
@@ -112,6 +136,32 @@ export default function ReportForm() {
       }
     },
     [form]
+  );
+
+  const onDelete = useCallback(
+    async (record) => {
+      try {
+        const res = await deleteReport(record.name, record.date);
+        if (res.success) {
+          message.success(res.message || "已删除");
+          if (
+            editOriginal &&
+            editOriginal.name === record.name &&
+            editOriginal.date === record.date
+          ) {
+            setEditOriginal(null);
+            setModalOpen(false);
+            resetFormForCreate();
+          }
+          await loadList();
+        } else {
+          message.error(res.message || "删除失败");
+        }
+      } catch (e) {
+        message.error(e?.response?.data?.message || e.message || "删除失败");
+      }
+    },
+    [editOriginal, loadList]
   );
 
   const columns = useMemo(
@@ -170,16 +220,49 @@ export default function ReportForm() {
       {
         title: "操作",
         key: "action",
-        width: 96,
+        width: 148,
         align: "center",
         render: (_, record) => (
-          <Button type="link" icon={<EditOutlined />} onClick={() => onEdit(record)}>
-            编辑
-          </Button>
+          <Space size={0}>
+            <Button type="link" icon={<EditOutlined />} onClick={() => onEdit(record)}>
+              编辑
+            </Button>
+            <Popconfirm
+              title="删除这条日报？"
+              description={`将删除文件 ${record.name}_${record.date}.txt `}
+              okText="删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => onDelete(record)}
+            >
+              <Button type="link" danger icon={<DeleteOutlined />} size="small">
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
         ),
       },
     ],
-    [onEdit]
+    [onEdit, onDelete]
+  );
+
+  const tablePagination = useMemo(
+    () => ({
+      current: page,
+      pageSize,
+      total: reports.length,
+      showSizeChanger: true,
+      pageSizeOptions: [10, 20, 50, 100],
+      showTotal: (total) => `共 ${total} 条`,
+      hideOnSinglePage: false,
+      /** 关闭「每页条数」下拉里变成可搜索输入的问题 */
+      selectProps: { showSearch: false },
+      onChange: (p, ps) => {
+        setPage(p);
+        setPageSize(ps);
+      },
+    }),
+    [page, pageSize, reports.length]
   );
 
   return (
@@ -204,11 +287,7 @@ export default function ReportForm() {
           columns={columns}
           dataSource={reports}
           tableLayout="fixed"
-          pagination={{
-            pageSize: 10,
-            showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 条`,
-          }}
+          pagination={tablePagination}
           locale={{
             emptyText: (
               <Empty

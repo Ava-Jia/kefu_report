@@ -1,0 +1,67 @@
+name: Docker Image CI
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: crpi-hitbvew6o79ovt1g.cn-shanghai.personal.cr.aliyuncs.com
+          username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+
+      - name: Docker meta (backend)
+        id: meta_backend
+        uses: docker/metadata-action@v4
+        with:
+          images: crpi-hitbvew6o79ovt1g.cn-shanghai.personal.cr.aliyuncs.com/avajia_ns/kefu_report_backend
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ github.event.release.tag_name }}
+      
+      - name: Docker meta (web)
+        id: meta_web
+        uses: docker/metadata-action@v4
+        with:
+          images: crpi-hitbvew6o79ovt1g.cn-shanghai.personal.cr.aliyuncs.com/avajia_ns/kefu_report_web
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ github.event.release.tag_name }}
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{  steps.meta_backend.outputs.tags }}
+
+      - name: Build and push web (nginx + frontend)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.nginx
+          push: true
+          tags: ${{  steps.meta_web.outputs.tags }}
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          password: ${{ secrets.SSH_PASSWORD }}
+          script: |
+            cd /home/kefu_report
+            export IMAGE_TAG="${{ github.event.release.tag_name }}"
+            docker compose pull && docker compose up -d

@@ -17,30 +17,6 @@ from utils.file_utils import (
 
 bp = Blueprint("report", __name__, url_prefix="/api")
 
-
-def _async_daily_ai_analysis(display_name: str, date_str: str, saved_path: Path, filename: str) -> None:
-    """
-    仅当保存的是「今天」的日报时，异步调用与「分析页」相同的 analyze_daily_reports（拼接格式一致）。
-    结果写入 analysis/daily/姓名-日期.txt。
-    """
-    try:
-        if date_str != date.today().strftime("%Y-%m-%d"):
-            return
-        full_raw = saved_path.read_text(encoding="utf-8")
-        combined = (
-            f"--- 文件: {filename} | 客服: {display_name} | 日期: {date_str} ---\n"
-            f"{full_raw}\n"
-        )
-        from services.ai_service import analyze_daily_reports
-        from utils.analysis_storage import save_daily_summary
-
-        analysis = analyze_daily_reports(combined)
-        out_path = save_daily_summary(display_name, date_str, analysis)
-        print(f"[daily AI analysis] saved: {out_path}")
-    except Exception as e:
-        print(f"[daily AI analysis] skipped or failed: {e}")
-
-
 @bp.route("/report/save", methods=["POST"])
 def save_report():
     try:
@@ -75,7 +51,7 @@ def save_report():
                 print(f"[report save] remove old file: {e}")
 
         Thread(
-            target=_async_daily_ai_analysis,
+            target=_async_daily_ai_analyze,
             args=(display_name, date_clean, path, filename),
             daemon=True,
         ).start()
@@ -105,24 +81,6 @@ def get_reports():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
-@bp.route("/report", methods=["DELETE"])
-def delete_report():
-    """删除指定姓名与日期的日报文件及对应 analysis/daily 缓存。"""
-    try:
-        name = request.args.get("name", "").strip()
-        date_str = request.args.get("date", "").strip()
-        if not name or not date_str:
-            return jsonify({"success": False, "message": "请提供 name 与 date 参数"}), 400
-        removed = delete_report_files(name, date_str)
-        if not removed:
-            return jsonify({"success": False, "message": "未找到该日报文件"}), 404
-        return jsonify({"success": True, "message": "已删除"})
-    except ValueError as e:
-        return jsonify({"success": False, "message": str(e)}), 400
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
 @bp.route("/report", methods=["GET"])
 def get_one_report():
     """编辑回填：按姓名 + 日期读取。"""
@@ -142,6 +100,24 @@ def get_one_report():
                 "content": data["content"],
             }
         )
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@bp.route("/report", methods=["DELETE"])
+def delete_report():
+    """删除指定姓名与日期的日报文件及对应 analyze/daily 缓存。"""
+    try:
+        name = request.args.get("name", "").strip()
+        date_str = request.args.get("date", "").strip()
+        if not name or not date_str:
+            return jsonify({"success": False, "message": "请提供 name 与 date 参数"}), 400
+        removed = delete_report_files(name, date_str)
+        if not removed:
+            return jsonify({"success": False, "message": "未找到该日报文件"}), 404
+        return jsonify({"success": True, "message": "已删除"})
     except ValueError as e:
         return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:

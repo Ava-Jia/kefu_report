@@ -15,7 +15,7 @@ COPY backend/ .
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-RUN mkdir -p /app/reports /app/analysis
+RUN mkdir -p /app/reports /app/analyze /app/analyze_summary/daily /app/analyze_summary/weekly /app/analyze_summary/monthly /app/knowledge
 
 EXPOSE 5000
 

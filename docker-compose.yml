@@ -8,7 +8,9 @@ services:
       - .env
     volumes:
       - reports_data:/app/reports
-      - analysis_data:/app/analysis
+      - analyze_data:/app/analyze
+      - analyze_summary_data:/app/analyze_summary
+      - knowledge_data:/app/knowledge
     restart: unless-stopped
 
   web:
@@ -24,4 +26,6 @@ services:
 
 volumes:
   reports_data:
-  analysis_data:
+  analyze_data:
+  analyze_summary_data:
+  knowledge_data:

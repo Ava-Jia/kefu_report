@@ -1,224 +1,244 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Button,
-  Card,
-  Col,
-  DatePicker,
-  Row,
-  Select,
-  Space,
-  Spin,
-  Tag,
-  Typography,
-  message,
-} from "antd";
-import {
-  ThunderboltOutlined,
-  TeamOutlined,
   CalendarOutlined,
-  HistoryOutlined,
+  DownOutlined,
+  QuestionCircleOutlined,
 } from "@ant-design/icons";
-import dayjs from "dayjs";
 import ReactMarkdown from "react-markdown";
-import { analyzeReports, fetchReports } from "../api";
+import {
+  fetchAnalyzeSummaryDetail,
+  fetchAnalyzeSummaryList,
+} from "../api";
 
-const { RangePicker } = DatePicker;
-const { Title, Text, Paragraph } = Typography;
+const VIEW_TABS = [
+  { label: "每日", api: "daily" },
+  { label: "每周", api: "weekly" },
+  { label: "每月", api: "monthly" },
+];
+
+const PAGE_SIZE = 15;
 
 export default function Analysis() {
-  const [staffOptions, setStaffOptions] = useState([]);
-  const [names, setNames] = useState([]);
-  const [range, setRange] = useState(() => [
-    dayjs().subtract(7, "day"),
-    dayjs(),
-  ]);
-  const [loadingStaff, setLoadingStaff] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [result, setResult] = useState("");
-  const [fromCache, setFromCache] = useState(false);
-
-  const loadStaff = useCallback(async () => {
-    setLoadingStaff(true);
-    try {
-      const res = await fetchReports();
-      if (res.success) {
-        const list = res.reports || [];
-        const uniq = [...new Set(list.map((r) => r.name).filter(Boolean))];
-        uniq.sort();
-        setStaffOptions(uniq.map((n) => ({ label: n, value: n })));
-      }
-    } catch (e) {
-      message.warning(e?.message || "加载客服列表失败");
-    } finally {
-      setLoadingStaff(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadStaff();
-  }, [loadStaff]);
-
-  const hint = useMemo(() => {
-    if (!names?.length) return "全部人员";
-    return `已选择 ${names.length} 人`;
-  }, [names]);
-
-  const runAnalyze = useCallback(
-    async (opts = {}) => {
-      const silent = !!opts.silent;
-      if (!range || range.length !== 2 || !range[0] || !range[1]) {
-        if (!silent) message.warning("请选择日期范围");
-        return;
-      }
-      const start_date = range[0].format("YYYY-MM-DD");
-      const end_date = range[1].format("YYYY-MM-DD");
-      setAnalyzing(true);
-      setFromCache(false);
-      setResult("");
-      try {
-        const payload = {
-          names: names && names.length > 0 ? names : [],
-          start_date,
-          end_date,
-        };
-        const res = await analyzeReports(payload);
-        if (res.success) {
-          setResult(res.analysis || "");
-          setFromCache(!!res.cached);
-          if (!silent) {
-            message.success(
-              res.cached ? "已加载已保存的分析报告（未重新调用 AI）" : "分析完成"
-            );
-          }
-        } else {
-          message.error(res.message || "分析失败");
-        }
-      } catch (e) {
-        message.error(e?.response?.data?.message || e.message || "分析失败");
-      } finally {
-        setAnalyzing(false);
-      }
-    },
-    [names, range]
+  const [viewLabel, setViewLabel] = useState("每日");
+  const apiView = useMemo(
+    () => VIEW_TABS.find((t) => t.label === viewLabel)?.api || "daily",
+    [viewLabel]
   );
 
-  const runAnalyzeRef = useRef(runAnalyze);
-  runAnalyzeRef.current = runAnalyze;
+  const [items, setItems] = useState([]);
+  const [listLoading, setListLoading] = useState(false);
+  const [selectedKey, setSelectedKey] = useState("");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  /** 选中「单一客服 + 单日」时自动拉取分析（优先命中本地缓存，无需再点按钮） */
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailExists, setDetailExists] = useState(false);
+  const [detailContent, setDetailContent] = useState("");
+  const [detailNote, setDetailNote] = useState("");
+
+  const contentRefs = useRef({});
+
+  const loadList = useCallback(async () => {
+    setListLoading(true);
+    setSelectedKey("");
+    setDetailContent("");
+    setDetailExists(false);
+    setDetailNote("");
+    setVisibleCount(PAGE_SIZE);
+    try {
+      const res = await fetchAnalyzeSummaryList(apiView);
+      if (res.success) {
+        const list = res.items || [];
+        setItems(list);
+        if (list.length > 0) {
+          setSelectedKey(list[0].key);
+        }
+      } else {
+        setItems([]);
+      }
+    } catch {
+      setItems([]);
+    } finally {
+      setListLoading(false);
+    }
+  }, [apiView]);
+
   useEffect(() => {
-    const singleDay =
-      range?.length === 2 &&
-      range[0] &&
-      range[1] &&
-      range[0].isSame(range[1], "day");
-    if (!singleDay || names?.length !== 1) {
+    loadList();
+    window.scrollTo(0, 0);
+  }, [loadList]);
+
+  useEffect(() => {
+    if (!selectedKey) {
+      setDetailContent("");
+      setDetailExists(false);
+      setDetailNote("");
       return undefined;
     }
-    const id = window.setTimeout(() => {
-      runAnalyzeRef.current({ silent: true });
-    }, 480);
-    return () => window.clearTimeout(id);
-  }, [names, range]);
+    let cancelled = false;
+    setDetailLoading(true);
+    fetchAnalyzeSummaryDetail(apiView, selectedKey)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.success) {
+          setDetailExists(!!res.exists);
+          setDetailContent(res.content || "");
+          setDetailNote(res.message || "");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDetailExists(false);
+          setDetailContent("");
+          setDetailNote("加载失败，请稍后重试");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiView, selectedKey]);
 
-  const onAnalyzeClick = () => {
-    runAnalyze({ silent: false });
+  const visibleItems = useMemo(
+    () => items.slice(0, visibleCount),
+    [items, visibleCount]
+  );
+
+  const scrollToSection = (key) => {
+    contentRefs.current[key]?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
   };
 
+  const handleTabChange = (label) => {
+    setViewLabel(label);
+    window.scrollTo(0, 0);
+  };
+
+  const sidebarTitle = useMemo(() => {
+    if (viewLabel === "每日") return "按业务日";
+    if (viewLabel === "每周") return "按周六截止";
+    return "按自然月";
+  }, [viewLabel]);
+
   return (
-    <div className="page-shell">
-      <div className="page-header-block">
-        <div>
-          <Title level={3} className="page-title" style={{ marginBottom: 4 }}>
-            日报分析
-          </Title>
-          <Space size="small" wrap>
-            <Text type="secondary">基于客服日报生成洞察；相同筛选条件会优先读取已保存报告</Text>
-            <Tag color="processing">{hint}</Tag>
-          </Space>
+    <div className="page-shell analyze-page">
+      <div className="analyze-journal-wrap">
+        <div className="analyze-journal-tabs">
+          {VIEW_TABS.map((tab) => (
+            <button
+              key={tab.label}
+              type="button"
+              className={
+                viewLabel === tab.label
+                  ? "analyze-tab analyze-tab-active"
+                  : "analyze-tab"
+              }
+              onClick={() => handleTabChange(tab.label)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="analyze-journal-body">
+          <aside className="analyze-journal-sidebar">
+            {listLoading ? (
+              <div className="analyze-sidebar-empty">加载列表…</div>
+            ) : visibleItems.length === 0 ? (
+              <div className="analyze-sidebar-empty">
+                暂无已生成的总结。定时任务运行后会出现在此处。
+              </div>
+            ) : (
+              <div className="analyze-sidebar-list">
+                {visibleItems.map((row) => (
+                  <button
+                    key={row.key}
+                    type="button"
+                    className={
+                      selectedKey === row.key
+                        ? "analyze-sidebar-item analyze-sidebar-item-active"
+                        : "analyze-sidebar-item"
+                    }
+                    onClick={() => {
+                      setSelectedKey(row.key);
+                      scrollToSection(row.key);
+                    }}
+                  >
+                    <span className="analyze-sidebar-hash">#</span>
+                    <span className="analyze-sidebar-title">{row.title}</span>
+                  </button>
+                ))}
+                {visibleCount < items.length && (
+                  <button
+                    type="button"
+                    className="analyze-load-more"
+                    onClick={() =>
+                      setVisibleCount((n) => n + PAGE_SIZE)
+                    }
+                  >
+                    <span>显示更多</span>
+                    <DownOutlined />
+                  </button>
+                )}
+              </div>
+            )}
+          </aside>
+
+          <main className="analyze-journal-main">
+            <div className="analyze-main-inner">
+              {!selectedKey && !listLoading ? (
+                <div className="analyze-placeholder">
+                  <QuestionCircleOutlined className="analyze-placeholder-icon" />
+                  <p>请选择左侧一期总结，或等待定时任务生成。</p>
+                </div>
+              ) : (
+                <article
+                  className="analyze-article"
+                  ref={(el) => {
+                    contentRefs.current[selectedKey] = el;
+                  }}
+                >
+                  <div className="analyze-article-head">
+                    <div className="analyze-article-icon">
+                      <CalendarOutlined />
+                    </div>
+                    <h2 className="analyze-article-title">
+                      {items.find((i) => i.key === selectedKey)?.title ||
+                        selectedKey}
+                    </h2>
+                  </div>
+
+                  <div className="analyze-article-card">
+                    {detailLoading ? (
+                      <p className="analyze-muted">加载中…</p>
+                    ) : !detailExists ? (
+                      <div className="analyze-placeholder analyze-placeholder-inline">
+                        <p>
+                          {detailNote ||
+                            "该期尚未生成总结（Cron 尚未写入或无符合条件的日报）。"}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="analysis-markdown analyze-summary-markdown">
+                        <ReactMarkdown>{detailContent}</ReactMarkdown>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="analyze-tags-row">
+                    <span className="analyze-tag">#全局总结</span>
+                    <span className="analyze-tag">#高频问题</span>
+                  </div>
+                </article>
+              )}
+            </div>
+          </main>
         </div>
       </div>
-
-      <Card className="page-card filter-card" variant="borderless">
-        <Row gutter={[24, 16]} align="bottom">
-          <Col xs={24} md={10} lg={9}>
-            <div className="filter-label">
-              <TeamOutlined /> 客服人员
-            </div>
-            <Select
-              mode="multiple"
-              allowClear
-              placeholder="不选 = 全部人员；可选多人"
-              style={{ width: "100%" }}
-              options={staffOptions}
-              loading={loadingStaff}
-              value={names}
-              onChange={setNames}
-              maxTagCount="responsive"
-              size="large"
-            />
-          </Col>
-          <Col xs={24} md={10} lg={9}>
-            <div className="filter-label">
-              <CalendarOutlined /> 日期范围
-            </div>
-            <RangePicker
-              value={range}
-              onChange={(v) => setRange(v || [])}
-              format="YYYY-MM-DD"
-              style={{ width: "100%" }}
-              size="large"
-            />
-          </Col>
-          <Col xs={24} md={4} lg={6}>
-            <Button
-              type="primary"
-              size="large"
-              block
-              icon={<ThunderboltOutlined />}
-              onClick={onAnalyzeClick}
-              loading={analyzing}
-            >
-              开始分析
-            </Button>
-          </Col>
-        </Row>
-        <Paragraph type="secondary" style={{ marginTop: 16, marginBottom: 0 }}>
-          单日分析请将起止设为同一天。
-        </Paragraph>
-      </Card>
-
-      <Card
-        className="page-card result-card"
-        variant="borderless"
-        title={
-          <Space>
-            <span className="result-card-title">分析结果</span>
-            {analyzing && <Tag color="processing">生成中</Tag>}
-            {!analyzing && fromCache && result && (
-              <Tag icon={<HistoryOutlined />} color="success">
-                已保存的报告
-              </Tag>
-            )}
-          </Space>
-        }
-      >
-        <Spin spinning={analyzing} tip="正在调用 AI，请稍候…">
-          {result ? (
-            <div className="analysis-markdown analysis-markdown-panel">
-              <ReactMarkdown>{result}</ReactMarkdown>
-            </div>
-          ) : (
-            <div className="analysis-placeholder">
-              <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                {analyzing
-                  ? "模型正在阅读日报并生成结构化结论…"
-                  : "设置筛选条件后点击「开始分析」，或选择「单一客服 + 单日」自动展示"}
-              </Paragraph>
-            </div>
-          )}
-        </Spin>
-      </Card>
+      <div className="analyze-journal-stack" aria-hidden />
     </div>
   );
 }

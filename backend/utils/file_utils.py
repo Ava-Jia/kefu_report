@@ -67,7 +67,7 @@ def parse_header_name_date(raw: str) -> Tuple[Optional[str], Optional[str]]:
 
 def delete_report_files(name: str, date_str: str) -> bool:
     """
-    删除 reports 目录下对应 txt；若存在 analysis/daily 下同姓名的单日 AI 结果一并删除。
+    删除 reports 目录下对应 txt；若存在 analyze/daily 下同姓名的单日 AI 结果一并删除。
     返回是否删除了日报文件（不存在则为 False）。
     """
     d = str(date_str).strip()
@@ -77,7 +77,7 @@ def delete_report_files(name: str, date_str: str) -> bool:
     if existed:
         path.unlink()
     try:
-        from utils.analysis_storage import daily_summary_path
+        from utils.analyze_storage import daily_summary_path
 
         dp = daily_summary_path(name, d)
         if dp.is_file():
@@ -92,7 +92,7 @@ def delete_previous_report_if_replaced(
 ) -> bool:
     """
     编辑保存后：若旧文件路径与新路径不同，删除旧 reports 下 txt，
-    并尝试删除对应 analysis/daily 下同名键的 AI 结果。
+    并尝试删除对应 analyze/daily 下同名键的 AI 结果。
     姓名+日期未变则视为覆盖同一文件，不删除。
     """
     od = str(old_date).strip()
@@ -105,7 +105,7 @@ def delete_previous_report_if_replaced(
         return False
     old_path.unlink()
     try:
-        from utils.analysis_storage import daily_summary_path
+        from utils.analyze_storage import daily_summary_path
 
         dp = daily_summary_path(old_name, od)
         if dp.is_file():
@@ -174,12 +174,18 @@ def list_distinct_names_for_date(date_str: str) -> List[str]:
             names.append(meta["name"])
     return sorted(set(names))
 
+def _parse_date_optional(s: Optional[str]):
+    if not s or not str(s).strip():
+        return None
+    return datetime.strptime(str(s).strip(), "%Y-%m-%d").date()
+
 
 def list_reports_filtered(
     name: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
+    """列表筛选：姓名、起止日期（含边界）。"""
     start_dt = _parse_date_optional(start_date)
     end_dt = _parse_date_optional(end_date)
 
@@ -215,12 +221,6 @@ def list_reports_filtered(
     return results
 
 
-def _parse_date_optional(s: Optional[str]):
-    if not s or not str(s).strip():
-        return None
-    return datetime.strptime(str(s).strip(), "%Y-%m-%d").date()
-
-
 def load_report_for_edit(name: str, date_str: str) -> Optional[Dict[str, str]]:
     """读取单条日报，返回表单用字段。"""
     safe = sanitize_name_for_filename(name)
@@ -238,7 +238,7 @@ def load_report_for_edit(name: str, date_str: str) -> Optional[Dict[str, str]]:
     }
 
 
-def collect_reports_for_analysis(
+def collect_reports_for_analyze(
     names: Optional[List[str]],
     start_date: str,
     end_date: str,

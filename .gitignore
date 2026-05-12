@@ -15,8 +15,14 @@ frontend/dist/
 backend/reports/*.txt
 
 # AI 生成文件
-backend/analysis/daily/*.txt
-backend/analysis/cache/*.md
+backend/analyze/daily/*.txt
+backend/analyze/cache/*.md
+
+# 定时全局分析总结（Markdown）
+backend/analyze_summary/**/*.md
+
+# 知识库持久化
+backend/knowledge/qa_store.json
 
 # IDE
 .idea/

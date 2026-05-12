@@ -1,18 +1,30 @@
 import { Layout, Menu, theme } from "antd";
 import {
+  BookOutlined,
   FileTextOutlined,
   LineChartOutlined,
   RobotOutlined,
 } from "@ant-design/icons";
-import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import {
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
 import ReportForm from "./pages/ReportForm.jsx";
 import Analysis from "./pages/Analysis.jsx";
+import Knowledge from "./pages/Knowledge.jsx";
 
 const { Sider, Content } = Layout;
 
 function SideMenu() {
   const location = useLocation();
-  const selected = location.pathname.startsWith("/analysis") ? ["/analysis"] : ["/"];
+  const selected = location.pathname.startsWith("/knowledge")
+    ? ["/knowledge"]
+    : location.pathname.startsWith("/analyze")
+      ? ["/analyze"]
+      : ["/"];
 
   return (
     <>
@@ -37,9 +49,14 @@ function SideMenu() {
             label: <Link to="/">日报管理</Link>,
           },
           {
-            key: "/analysis",
+            key: "/analyze",
             icon: <LineChartOutlined />,
-            label: <Link to="/analysis">AI 分析</Link>,
+            label: <Link to="/analyze">问题总结</Link>,
+          },
+          {
+            key: "/knowledge",
+            icon: <BookOutlined />,
+            label: <Link to="/knowledge">知识库</Link>,
           },
         ]}
       />
@@ -49,6 +66,12 @@ function SideMenu() {
 
 export default function App() {
   const { token } = theme.useToken();
+  const location = useLocation();
+  const contentClass =
+    location.pathname.startsWith("/analyze") ||
+    location.pathname.startsWith("/knowledge")
+      ? "app-content app-content--analyze-spread"
+      : "app-content";
 
   return (
     <Layout className="app-root" style={{ minHeight: "100vh" }}>
@@ -62,10 +85,11 @@ export default function App() {
         <SideMenu />
       </Sider>
       <Layout className="app-main" style={{ background: token.colorBgLayout }}>
-        <Content className="app-content">
+        <Content className={contentClass}>
           <Routes>
             <Route path="/" element={<ReportForm />} />
-            <Route path="/analysis" element={<Analysis />} />
+            <Route path="/analyze" element={<Analysis />} />
+            <Route path="/knowledge" element={<Knowledge />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Content>

@@ -8,6 +8,7 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 
 from routes.analyze_routes import bp as analyze_bp
+from routes.knowledge_routes import bp as knowledge_bp
 from routes.report_routes import bp as report_bp
 
 load_dotenv()
@@ -19,6 +20,7 @@ def create_app():
 
     app.register_blueprint(report_bp)
     app.register_blueprint(analyze_bp)
+    app.register_blueprint(knowledge_bp)
 
     @app.route("/api/health", methods=["GET"])
     def health():

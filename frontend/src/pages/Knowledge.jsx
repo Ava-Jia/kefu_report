@@ -237,7 +237,7 @@ export default function Knowledge() {
       {
         title: "来源",
         key: "source",
-        width: 200,
+        width: 140,
         render: (_, record) => (
           <Space direction="vertical" size={2}>
             <Text strong>{record.source_name || "—"}</Text>
@@ -248,7 +248,7 @@ export default function Knowledge() {
       {
         title: "操作",
         key: "action",
-        width: 220,
+        width: 240,
         align: "center",
         render: (_, record) => (
           <Space size={0} wrap>

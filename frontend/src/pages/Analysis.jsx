@@ -227,11 +227,6 @@ export default function Analysis() {
                       </div>
                     )}
                   </div>
-
-                  <div className="analyze-tags-row">
-                    <span className="analyze-tag">#全局总结</span>
-                    <span className="analyze-tag">#高频问题</span>
-                  </div>
                 </article>
               )}
             </div>

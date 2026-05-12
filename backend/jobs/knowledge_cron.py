@@ -18,6 +18,7 @@ import sys
 import traceback
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
+import logging
 
 from services.ai_service import generate_knowledge_qa_pairs
 from utils.analyze_collect import yesterday_report_date
@@ -26,6 +27,7 @@ from utils.knowledge_storage import append_pending_from_ai
 
 TZ = ZoneInfo("Asia/Shanghai")
 
+logger = logging.getLogger(__name__)
 
 def _parse_env_date() -> date | None:
     raw = (os.getenv("KNOWLEDGE_BUSINESS_DATE") or "").strip()
@@ -63,14 +65,14 @@ def main(argv: list[str] | None = None) -> int:
         text = collect_day_summaries_for_knowledge(d)
         pairs = generate_knowledge_qa_pairs(text)
         n = append_pending_from_ai(pairs)
-        print(f"[knowledge_cron] OK business_date={d.isoformat()} added={n}")
+        logger.info(f"{d.isoformat()} 知识库 QA 抽取成功，新增 {n} 条")
         return 0
     except ValueError as e:
-        print(f"[knowledge_cron] skip: {e}", file=sys.stderr)
+        logger.error(f"知识库 QA 抽取失败，跳过: {e}")
         return 0
     except Exception as e:
         traceback.print_exc()
-        print(f"[knowledge_cron] FAIL: {e}", file=sys.stderr)
+        logger.error(f"知识库 QA 抽取失败: {e}")
         return 1
 
 

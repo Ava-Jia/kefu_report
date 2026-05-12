@@ -30,10 +30,6 @@ export async function deleteReport(name, date) {
   return data;
 }
 
-export async function analyzeReports(payload) {
-  const { data } = await client.post("/analyze", payload);
-  return data;
-}
 
 /** 定时全局总结列表 / 详情；view: daily | weekly | monthly */
 export async function fetchAnalyzeSummaryList(view) {
@@ -41,6 +37,7 @@ export async function fetchAnalyzeSummaryList(view) {
   return data;
 }
 
+// 两个参数 view + key (哪个日/周/月)
 export async function fetchAnalyzeSummaryDetail(view, key) {
   const { data } = await client.get("/analyze/detail", {
     params: { view, key },

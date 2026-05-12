@@ -114,6 +114,25 @@ npm run build
 - **接口跨域**：后端已对 `/api/*` 启用 CORS；生产环境建议缩小允许来源。
 - **未找到日报**：确认 `reports` 目录下存在对应 `姓名_日期.txt`，且筛选日期、姓名与文件内「姓名」「日期」一致。
 
+
+## 配置定时任务
+docker compose exec -T backend python -m jobs.<模块> <参数>
+
+任务 1：jobs.analyze_cron
+建议 crontab（宿主机，容器名按实际修改）：
+# 每日次日 00:00 — 总结「昨天」业务日日报
+0 0 * * * cd /home/kefu_report && docker compose exec -T backend python -m jobs.analyze_cron daily
+# 每周六 12:00 — 提交时间在上周六12:00与本周六12:00之间（7天窗口）
+0 12 * * 6 cd /home/kefu_report && docker compose exec -T backend python -m jobs.analyze_cron weekly
+# 每月1日 00:00 — 总结上一自然月（按日报业务日期）
+0 0 1 * * cd /home/kefu_report && docker compose exec -T backend python -m jobs.analyze_cron monthly
+
+任务 2：jobs.knowledge_cron
+crontab 示例：
+30 0 * * * cd /home/kefu_report && docker compose exec -T backend python -m jobs.knowledge_cron
+# 或每天 23:40 跑当天：
+40 23 * * * cd /home/kefu_report && docker compose exec -T backend python -m jobs.knowledge_cron --today
+
 ## 许可证
 
 MIT（可按需修改）。

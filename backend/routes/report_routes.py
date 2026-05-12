@@ -1,12 +1,11 @@
 """
 日报保存、列表、单条读取。
+保存后不触发单人 AI 总结；全局总结仅由定时任务按日/周/月生成。
 """
-from datetime import date
-from pathlib import Path
-from threading import Thread
 
 from flask import Blueprint, jsonify, request
 
+import logging
 from utils.file_utils import (
     delete_previous_report_if_replaced,
     delete_report_files,
@@ -16,6 +15,8 @@ from utils.file_utils import (
 )
 
 bp = Blueprint("report", __name__, url_prefix="/api")
+
+logger = logging.getLogger(__name__)
 
 @bp.route("/report/save", methods=["POST"])
 def save_report():
@@ -48,13 +49,8 @@ def save_report():
             except ValueError:
                 pass
             except Exception as e:
-                print(f"[report save] remove old file: {e}")
+                logger.warning(f"删除旧文件失败: {e}")
 
-        Thread(
-            target=_async_daily_ai_analyze,
-            args=(display_name, date_clean, path, filename),
-            daemon=True,
-        ).start()
         return jsonify(
             {
                 "success": True,
@@ -108,7 +104,7 @@ def get_one_report():
 
 @bp.route("/report", methods=["DELETE"])
 def delete_report():
-    """删除指定姓名与日期的日报文件及对应 analyze/daily 缓存。"""
+    """删除指定姓名与日期的日报 txt。"""
     try:
         name = request.args.get("name", "").strip()
         date_str = request.args.get("date", "").strip()

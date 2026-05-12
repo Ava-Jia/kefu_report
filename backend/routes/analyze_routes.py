@@ -1,6 +1,3 @@
-"""
-AI 分析日报：POST 区间/单日分析；GET 定时全局总结列表与详情。
-"""
 from flask import Blueprint, jsonify, request
 
 from utils.analyze_storage import (

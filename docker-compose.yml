@@ -8,9 +8,9 @@ services:
       - .env
     volumes:
       - reports_data:/app/reports
-      - analyze_data:/app/analyze
       - analyze_summary_data:/app/analyze_summary
       - knowledge_data:/app/knowledge
+      - logs_data:/app/logs
     restart: unless-stopped
 
   web:
@@ -24,8 +24,27 @@ services:
       - backend
     restart: unless-stopped
 
+  cron:
+    image: crpi-hitbvew6o79ovt1g.cn-shanghai.personal.cr.aliyuncs.com/avajia_ns/kefu_report_backend:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - reports_data:/app/reports
+      - analyze_summary_data:/app/analyze_summary
+      - knowledge_data:/app/knowledge
+      - logs_data:/app/logs
+    depends_on:
+      - backend
+    restart: unless-stopped
+    command: ["/usr/local/bin/supercronic", "-passthrough-logs", "/etc/crontab"]
+
 volumes:
   reports_data:
-  analyze_data:
   analyze_summary_data:
   knowledge_data:
+  logs_data:

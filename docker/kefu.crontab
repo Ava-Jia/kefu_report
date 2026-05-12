@@ -1,0 +1,4 @@
+0 0 * * * cd /app && python -m jobs.analyze_cron daily
+0 12 * * 6 cd /app && python -m jobs.analyze_cron weekly
+0 0 1 * * cd /app && python -m jobs.analyze_cron monthly
+30 0 * * * cd /app && python -m jobs.knowledge_cron

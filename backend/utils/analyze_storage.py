@@ -1,14 +1,9 @@
 """
-本地持久化（均在项目根下）：
-- analyze/daily、analyze/cache：单日 AI、区间分析缓存（Docker 挂载 /app/analyze）
-- analyze_summary/daily|weekly|monthly：定时全局总结 Markdown（Docker 挂载 /app/analyze_summary）
+本地持久化（项目 backend 根下）：
+- analyze_summary/daily|weekly|monthly：定时任务生成的全员全局总结 Markdown（Docker 挂载 /app/analyze_summary）
 """
-import hashlib
-import json
 from pathlib import Path
 from typing import List, Literal, Optional
-
-from utils.file_utils import sanitize_name_for_filename
 
 AnalyzeSummaryKind = Literal["daily", "weekly", "monthly"]
 

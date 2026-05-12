@@ -45,7 +45,7 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{  steps.meta_backend.outputs.tags }}
+          tags: ${{ steps.meta_backend.outputs.tags }}
 
       - name: Build and push web (nginx + frontend)
         uses: docker/build-push-action@v5
@@ -53,7 +53,7 @@ jobs:
           context: .
           file: Dockerfile.nginx
           push: true
-          tags: ${{  steps.meta_web.outputs.tags }}
+          tags: ${{ steps.meta_web.outputs.tags }}
 
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.0.3

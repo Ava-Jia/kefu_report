@@ -1,10 +1,9 @@
 """
-汇总指定业务日下各客服的「总结」：优先 analyze/daily AI 总结，否则用日报正文。
+汇总指定业务日下各客服的日报正文（单人 AI 总结已不使用，知识抽取直接读 txt）。
 """
 from datetime import date
 from typing import List
 
-from utils.analyze_storage import daily_summary_path, read_utf8
 from utils.file_utils import list_distinct_names_for_date, list_reports_filtered
 
 
@@ -19,14 +18,8 @@ def collect_day_summaries_for_knowledge(business_day: date) -> str:
 
     blocks: List[str] = []
     for name in sorted(names):
-        path = daily_summary_path(name, ds)
-        text = read_utf8(path)
-        if not text or not str(text).strip():
-            reps = list_reports_filtered(name=name, start_date=ds, end_date=ds)
-            if reps:
-                text = reps[0].get("content") or ""
-            else:
-                text = ""
+        reps = list_reports_filtered(name=name, start_date=ds, end_date=ds)
+        text = (reps[0].get("content") or "") if reps else ""
         if not str(text).strip():
             continue
         blocks.append(f"=== 客服：{name} | 日期：{ds} ===\n{str(text).strip()}\n")

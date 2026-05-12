@@ -256,7 +256,10 @@ export default function ReportForm() {
       showTotal: (total) => `共 ${total} 条`,
       hideOnSinglePage: false,
       /** 关闭「每页条数」下拉里变成可搜索输入的问题 */
-      selectProps: { showSearch: false },
+      selectProps: {
+        showSearch: false,
+        virtual: false
+      },
       onChange: (p, ps) => {
         setPage(p);
         setPageSize(ps);

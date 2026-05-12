@@ -19,6 +19,7 @@ import traceback
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import logging
 from services.ai_service import generate_analyze_global_summary
 from utils.analyze_collect import (
     collect_daily_by_report_date,
@@ -33,6 +34,7 @@ from utils.analyze_storage import write_analyze_markdown
 
 TZ = ZoneInfo("Asia/Shanghai")
 
+logger = logging.getLogger(__name__)
 
 def run_daily(now: datetime | None = None) -> None:
     now = (now or datetime.now(TZ)).astimezone(TZ)
@@ -40,9 +42,8 @@ def run_daily(now: datetime | None = None) -> None:
     key = day.isoformat()
     text = collect_daily_by_report_date(day)
     md = generate_analyze_global_summary(text)
-    header = f"<!-- analyze daily | business_date={key} | generated={now.isoformat()} -->\n\n"
-    write_analyze_markdown("daily", key, header + md)
-    print(f"[analyze_cron daily] OK key={key}")
+    write_analyze_markdown("daily", key, md)
+    logger.info(f"{key} 每日总结生成成功")
 
 
 def run_weekly(now: datetime | None = None) -> None:
@@ -50,11 +51,8 @@ def run_weekly(now: datetime | None = None) -> None:
     start, end, key = weekly_window_sat_to_sat(now)
     text = collect_weekly_by_submission_window(start, end)
     md = generate_analyze_global_summary(text)
-    header = (
-        f"<!-- analyze weekly | window={start.isoformat()} .. {end.isoformat()} | generated={now.isoformat()} -->\n\n"
-    )
-    write_analyze_markdown("weekly", key, header + md)
-    print(f"[analyze_cron weekly] OK key={key}")
+    write_analyze_markdown("weekly", key, md)
+    logger.info(f"{key} 每周总结生成成功")
 
 
 def run_monthly(now: datetime | None = None) -> None:
@@ -63,9 +61,8 @@ def run_monthly(now: datetime | None = None) -> None:
     key = monthly_key_for_month(y, m)
     text = collect_monthly_by_report_date(y, m)
     md = generate_analyze_global_summary(text)
-    header = f"<!-- analyze monthly | month={key} | generated={now.isoformat()} -->\n\n"
-    write_analyze_markdown("monthly", key, header + md)
-    print(f"[analyze_cron monthly] OK key={key}")
+    write_analyze_markdown("monthly", key, md)
+    logger.info(f"{key} 每月总结生成成功")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -85,11 +82,11 @@ def main(argv: list[str] | None = None) -> int:
             run_monthly()
         return 0
     except ValueError as e:
-        print(f"[analyze_cron] skip: {e}", file=sys.stderr)
+        logger.error(f"总结生成失败，跳过: {e}")
         return 0
     except Exception as e:
         traceback.print_exc()
-        print(f"[analyze_cron] FAIL: {e}", file=sys.stderr)
+        logger.error(f"总结生成失败: {e}")
         return 1
 
 

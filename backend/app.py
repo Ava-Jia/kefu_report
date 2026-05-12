@@ -2,7 +2,9 @@
 AI 客服日报分析系统 - Flask 入口
 """
 import os
+import logging
 
+from config import setup_logging
 from dotenv import load_dotenv
 from flask import Flask, jsonify
 from flask_cors import CORS
@@ -13,10 +15,20 @@ from routes.report_routes import bp as report_bp
 
 load_dotenv()
 
+setup_logging()
+logger = logging.getLogger(__name__)
 
 def create_app():
+    # origins = [
+    #     "http://localhost:5173",
+    #     "http://127.0.0.1:5173",
+    #     "http://192.168.20.81:5173",
+    #     "http://101.132.22.43:5173"
+    # ]
     app = Flask(__name__)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    CORS(app, resources={r"/api/*": {"origins": "*", "supports_credentials": True}})
+
+    logger.info("******************Starting app******************")
 
     app.register_blueprint(report_bp)
     app.register_blueprint(analyze_bp)
@@ -41,4 +53,4 @@ app = create_app()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=False)

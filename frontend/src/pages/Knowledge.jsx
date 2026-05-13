@@ -443,10 +443,10 @@ export default function Knowledge() {
         styles={{ body: { paddingTop: 8 } }}
       >
         <Form form={form} layout="vertical" requiredMark="optional">
-          <Form.Item label="问题 Q" name="q" rules={[{ required: true, message: "请输入问题" }]}>
+          <Form.Item label="问题" name="q" rules={[{ required: true, message: "请输入问题" }]}>
             <TextArea rows={4} placeholder="具体问题" maxLength={4000} showCount />
           </Form.Item>
-          <Form.Item label="回答 A" name="a" rules={[{ required: true, message: "请输入回答" }]}>
+          <Form.Item label="回答" name="a" rules={[{ required: true, message: "请输入回答" }]}>
             <TextArea rows={8} placeholder="可执行的做法与注意点" maxLength={12000} showCount />
           </Form.Item>
           <Form.Item label="来源客服" name="source_name">

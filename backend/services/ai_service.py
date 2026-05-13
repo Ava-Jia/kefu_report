@@ -47,14 +47,14 @@ def generate_analyze_global_summary(combined_text: str) -> str:
 
 请输出 Markdown。
 
-# 输出结构
+# 输出结构分为两部分
 
-## 全局高频问题 / 困惑 / 待解决事项
+一、高频问题 / 困惑 / 待解决事项
 
-## 潜在风险 / 值得关注的趋势
+二、潜在风险 / 值得关注的趋势
 
 
-要求：
+# 要求：
 
 ### 1. 合并同类问题
 将表达不同但本质相同的问题合并，例如：
@@ -125,7 +125,7 @@ def generate_analyze_global_summary(combined_text: str) -> str:
 
 ---
 
-日报汇总：
+# 日报汇总：
 {combined_text}
 """
 

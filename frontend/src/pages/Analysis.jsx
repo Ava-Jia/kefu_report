@@ -3,6 +3,7 @@ import {
   CalendarOutlined,
   DownOutlined,
   QuestionCircleOutlined,
+  LoadingOutlined,
 } from "@ant-design/icons";
 import ReactMarkdown from "react-markdown";
 import {
@@ -25,38 +26,31 @@ export default function Analysis() {
     [viewLabel]
   );
 
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState([]); 
   const [listLoading, setListLoading] = useState(false);
-  const [selectedKey, setSelectedKey] = useState("");
+  const [activeKey, setActiveKey] = useState(""); 
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailExists, setDetailExists] = useState(false);
-  const [detailContent, setDetailContent] = useState("");
-  const [detailNote, setDetailNote] = useState("");
+  const [detailsMap, setDetailsMap] = useState({});
 
   const contentRefs = useRef({});
+  const scrollContainerRef = useRef(null);
+  const isClickScrolling = useRef(false); // 记录是否是点击触发的滚动
 
+  // 1. 加载列表
   const loadList = useCallback(async () => {
     setListLoading(true);
-    setSelectedKey("");
-    setDetailContent("");
-    setDetailExists(false);
-    setDetailNote("");
+    setItems([]);
+    setDetailsMap({});
     setVisibleCount(PAGE_SIZE);
     try {
       const res = await fetchAnalyzeSummaryList(apiView);
       if (res.success) {
         const list = res.items || [];
         setItems(list);
-        if (list.length > 0) {
-          setSelectedKey(list[0].key);
-        }
-      } else {
-        setItems([]);
+        if (list.length > 0) setActiveKey(list[0].key);
       }
-    } catch {
-      setItems([]);
+    } catch (e) {
+      console.error(e);
     } finally {
       setListLoading(false);
     }
@@ -64,79 +58,87 @@ export default function Analysis() {
 
   useEffect(() => {
     loadList();
-    window.scrollTo(0, 0);
   }, [loadList]);
 
+  const visibleItems = useMemo(() => items.slice(0, visibleCount), [items, visibleCount]);
+
+  // 2. 并行加载详情
   useEffect(() => {
-    if (!selectedKey) {
-      setDetailContent("");
-      setDetailExists(false);
-      setDetailNote("");
-      return undefined;
-    }
-    let cancelled = false;
-    setDetailLoading(true);
-    fetchAnalyzeSummaryDetail(apiView, selectedKey)
-      .then((res) => {
-        if (cancelled) return;
-        if (res.success) {
-          setDetailExists(!!res.exists);
-          setDetailContent(res.content || "");
-          setDetailNote(res.message || "");
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setDetailExists(false);
-          setDetailContent("");
-          setDetailNote("加载失败，请稍后重试");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setDetailLoading(false);
+    visibleItems.forEach((item) => {
+      if (detailsMap[item.key]) return;
+      setDetailsMap(prev => ({ ...prev, [item.key]: { loading: true } }));
+
+      fetchAnalyzeSummaryDetail(apiView, item.key).then((res) => {
+        setDetailsMap(prev => ({
+          ...prev,
+          [item.key]: {
+            loading: false,
+            exists: !!res.exists,
+            content: res.content || "",
+            note: res.message || "暂无数据"
+          },
+        }));
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiView, selectedKey]);
-
-  const visibleItems = useMemo(
-    () => items.slice(0, visibleCount),
-    [items, visibleCount]
-  );
-
-  const scrollToSection = (key) => {
-    contentRefs.current[key]?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
     });
-  };
+  }, [visibleItems, apiView]);
 
-  const handleTabChange = (label) => {
-    setViewLabel(label);
-    window.scrollTo(0, 0);
-  };
+  // 3. 核心功能：滚动联动左侧高亮 (IntersectionObserver)
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // 如果是点击触发的平滑滚动，暂时不通过监听器改变 activeKey，防止抖动
+        if (isClickScrolling.current) return;
 
-  const sidebarTitle = useMemo(() => {
-    if (viewLabel === "每日") return "按业务日";
-    if (viewLabel === "每周") return "按周六截止";
-    return "按自然月";
-  }, [viewLabel]);
+        entries.forEach((entry) => {
+          // 当区块进入视口上部区域时（见 rootMargin 设定）
+          if (entry.isIntersecting) {
+            setActiveKey(entry.target.getAttribute("data-key"));
+          }
+        });
+      },
+      {
+        root: scrollContainerRef.current,
+        // rootMargin 格式: 上 右 下 左
+        // "-10% 0px -70% 0px" 表示只探测容器顶端下 10% 到 30% 的这一窄条区域
+        // 这样可以保证滚动到顶部的项被精准激活
+        rootMargin: "-15% 0px -80% 0px",
+        threshold: 0,
+      }
+    );
+
+    // 观察所有内容块
+    const elements = document.querySelectorAll(".analyze-article-item");
+    elements.forEach((el) => observer.observe(el));
+
+    return () => observer.disconnect();
+  }, [visibleItems]); // 当加载更多项时重新绑定观察
+
+  // 4. 点击左侧跳转
+  const scrollToSection = (key) => {
+    isClickScrolling.current = true;
+    setActiveKey(key);
+    
+    const target = contentRefs.current[key];
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    // 1秒后解除锁定，恢复滚动监听逻辑
+    setTimeout(() => {
+      isClickScrolling.current = false;
+    }, 1000);
+  };
 
   return (
     <div className="page-shell analyze-page">
       <div className="analyze-journal-wrap">
+        {/* 顶部 Tab */}
         <div className="analyze-journal-tabs">
           {VIEW_TABS.map((tab) => (
             <button
               key={tab.label}
-              type="button"
-              className={
-                viewLabel === tab.label
-                  ? "analyze-tab analyze-tab-active"
-                  : "analyze-tab"
-              }
-              onClick={() => handleTabChange(tab.label)}
+              className={`analyze-tab ${viewLabel === tab.label ? "analyze-tab-active" : ""}`}
+              onClick={() => setViewLabel(tab.label)}
             >
               {tab.label}
             </button>
@@ -144,96 +146,86 @@ export default function Analysis() {
         </div>
 
         <div className="analyze-journal-body">
+          {/* 左侧导航：固定不动 */}
           <aside className="analyze-journal-sidebar">
-            {listLoading ? (
-              <div className="analyze-sidebar-empty">加载列表…</div>
-            ) : visibleItems.length === 0 ? (
-              <div className="analyze-sidebar-empty">
-                暂无已生成的总结。定时任务运行后会出现在此处。
-              </div>
-            ) : (
-              <div className="analyze-sidebar-list">
-                {visibleItems.map((row) => (
-                  <button
-                    key={row.key}
-                    type="button"
-                    className={
-                      selectedKey === row.key
-                        ? "analyze-sidebar-item analyze-sidebar-item-active"
-                        : "analyze-sidebar-item"
-                    }
-                    onClick={() => {
-                      setSelectedKey(row.key);
-                      scrollToSection(row.key);
-                    }}
-                  >
-                    <span className="analyze-sidebar-hash">#</span>
-                    <span className="analyze-sidebar-title">{row.title}</span>
-                  </button>
-                ))}
-                {visibleCount < items.length && (
-                  <button
-                    type="button"
-                    className="analyze-load-more"
-                    onClick={() =>
-                      setVisibleCount((n) => n + PAGE_SIZE)
-                    }
-                  >
-                    <span>显示更多</span>
-                    <DownOutlined />
-                  </button>
-                )}
-              </div>
-            )}
+            <div className="analyze-sidebar-list">
+              {listLoading ? (
+                <div className="p-4 text-stone-400">加载中...</div>
+              ) : (
+                <>
+                  {visibleItems.map((row) => (
+                    <button
+                      key={row.key}
+                      className={`analyze-sidebar-item ${activeKey === row.key ? "analyze-sidebar-item-active" : ""}`}
+                      onClick={() => scrollToSection(row.key)}
+                    >
+                      <span className="analyze-sidebar-hash">#</span>
+                      <span className="analyze-sidebar-title">{row.title}</span>
+                    </button>
+                  ))}
+                  {visibleCount < items.length && (
+                    <button 
+                      className="analyze-load-more" 
+                      onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
+                    >
+                      加载更多 <DownOutlined />
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
           </aside>
 
-          <main className="analyze-journal-main">
-            <div className="analyze-main-inner">
-              {!selectedKey && !listLoading ? (
-                <div className="analyze-placeholder">
-                  <QuestionCircleOutlined className="analyze-placeholder-icon" />
-                  <p>请选择左侧一期总结，或等待定时任务生成。</p>
-                </div>
-              ) : (
-                <article
-                  className="analyze-article"
-                  ref={(el) => {
-                    contentRefs.current[selectedKey] = el;
-                  }}
-                >
-                  <div className="analyze-article-head">
-                    <div className="analyze-article-icon">
-                      <CalendarOutlined />
+          {/* 右侧主栏：滚动流 */}
+          <main 
+            className="analyze-journal-main scroll-smooth" 
+            ref={scrollContainerRef}
+            style={{ overflowY: 'auto', position: 'relative' }}
+          >
+            <div className="analyze-main-inner" style={{ paddingBottom: '20vh' }}>
+              {visibleItems.map((item) => {
+                const detail = detailsMap[item.key] || {};
+                return (
+                  <article
+                    key={item.key}
+                    data-key={item.key}
+                    ref={(el) => (contentRefs.current[item.key] = el)}
+                    /* 增加区块间距：mb-24 (96px) 让块与块之间呼吸感更强 */
+                    className="analyze-article-item mb-24 last:mb-0 transition-opacity duration-500"
+                  >
+                    {/* 日期标题栏 */}
+                    <div className="analyze-article-head flex items-center gap-3 mb-4 mt-4">
+                      <div className="analyze-article-icon text-blue-500">
+                        <CalendarOutlined />
+                      </div>
+                      <h2 className="analyze-article-title text-xl font-bold">
+                        {item.title}
+                      </h2>
                     </div>
-                    <h2 className="analyze-article-title">
-                      {items.find((i) => i.key === selectedKey)?.title ||
-                        selectedKey}
-                    </h2>
-                  </div>
 
-                  <div className="analyze-article-card">
-                    {detailLoading ? (
-                      <p className="analyze-muted">加载中…</p>
-                    ) : !detailExists ? (
-                      <div className="analyze-placeholder analyze-placeholder-inline">
-                        <p>
-                          {detailNote ||
-                            "该期尚未生成总结（Cron 尚未写入或无符合条件的日报）。"}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="analysis-markdown analyze-summary-markdown">
-                        <ReactMarkdown>{detailContent}</ReactMarkdown>
-                      </div>
-                    )}
-                  </div>
-                </article>
-              )}
+                    {/* 内容卡片 */}
+                    <div className="analyze-article-card bg-white p-8 rounded-2xl border border-stone-100 shadow-sm min-h-[300px]">
+                      {detail.loading ? (
+                        <div className="py-10 text-stone-400 flex items-center gap-2">
+                          <LoadingOutlined /> 加载详情中...
+                        </div>
+                      ) : !detail.exists ? (
+                        <div className="py-10 text-stone-300 italic">{detail.note}</div>
+                      ) : (
+                        <div className="analysis-markdown analyze-summary-markdown leading-relaxed">
+                          <ReactMarkdown>{detail.content}</ReactMarkdown>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </main>
         </div>
       </div>
-      <div className="analyze-journal-stack" aria-hidden />
+      {/* 视觉堆叠效果 */}
+      <div className="analyze-journal-stack" />
     </div>
   );
 }

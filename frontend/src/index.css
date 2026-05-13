@@ -264,6 +264,16 @@ body {
   padding-left: 1.25rem;
 }
 
+.analyze-article--stream {
+  scroll-margin-top: 16px;
+}
+
+.analyze-article--stream + .analyze-article--stream {
+  margin-top: 40px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+}
+
 .analyze-markdown p {
   margin: 0.5em 0;
   line-height: 1.75;
@@ -544,7 +554,7 @@ body {
 .analyze-journal-stack {
   max-width: 100%;
   width: 100%;
-  margin: 8px auto 0;
+  margin: 8px auto 4px;
   height: 8px;
   background: rgba(255, 255, 255, 0.65);
   border-radius: 0 0 12px 12px;

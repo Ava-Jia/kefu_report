@@ -17,7 +17,7 @@ const VIEW_TABS = [
   { label: "每月", api: "monthly" },
 ];
 
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 30;
 
 export default function Analysis() {
   const [viewLabel, setViewLabel] = useState("每日");

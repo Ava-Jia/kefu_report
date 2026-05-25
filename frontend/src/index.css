@@ -244,27 +244,6 @@ body {
   flex-shrink: 0;
 }
 
-.report-page-header .report-locked-hint {
-  width: 100%;
-  text-align: center;
-}
-
-.report-locked-hint {
-  font-size: 13px;
-}
-
-.report-list-table .ant-table-row {
-  cursor: pointer;
-}
-
-.report-list-table .report-row-selected > td {
-  background: rgba(22, 119, 255, 0.08) !important;
-}
-
-.report-list-table .report-row-selected:hover > td {
-  background: rgba(22, 119, 255, 0.12) !important;
-}
-
 .knowledge-qa-cell {
   display: flex;
   flex-direction: column;

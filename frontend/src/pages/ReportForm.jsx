@@ -48,7 +48,6 @@ export default function ReportForm() {
   const [draftName, setDraftName] = useState(undefined);
   const [draftDate, setDraftDate] = useState(null);
   const [appliedFilters, setAppliedFilters] = useState({ name: undefined, date: undefined });
-  const [lockedKey, setLockedKey] = useState(null);
 
   const loadList = useCallback(async () => {
     setListLoading(true);
@@ -66,9 +65,6 @@ export default function ReportForm() {
         if (!appliedFilters.name && !appliedFilters.date) {
           setNameOptions([...new Set(list.map((r) => r.name))].sort());
         }
-        setLockedKey((prev) =>
-          prev && list.some((r) => reportRowKey(r) === prev) ? prev : null
-        );
       } else {
         message.error(res.message || "加载列表失败");
       }
@@ -82,13 +78,6 @@ export default function ReportForm() {
   useEffect(() => {
     loadList();
   }, [loadList]);
-
-  /** 姓名 + 日期均筛选且仅一条时自动选中 */
-  useEffect(() => {
-    if (appliedFilters.name && appliedFilters.date && reports.length === 1) {
-      setLockedKey(reportRowKey(reports[0]));
-    }
-  }, [reports, appliedFilters.name, appliedFilters.date]);
 
   /** 数据变少时避免当前页超出范围；受控分页需配合 total */
   useEffect(() => {
@@ -180,9 +169,6 @@ export default function ReportForm() {
         const res = await deleteReport(record.name, record.date);
         if (res.success) {
           message.success(res.message || "已删除");
-          if (reportRowKey(record) === lockedKey) {
-            setLockedKey(null);
-          }
           if (
             editOriginal &&
             editOriginal.name === record.name &&
@@ -200,12 +186,7 @@ export default function ReportForm() {
         message.error(e?.response?.data?.message || e.message || "删除失败");
       }
     },
-    [editOriginal, loadList, lockedKey]
-  );
-
-  const lockedRecord = useMemo(
-    () => reports.find((r) => reportRowKey(r) === lockedKey) ?? null,
-    [reports, lockedKey]
+    [editOriginal, loadList]
   );
 
   const onSearch = () => {
@@ -220,7 +201,6 @@ export default function ReportForm() {
     setDraftName(undefined);
     setDraftDate(null);
     setAppliedFilters({ name: undefined, date: undefined });
-    setLockedKey(null);
     setPage(1);
   };
 
@@ -285,7 +265,7 @@ export default function ReportForm() {
         width: 148,
         align: "center",
         render: (_, record) => (
-          <Space size={0} onClick={(e) => e.stopPropagation()}>
+          <Space size={0}>
             <Button type="link" icon={<EditOutlined />} onClick={() => onEdit(record)}>
               编辑
             </Button>
@@ -371,11 +351,6 @@ export default function ReportForm() {
               重置
             </Button>
           </Space>
-          {lockedRecord && (
-            <Text type="secondary" className="report-locked-hint">
-              已选中：<Text strong>{lockedRecord.name}</Text> · {lockedRecord.date}
-            </Text>
-          )}
         </div>
         <Button type="primary" size="large" icon={<PlusOutlined />} onClick={openCreate}>
           新增日报
@@ -391,16 +366,6 @@ export default function ReportForm() {
           dataSource={reports}
           tableLayout="fixed"
           pagination={tablePagination}
-          rowSelection={{
-            type: "radio",
-            selectedRowKeys: lockedKey ? [lockedKey] : [],
-            onChange: (keys) => setLockedKey(keys[0] ?? null),
-          }}
-          onRow={(record) => ({
-            onClick: () => setLockedKey(reportRowKey(record)),
-            className:
-              reportRowKey(record) === lockedKey ? "report-row-selected" : undefined,
-          })}
           locale={{
             emptyText: (
               <Empty

@@ -8,6 +8,7 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Select,
   Space,
   Table,
   Tag,
@@ -15,31 +16,59 @@ import {
   Typography,
   message,
 } from "antd";
-import { PlusOutlined, EditOutlined, DeleteOutlined, FileTextOutlined } from "@ant-design/icons";
+import {
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  FileTextOutlined,
+  SearchOutlined,
+} from "@ant-design/icons";
 import dayjs from "dayjs";
 import { deleteReport, fetchReport, fetchReports, saveReport } from "../api";
 
 const { TextArea } = Input;
 const { Title, Text } = Typography;
 
+function reportRowKey(record) {
+  return `${record.name}_${record.date}`;
+}
+
 export default function ReportForm() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [listLoading, setListLoading] = useState(false);
   const [reports, setReports] = useState([]);
+  const [nameOptions, setNameOptions] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("create");
   /** 编辑入口对应的原列表键，保存时若改了姓名/日期则让后端删旧文件 */
   const [editOriginal, setEditOriginal] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [draftName, setDraftName] = useState(undefined);
+  const [draftDate, setDraftDate] = useState(null);
+  const [appliedFilters, setAppliedFilters] = useState({ name: undefined, date: undefined });
+  const [lockedKey, setLockedKey] = useState(null);
 
   const loadList = useCallback(async () => {
     setListLoading(true);
     try {
-      const res = await fetchReports();
+      const params = {};
+      if (appliedFilters.name) params.name = appliedFilters.name;
+      if (appliedFilters.date) {
+        params.start_date = appliedFilters.date;
+        params.end_date = appliedFilters.date;
+      }
+      const res = await fetchReports(params);
       if (res.success) {
-        setReports(res.reports || []);
+        const list = res.reports || [];
+        setReports(list);
+        if (!appliedFilters.name && !appliedFilters.date) {
+          setNameOptions([...new Set(list.map((r) => r.name))].sort());
+        }
+        setLockedKey((prev) =>
+          prev && list.some((r) => reportRowKey(r) === prev) ? prev : null
+        );
       } else {
         message.error(res.message || "加载列表失败");
       }
@@ -48,11 +77,18 @@ export default function ReportForm() {
     } finally {
       setListLoading(false);
     }
-  }, []);
+  }, [appliedFilters]);
 
   useEffect(() => {
     loadList();
   }, [loadList]);
+
+  /** 姓名 + 日期均筛选且仅一条时自动选中 */
+  useEffect(() => {
+    if (appliedFilters.name && appliedFilters.date && reports.length === 1) {
+      setLockedKey(reportRowKey(reports[0]));
+    }
+  }, [reports, appliedFilters.name, appliedFilters.date]);
 
   /** 数据变少时避免当前页超出范围；受控分页需配合 total */
   useEffect(() => {
@@ -144,6 +180,9 @@ export default function ReportForm() {
         const res = await deleteReport(record.name, record.date);
         if (res.success) {
           message.success(res.message || "已删除");
+          if (reportRowKey(record) === lockedKey) {
+            setLockedKey(null);
+          }
           if (
             editOriginal &&
             editOriginal.name === record.name &&
@@ -161,8 +200,31 @@ export default function ReportForm() {
         message.error(e?.response?.data?.message || e.message || "删除失败");
       }
     },
-    [editOriginal, loadList]
+    [editOriginal, loadList, lockedKey]
   );
+
+  const lockedRecord = useMemo(
+    () => reports.find((r) => reportRowKey(r) === lockedKey) ?? null,
+    [reports, lockedKey]
+  );
+
+  const onSearch = () => {
+    setAppliedFilters({
+      name: draftName,
+      date: draftDate ? draftDate.format("YYYY-MM-DD") : undefined,
+    });
+    setPage(1);
+  };
+
+  const onResetFilters = () => {
+    setDraftName(undefined);
+    setDraftDate(null);
+    setAppliedFilters({ name: undefined, date: undefined });
+    setLockedKey(null);
+    setPage(1);
+  };
+
+  const hasActiveFilters = !!(appliedFilters.name || appliedFilters.date);
 
   const columns = useMemo(
     () => [
@@ -223,7 +285,7 @@ export default function ReportForm() {
         width: 148,
         align: "center",
         render: (_, record) => (
-          <Space size={0}>
+          <Space size={0} onClick={(e) => e.stopPropagation()}>
             <Button type="link" icon={<EditOutlined />} onClick={() => onEdit(record)}>
               编辑
             </Button>
@@ -270,12 +332,50 @@ export default function ReportForm() {
 
   return (
     <div className="page-shell">
-      <div className="page-header-block">
-        <div>
+      <div className="page-header-block report-page-header">
+        <div className="page-header-title">
           <Title level={3} className="page-title" style={{ marginBottom: 4 }}>
             日报管理
           </Title>
-          <Text type="secondary">查看已提交的日报，支持新增与编辑保存</Text>
+          <Text type="secondary">查看已提交的日报，支持新增、编辑与查询</Text>
+        </div>
+        <div className="report-filter-bar">
+          <Space wrap size="middle" align="center">
+            <Space size={8}>
+              <Text type="secondary">客服姓名</Text>
+              <Select
+                allowClear
+                showSearch
+                placeholder="全部"
+                style={{ width: 160 }}
+                value={draftName}
+                options={nameOptions.map((n) => ({ label: n, value: n }))}
+                optionFilterProp="label"
+                onChange={setDraftName}
+              />
+            </Space>
+            <Space size={8}>
+              <Text type="secondary">日期</Text>
+              <DatePicker
+                allowClear
+                placeholder="全部"
+                value={draftDate}
+                format="YYYY-MM-DD"
+                onChange={setDraftDate}
+              />
+            </Space>
+            <Button type="primary" icon={<SearchOutlined />} onClick={onSearch}>
+              查询
+            </Button>
+            <Button onClick={onResetFilters} disabled={!hasActiveFilters && !draftName && !draftDate}>
+              重置
+            </Button>
+          </Space>
+          {lockedRecord && (
+            <Text type="secondary" className="report-locked-hint">
+              已选中：<Text strong>{lockedRecord.name}</Text> · {lockedRecord.date}
+            </Text>
+          )}
         </div>
         <Button type="primary" size="large" icon={<PlusOutlined />} onClick={openCreate}>
           新增日报
@@ -285,21 +385,35 @@ export default function ReportForm() {
       <Card className="page-card" variant="borderless">
         <Table
           className="report-list-table"
-          rowKey={(r) => `${r.name}_${r.date}`}
+          rowKey={reportRowKey}
           loading={listLoading}
           columns={columns}
           dataSource={reports}
           tableLayout="fixed"
           pagination={tablePagination}
+          rowSelection={{
+            type: "radio",
+            selectedRowKeys: lockedKey ? [lockedKey] : [],
+            onChange: (keys) => setLockedKey(keys[0] ?? null),
+          }}
+          onRow={(record) => ({
+            onClick: () => setLockedKey(reportRowKey(record)),
+            className:
+              reportRowKey(record) === lockedKey ? "report-row-selected" : undefined,
+          })}
           locale={{
             emptyText: (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
                 description={
                   <span>
-                    暂无日报记录
+                    {hasActiveFilters ? "没有符合筛选条件的日报" : "暂无日报记录"}
                     <br />
-                    <Text type="secondary">点击右上角「新增日报」开始填写</Text>
+                    <Text type="secondary">
+                      {hasActiveFilters
+                        ? "请调整筛选条件或点击「重置」"
+                        : "点击右上角「新增日报」开始填写"}
+                    </Text>
                   </span>
                 }
               />

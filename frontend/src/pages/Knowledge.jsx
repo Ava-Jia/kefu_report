@@ -164,31 +164,45 @@ export default function Knowledge() {
     form.resetFields();
   }, [form]);
 
-  const onSaveEdit = useCallback(async () => {
-    try {
-      const v = await form.validateFields();
-      if (!editRecord) return;
-      setSaving(true);
-      const res = await updateKnowledgeItem(editStatus, editRecord.id, {
-        q: v.q.trim(),
-        a: v.a.trim(),
-        source_name: (v.source_name || "").trim(),
-        source_date: (v.source_date || "").trim(),
-      });
-      if (res.success) {
-        message.success("已保存");
+  const onSaveEdit = useCallback(
+    async (withArchive = false) => {
+      try {
+        const v = await form.validateFields();
+        if (!editRecord) return;
+        setSaving(true);
+        const payload = {
+          q: v.q.trim(),
+          a: v.a.trim(),
+          source_name: (v.source_name || "").trim(),
+          source_date: (v.source_date || "").trim(),
+        };
+        const res = await updateKnowledgeItem(editStatus, editRecord.id, payload);
+        if (!res.success) {
+          message.error(res.message || "保存失败");
+          return;
+        }
+        if (withArchive) {
+          const ar = await archiveKnowledgeItem(editRecord.id);
+          if (!ar.success) {
+            message.error(ar.message || "存档失败");
+            await loadAll();
+            return;
+          }
+          message.success("已保存并存档");
+        } else {
+          message.success("已保存");
+        }
         closeModal();
         await loadAll();
-      } else {
-        message.error(res.message || "保存失败");
+      } catch (e) {
+        if (e?.errorFields) return;
+        message.error(e?.response?.data?.message || e.message || "保存失败");
+      } finally {
+        setSaving(false);
       }
-    } catch (e) {
-      if (e?.errorFields) return;
-      message.error(e?.response?.data?.message || e.message || "保存失败");
-    } finally {
-      setSaving(false);
-    }
-  }, [form, editRecord, editStatus, closeModal, loadAll]);
+    },
+    [form, editRecord, editStatus, closeModal, loadAll]
+  );
 
   const onArchive = useCallback(
     async (record) => {
@@ -457,10 +471,21 @@ export default function Knowledge() {
           </Form.Item>
           <Form.Item style={{ marginBottom: 0 }}>
             <Space style={{ width: "100%", justifyContent: "flex-end" }}>
-              <Button onClick={closeModal}>取消</Button>
-              <Button type="primary" onClick={onSaveEdit} loading={saving}>
-                保存
+              <Button onClick={closeModal} disabled={saving}>
+                取消
               </Button>
+              <Button
+                type={editStatus === "archived" ? "primary" : "default"}
+                onClick={() => onSaveEdit(false)}
+                loading={saving}
+              >
+                仅保存
+              </Button>
+              {editStatus === "pending" && (
+                <Button type="primary" onClick={() => onSaveEdit(true)} loading={saving}>
+                  保存并存档
+                </Button>
+              )}
             </Space>
           </Form.Item>
         </Form>

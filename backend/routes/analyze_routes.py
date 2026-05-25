@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 
+from utils.analyze_collect import weekly_title_from_key
 from utils.analyze_storage import (
     list_analyze_keys,
     read_analyze_markdown
@@ -31,7 +32,10 @@ def analyze_list():
     for k in keys:
         label = k
         if kind == "weekly":
-            label = f"截至 {k}（周六）"
+            try:
+                label = weekly_title_from_key(k)
+            except ValueError:
+                label = k
         elif kind == "monthly":
             parts = k.split("-")
             if len(parts) >= 2:

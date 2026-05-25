@@ -113,5 +113,12 @@ def weekly_window_sat_to_sat(now: Optional[datetime] = None) -> tuple[datetime, 
     return start, end, key
 
 
+def weekly_title_from_key(key: str) -> str:
+    """周六 key 的列表展示：前 6 天 ~ 周六，如 2025-05-10~2025-05-16。"""
+    sat = datetime.strptime(key.strip(), "%Y-%m-%d").date()
+    start = sat - timedelta(days=6)
+    return f"{start.isoformat()}~{sat.isoformat()}"
+
+
 def monthly_key_for_month(year: int, month: int) -> str:
     return f"{year:04d}-{month:02d}"

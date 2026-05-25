@@ -219,6 +219,52 @@ body {
   line-height: 1.65;
 }
 
+.report-filter-bar {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 16px;
+  min-width: 0;
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.report-page-header {
+  align-items: center;
+}
+
+.report-page-header .page-header-title {
+  flex-shrink: 0;
+}
+
+.report-page-header > .ant-btn {
+  flex-shrink: 0;
+}
+
+.report-page-header .report-locked-hint {
+  width: 100%;
+  text-align: center;
+}
+
+.report-locked-hint {
+  font-size: 13px;
+}
+
+.report-list-table .ant-table-row {
+  cursor: pointer;
+}
+
+.report-list-table .report-row-selected > td {
+  background: rgba(22, 119, 255, 0.08) !important;
+}
+
+.report-list-table .report-row-selected:hover > td {
+  background: rgba(22, 119, 255, 0.12) !important;
+}
+
 .knowledge-qa-cell {
   display: flex;
   flex-direction: column;

@@ -1,0 +1,326 @@
+{
+  "ad97f4ff-24bb-4550-9388-1bd6e536e68a": {
+    "status": "done",
+    "file": "data\\company_results\\ad97f4ff-24bb-4550-9388-1bd6e536e68a.csv"
+  },
+  "c8c26e47-a689-4165-8ad4-2ada6337c64c": {
+    "status": "error",
+    "message": "HTTPConnectionPool(host='47.251.18.69', port=8081): Read timed out. (read timeout=120)"
+  },
+  "48576888-1155-4f46-8b34-6d81c120de03": {
+    "status": "error",
+    "message": "HTTPConnectionPool(host='127.0.0.1', port=7897): Read timed out. (read timeout=120)"
+  },
+  "9c5dc994-fa5f-4316-98bd-e33b7c96d654": {
+    "status": "error",
+    "message": "HTTPConnectionPool(host='127.0.0.1', port=7897): Read timed out. (read timeout=120)"
+  },
+  "b84d3cd1-45b2-41d5-9482-53c673d741e2": {
+    "status": "error",
+    "message": "HTTPConnectionPool(host='127.0.0.1', port=7897): Read timed out. (read timeout=120)"
+  },
+  "51a50944-888f-4359-aa9b-b7103483688f": {
+    "status": "done",
+    "file": "data\\company_results\\51a50944-888f-4359-aa9b-b7103483688f.csv"
+  },
+  "4e3683b0-f248-4508-be05-4e03a7af882f": {
+    "status": "done",
+    "file": "data\\company_results\\4e3683b0-f248-4508-be05-4e03a7af882f.csv"
+  },
+  "a6dc3778-c32d-45cb-9376-992a6b4b5c27": {
+    "status": "done",
+    "file": "data\\company_results\\a6dc3778-c32d-45cb-9376-992a6b4b5c27.csv"
+  },
+  "9aa7a140-90c4-4d70-b767-e261359dd72c": {
+    "status": "error",
+    "message": "HTTPConnectionPool(host='127.0.0.1', port=7897): Read timed out. (read timeout=120)"
+  },
+  "cbbf2459-68de-4771-8adc-fc169075b4cd": {
+    "status": "error",
+    "message": "Expecting value: line 1 column 1 (char 0)"
+  },
+  "6420f142-cb58-4086-a710-e5e16fdf3b5d": {
+    "status": "error",
+    "message": "Expecting value: line 1 column 1 (char 0)"
+  },
+  "f824a396-6cff-4252-9fda-0c45ccd6906d": {
+    "status": "error",
+    "message": "Expecting value: line 1 column 1 (char 0)"
+  },
+  "4d4714c3-3287-4b27-a2da-01b0b0c28249": {
+    "status": "done",
+    "file": "data\\company_results\\4d4714c3-3287-4b27-a2da-01b0b0c28249.csv"
+  },
+  "77db45f4-b48c-4e1d-91b6-052f4a324cc1": {
+    "status": "error",
+    "message": "'str' object has no attribute 'keys'"
+  },
+  "49c77012-2d39-429c-98d8-5c97ed2d5788": {
+    "status": "error",
+    "message": "'str' object has no attribute 'get'"
+  },
+  "5637874c-c0c9-4f56-815f-4d1ba5751b85": {
+    "status": "done",
+    "file": "data\\company_results\\5637874c-c0c9-4f56-815f-4d1ba5751b85.csv"
+  },
+  "3b06280a-cba9-4fcc-9bb1-56bcab94da2a": {
+    "status": "done",
+    "file": "data\\company_results\\3b06280a-cba9-4fcc-9bb1-56bcab94da2a.csv"
+  },
+  "8b11c89a-a3ea-45cf-a696-e38800b00aa1": {
+    "status": "error",
+    "message": "HTTPConnectionPool(host='127.0.0.1', port=8081): Read timed out. (read timeout=600)"
+  },
+  "bd49ad33-25af-4ee9-a38f-8e0b60db4611": {
+    "status": "done",
+    "file": "data\\company_results\\bd49ad33-25af-4ee9-a38f-8e0b60db4611.csv",
+    "summary": {
+      "total": 8,
+      "success": 5,
+      "failed": 0,
+      "no_result": 3,
+      "has_partial_failure": false,
+      "has_failure": false,
+      "has_no_result": true
+    },
+    "names": [
+      "ZENCRAF T SOLUTIONS INC",
+      "ZENCRAFT SOLUTIONS INC",
+      "Zennoraq Inc",
+      "ZHL SUPPLY CHAIN CORP",
+      "ZOOM LINKING LOGISTIC INC",
+      "ZORVIK COMERCIO DE INSUMOS",
+      "ZYLINDER METRIX LLC",
+      "ZYNP INTERNATIONAL CORP"
+    ]
+  },
+  "d17ef243-9ffe-452c-ae48-c784ff9665a4": {
+    "status": "done",
+    "file": "data\\company_results\\d17ef243-9ffe-452c-ae48-c784ff9665a4.csv",
+    "summary": {
+      "total": 20,
+      "success": 0,
+      "failed": 20,
+      "no_result": 0,
+      "has_partial_failure": false,
+      "has_failure": true,
+      "has_no_result": false
+    },
+    "names": [
+      "ACCURATE COLOURS AND COMPOUNDS LTD",
+      "AETHER HORIZON VORTEX TRADE INC",
+      "AETHERSOAR LLC",
+      "AIETE INC",
+      "AIFIT Trade INC",
+      "ALEKSANDAR TRIFONOV LLC",
+      "ALL-WAYS FORWARDING INT'L INC",
+      "ALL-WAYS FORWARDING OF N.Y. INC.",
+      "AMAZING INTERNATIONAL LOGISTICS INC",
+      "AMERICAN EAGLE TRADING INC",
+      "AMERITRADE NEXUS INC",
+      "AMOLY IMP&EXP TRADING INC",
+      "AMWEAR USA INC",
+      "ANKYLOSIS GUILD INC",
+      "AOCILEN INC",
+      "AONAIR DEVELOPMENT LTD",
+      "APOGEE DEVELOPMENT CORPORATION",
+      "ARANYA'S ELK LLC",
+      "ARCHANGE IMPORTS LLC",
+      "ARCHER TRADE INC"
+    ],
+    "message": "检索完成，但全部失败: HTTPConnectionPool(host='127.0.0.1', port=8081): Read timed out. (read timeout=600)"
+  },
+  "7fd0c330-23a2-46a7-a350-8362c74226d4": {
+    "status": "done",
+    "file": "data\\company_results\\7fd0c330-23a2-46a7-a350-8362c74226d4.csv",
+    "summary": {
+      "total": 2,
+      "success": 2,
+      "failed": 0,
+      "no_result": 0,
+      "has_partial_failure": false,
+      "has_failure": false,
+      "has_no_result": false
+    },
+    "names": [
+      "ACCURATE COLOURS AND COMPOUNDS LTD",
+      "AETHER HORIZON VORTEX TRADE INC"
+    ]
+  },
+  "d6d88d57-8f40-45e7-a977-41e0b9d50ad4": {
+    "status": "done",
+    "file": "data\\company_results\\d6d88d57-8f40-45e7-a977-41e0b9d50ad4.csv",
+    "summary": {
+      "total": 1,
+      "success": 1,
+      "failed": 0,
+      "no_result": 0,
+      "has_partial_failure": false,
+      "has_failure": false,
+      "has_no_result": false
+    },
+    "names": [
+      "AMERICAN EAGLE TRADING INC"
+    ]
+  },
+  "ad4c7e81-48a5-466c-b6fb-2fee05fffdf5": {
+    "status": "done",
+    "file": "data\\company_results\\ad4c7e81-48a5-466c-b6fb-2fee05fffdf5.csv",
+    "summary": {
+      "total": 1,
+      "success": 1,
+      "failed": 0,
+      "no_result": 0,
+      "has_partial_failure": false,
+      "has_failure": false,
+      "has_no_result": false
+    },
+    "names": [
+      "AMERICAN EAGLE TRADING INC"
+    ]
+  },
+  "dda9761c-bba7-449f-82e2-1397d4536e0c": {
+    "status": "done",
+    "file": "data\\company_results\\dda9761c-bba7-449f-82e2-1397d4536e0c.csv",
+    "summary": {
+      "total": 1,
+      "success": 1,
+      "failed": 0,
+      "no_result": 0,
+      "has_partial_failure": false,
+      "has_failure": false,
+      "has_no_result": false
+    },
+    "names": [
+      "AMERICAN EAGLE TRADING INC"
+    ]
+  },
+  "e4983097-31fc-49be-a4a3-3ab442865f3c": {
+    "status": "done",
+    "file": "data\\company_results\\e4983097-31fc-49be-a4a3-3ab442865f3c.csv",
+    "summary": {
+      "total": 2,
+      "success": 0,
+      "failed": 2,
+      "no_result": 0,
+      "has_partial_failure": false,
+      "has_failure": true,
+      "has_no_result": false
+    },
+    "names": [
+      "AMERICAN EAGLE TRADING IN",
+      "AETHER HORIZON VORTEX TRADE INC"
+    ],
+    "message": "检索完成，但全部失败: 检索结果格式错误：应为 query_name -> records 的对象"
+  },
+  "2a3ba3e3-8374-4240-bf43-5bb36b789c21": {
+    "status": "done",
+    "file": "data\\company_results\\2a3ba3e3-8374-4240-bf43-5bb36b789c21.csv",
+    "summary": {
+      "total": 2,
+      "success": 0,
+      "failed": 2,
+      "no_result": 0,
+      "has_partial_failure": false,
+      "has_failure": true,
+      "has_no_result": false
+    },
+    "names": [
+      "AMERICAN EAGLE TRADING IN",
+      "AETHER HORIZON VORTEX TRADE INC"
+    ],
+    "message": "检索完成，但全部失败: 检索结果格式错误：应为 query_name -> records 的对象"
+  },
+  "d9045042-2994-4cf0-834a-b6bd848fdafd": {
+    "status": "done",
+    "file": "data\\company_results\\d9045042-2994-4cf0-834a-b6bd848fdafd.csv",
+    "summary": {
+      "total": 1,
+      "success": 1,
+      "failed": 0,
+      "no_result": 0,
+      "has_partial_failure": false,
+      "has_failure": false,
+      "has_no_result": false
+    },
+    "names": [
+      "AMERICAN EAGLE TRADING INC"
+    ]
+  },
+  "4ee558c1-b13a-4fb8-b3bd-50082cdb7490": {
+    "status": "done",
+    "file": "data\\company_results\\4ee558c1-b13a-4fb8-b3bd-50082cdb7490.csv",
+    "summary": {
+      "total": 1,
+      "success": 1,
+      "failed": 0,
+      "no_result": 0,
+      "has_partial_failure": false,
+      "has_failure": false,
+      "has_no_result": false
+    },
+    "names": [
+      "AMERICAN EAGLE TRADING INC"
+    ]
+  },
+  "ebfcdeef-771e-4c26-b6a4-eaacefb09295": {
+    "status": "done",
+    "file": "data\\company_results\\ebfcdeef-771e-4c26-b6a4-eaacefb09295.csv",
+    "summary": {
+      "total": 1,
+      "success": 1,
+      "failed": 0,
+      "no_result": 0,
+      "has_partial_failure": false,
+      "has_failure": false,
+      "has_no_result": false
+    },
+    "names": [
+      "AMERICAN EAGLE TRADING INC"
+    ]
+  },
+  "893cade4-7afe-4f2c-a7ec-7d3acefbd1c1": {
+    "status": "done",
+    "file": "data\\company_results\\893cade4-7afe-4f2c-a7ec-7d3acefbd1c1.csv",
+    "summary": {
+      "total": 1,
+      "success": 1,
+      "failed": 0,
+      "no_result": 0,
+      "has_partial_failure": false,
+      "has_failure": false,
+      "has_no_result": false
+    },
+    "names": [
+      "AMERICAN EAGLE TRADING INC"
+    ]
+  },
+  "da7c895c-524c-400f-9345-ac6c3fc11d11": {
+    "status": "pending",
+    "names": [
+      "AMERICAN EAGLE TRADING INC"
+    ]
+  },
+  "85f393a7-33bf-43fc-bdf5-17d100b9942f": {
+    "status": "pending",
+    "names": [
+      "AMERICAN EAGLE TRADING INC"
+    ]
+  },
+  "4b42f4bd-7ba8-41a1-bdec-67fbd2059e84": {
+    "status": "done",
+    "file": "data\\company_results\\4b42f4bd-7ba8-41a1-bdec-67fbd2059e84.csv",
+    "summary": {
+      "total": 1,
+      "success": 1,
+      "failed": 0,
+      "no_result": 0,
+      "has_partial_failure": false,
+      "has_failure": false,
+      "has_no_result": false
+    },
+    "names": [
+      "AMERICAN EAGLE TRADING INC"
+    ]
+  }
+}

@@ -75,4 +75,37 @@ export async function archiveKnowledgeItem(id) {
   return data;
 }
 
+/** 公司检索 - 异步任务，返回 task_id */
+export const searchCompany = async (params) => {
+  const response = await fetch(`/api/companys/search?${params}`);
+  return response.json();
+};
+
+/** 查询检索任务状态 */
+export const checkCompanyResult = async (taskId) => {
+  const response = await fetch(`/api/companys/result/${encodeURIComponent(taskId)}`);
+  return response.json();
+};
+
+/** 下载公司检索结果为 CSV */
+export const downloadCompanyCSV = async (taskId) => {
+  const response = await fetch(`/api/companys/download/${encodeURIComponent(taskId)}`);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.message || "下载失败");
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+  const filename = match ? match[1].replace(/['"]/g, "") : `company_${taskId.slice(0, 8)}.csv`;
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+};
+
 export default client;

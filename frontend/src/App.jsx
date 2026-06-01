@@ -15,6 +15,7 @@ import {
 import ReportForm from "./pages/ReportForm.jsx";
 import Analysis from "./pages/Analysis.jsx";
 import Knowledge from "./pages/Knowledge.jsx";
+import CompanySearch from "./pages/Company.jsx";
 
 const { Sider, Content } = Layout;
 
@@ -24,7 +25,9 @@ function SideMenu() {
     ? ["/knowledge"]
     : location.pathname.startsWith("/analyze")
       ? ["/analyze"]
-      : ["/"];
+      : location.pathname.startsWith("/company-search")
+        ? ["/company-search"]
+        : ["/"];
 
   return (
     <>
@@ -58,6 +61,11 @@ function SideMenu() {
             icon: <BookOutlined />,
             label: <Link to="/knowledge">知识库</Link>,
           },
+          {
+            key: "/company-search",
+            icon: <BookOutlined />,
+            label: <Link to="/company-search">公司检索</Link>,
+          },
         ]}
       />
     </>
@@ -90,6 +98,7 @@ export default function App() {
             <Route path="/" element={<ReportForm />} />
             <Route path="/analyze" element={<Analysis />} />
             <Route path="/knowledge" element={<Knowledge />} />
+            <Route path="/company-search" element={<CompanySearch />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Content>

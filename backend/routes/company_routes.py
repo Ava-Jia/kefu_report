@@ -122,8 +122,8 @@ def company_result(task_id: str):
         )
 
     # done 时从 CSV 文件读取数据返回
-    csv_path = Path(file_path)
-    if not csv_path.exists():
+    result_path = Path(file_path)
+    if not result_path.exists():
         return jsonify(
             {
                 "success": False,
@@ -132,8 +132,18 @@ def company_result(task_id: str):
             }
         )
 
+    if "data" in task:
+        return jsonify(
+            {
+                "success": True,
+                "status": "done",
+                "data": task["data"],
+                "summary": task.get("summary") or _summarize_result_rows(task["data"]),
+            }
+        )
+
     data = {}
-    with open(csv_path, "r", encoding="utf-8-sig") as f:
+    with open(result_path, "r", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
             row = _normalize_csv_row(row)
             name = row.get("query_name") or row.get("company_name") or "未知查询"
@@ -159,14 +169,21 @@ def download_results(task_id: str):
     if not file_path:
         return jsonify({"success": False, "message": "任务缺少结果文件"}), 404
 
-    csv_path = Path(file_path)
-    if not csv_path.exists():
+    result_path = Path(file_path)
+    if not result_path.exists():
         return jsonify({"success": False, "message": "文件不存在"}), 404
 
+    download_suffix = result_path.suffix or ".xlsx"
+    mimetype = (
+        "text/csv"
+        if download_suffix.lower() == ".csv"
+        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
     return send_file(
-        csv_path,
+        result_path,
         as_attachment=True,
-        download_name=f"company_{task_id[:8]}.csv",
-        mimetype="text/csv"
+        download_name=f"company_{task_id[:8]}{download_suffix}",
+        mimetype=mimetype
     )
 

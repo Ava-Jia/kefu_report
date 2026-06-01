@@ -29,3 +29,4 @@ backend/knowledge/qa_store.json
 .vscode/
 
 backend/logs/
+backend/data/

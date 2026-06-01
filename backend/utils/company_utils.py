@@ -8,6 +8,8 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import urljoin
 from dotenv import load_dotenv
+from openpyxl import Workbook
+from openpyxl.styles import Font
 
 load_dotenv()
 CSV_DIR = Path("data/company_results")
@@ -368,6 +370,54 @@ def save_failure_csv(task_id: str, query_names: list[str], message: str) -> tupl
     return save_to_csv(data, task_id, query_names)
 
 
+def build_result_rows(data: dict, query_names: list[str] | None = None) -> tuple[list[dict], dict]:
+    counts = {"success": 0, "failed": 0, "no_result": 0}
+    rows = []
+    ordered_query_names = list(query_names or data.keys())
+    ordered_query_names.extend(k for k in data.keys() if k not in ordered_query_names)
+
+    for query_name in ordered_query_names:
+        query_rows, query_status = _rows_for_query(query_name, data.get(query_name))
+        counts[query_status] += 1
+        rows.extend(query_rows)
+
+    return rows, _build_summary(len(ordered_query_names), counts)
+
+
+def group_result_rows(rows: list[dict]) -> dict:
+    grouped = {}
+    for row in rows:
+        name = row.get("query_name") or row.get("company_name") or "unknown"
+        grouped.setdefault(name, []).append(row)
+    return grouped
+
+
+def save_to_xlsx(data: dict, task_id: str, query_names: list[str] | None = None) -> tuple[Path, dict, dict]:
+    xlsx_path = CSV_DIR / f"{task_id}.xlsx"
+    rows, summary = build_result_rows(data, query_names)
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "company_results"
+
+    for col_index, field in enumerate(CSV_FIELDNAMES, start=1):
+        cell = sheet.cell(row=1, column=col_index, value=CSV_HEADER_LABELS.get(field, field))
+        cell.font = Font(bold=True)
+        sheet.column_dimensions[cell.column_letter].width = 24
+
+    for row_index, row in enumerate(rows, start=2):
+        for col_index, field in enumerate(CSV_FIELDNAMES, start=1):
+            sheet.cell(row=row_index, column=col_index, value=str(row.get(field, "") or ""))
+
+    workbook.save(xlsx_path)
+    return xlsx_path, summary, group_result_rows(rows)
+
+
+def save_failure_xlsx(task_id: str, query_names: list[str], message: str) -> tuple[Path, dict, dict]:
+    data = {name: {"status": "error", "message": message} for name in query_names}
+    return save_to_xlsx(data, task_id, query_names)
+
+
 def do_search(task_id: str, names: list) -> None:
     """后台调用 OpenCorporates 检索接口，并把结果写入任务状态和 CSV。"""
     url=os.getenv("SEARCH_URL", "")
@@ -379,13 +429,14 @@ def do_search(task_id: str, names: list) -> None:
         logging.info(f"检索结果:\n{json.dumps(result, ensure_ascii=False, indent=2)}")
 
         inner = _extract_result_payload(result)
-        csv_path, summary = save_to_csv(inner, task_id, names)
+        xlsx_path, summary, result_data = save_to_xlsx(inner, task_id, names)
         set_task(
             task_id,
             {
                 "status": "done",
-                "file": str(csv_path),
+                "file": str(xlsx_path),
                 "summary": summary,
+                "data": result_data,
                 "names": names,
             },
         )
@@ -393,13 +444,14 @@ def do_search(task_id: str, names: list) -> None:
     except Exception as e:
         logging.error(f"检索失败: {e}")
         try:
-            csv_path, summary = save_failure_csv(task_id, names, str(e))
+            xlsx_path, summary, result_data = save_failure_xlsx(task_id, names, str(e))
             set_task(
                 task_id,
                 {
                     "status": "done",
-                    "file": str(csv_path),
+                    "file": str(xlsx_path),
                     "summary": summary,
+                    "data": result_data,
                     "names": names,
                     "message": f"检索完成，但全部失败: {e}",
                 },

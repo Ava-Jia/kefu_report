@@ -86,7 +86,7 @@ export default function CompanySearch() {
   useEffect(() => {
     const hasPending = tasks.some((t) => t.status === "pending");
     if (hasPending && !pollingRef.current) {
-      pollingRef.current = setInterval(pollPendingTasks, 3000); 
+      pollingRef.current = setInterval(pollPendingTasks, 30000); // 每30秒轮询一次
     }
     if (!hasPending && pollingRef.current) {
       clearInterval(pollingRef.current);

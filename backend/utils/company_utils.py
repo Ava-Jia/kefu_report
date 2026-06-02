@@ -2,6 +2,7 @@ import os
 import csv
 import json
 import logging
+import sqlite3
 import threading
 import requests
 import time
@@ -16,8 +17,8 @@ load_dotenv()
 CSV_DIR = Path("data/company_results")
 CSV_DIR.mkdir(parents=True, exist_ok=True)
 
-TASK_FILE = Path("data/tasks.json")
-TASK_FILE.parent.mkdir(parents=True, exist_ok=True)
+TASK_DB = Path("data/tasks.db")
+TASK_DB.parent.mkdir(parents=True, exist_ok=True)
 
 OPEN_CORPORATES_BASE_URL = "https://opencorporates.com/"
 
@@ -76,47 +77,60 @@ MONTH_NUMBERS = {
 
 task_lock = threading.Lock()
 
-def load_tasks() -> dict:
-    """从本地 JSON 文件加载历史任务状态。"""
-    if TASK_FILE.exists():
-        try:
-            return json.loads(TASK_FILE.read_text(encoding="utf-8"))
-        except Exception as e:
-            logging.error(f"加载任务文件失败: {e}")
-    return {}
 
-def save_tasks() -> None:
-    """将内存中的任务状态写回本地 JSON 文件。"""
-    try:
-        TASK_FILE.write_text(
-            json.dumps(task_store, ensure_ascii=False, indent=2),
-            encoding="utf-8"
+def _connect_task_db():
+    conn = sqlite3.connect(TASK_DB, timeout=30)
+    conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("PRAGMA journal_mode = WAL")
+    return conn
+
+
+def _init_task_db() -> None:
+    with _connect_task_db() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS company_tasks (
+                task_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            """
         )
-    except Exception as e:
-        logging.error(f"保存任务文件失败: {e}")
 
-task_store = load_tasks()
 
-def save_tasks() -> None:
-    """将内存中的任务状态写回本地 JSON 文件。"""
-    try:
-        TASK_FILE.write_text(
-            json.dumps(task_store, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
-    except Exception as e:
-        logging.error(f"保存任务文件失败: {e}")
+_init_task_db()
 
 
 def get_task(task_id: str) -> dict | None:
     """根据任务 ID 获取当前任务状态。"""
-    return task_store.get(task_id)
+    try:
+        with _connect_task_db() as conn:
+            row = conn.execute(
+                "SELECT payload FROM company_tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+    except Exception as e:
+        logging.error(f"读取任务数据库失败: {e}")
+        return None
 
 def set_task(task_id: str, value: dict) -> None:
     """线程安全地更新任务状态，并立即持久化。"""
     with task_lock:
-        task_store[task_id] = value
-        save_tasks()
+        try:
+            with _connect_task_db() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO company_tasks (task_id, payload, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(task_id) DO UPDATE SET
+                        payload = excluded.payload,
+                        updated_at = excluded.updated_at
+                    """,
+                    (task_id, json.dumps(value, ensure_ascii=False), time.time()),
+                )
+        except Exception as e:
+            logging.error(f"保存任务数据库失败: {e}")
 
 
 def _decode_json_value(value):

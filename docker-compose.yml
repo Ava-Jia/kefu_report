@@ -13,6 +13,7 @@ services:
       - analyze_summary_data:/app/analyze_summary
       - knowledge_data:/app/knowledge
       - logs_data:/app/logs
+      - company_data:/app/data
     restart: unless-stopped
 
   web:

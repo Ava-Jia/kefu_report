@@ -6,6 +6,8 @@ services:
       dockerfile: Dockerfile
     env_file:
       - .env
+    environment:
+      TZ: Asia/Shanghai
     volumes:
       - reports_data:/app/reports
       - analyze_summary_data:/app/analyze_summary

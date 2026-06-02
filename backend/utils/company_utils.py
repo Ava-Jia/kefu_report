@@ -4,6 +4,7 @@ import json
 import logging
 import threading
 import requests
+import time
 from datetime import date
 from pathlib import Path
 from urllib.parse import urljoin
@@ -419,32 +420,42 @@ def save_failure_xlsx(task_id: str, query_names: list[str], message: str) -> tup
 
 
 def do_search(task_id: str, names: list) -> None:
-    """后台调用 OpenCorporates 检索接口，并把结果写入任务状态和 CSV。"""
-    url=os.getenv("SEARCH_URL", "")
-    # url = "http://127.0.0.1:8081/openCorporates/search"
-    try:
-        response = requests.post(url, json={"company_name_list": names}, timeout=600)
-        # response.raise_for_status()
-        result = response.json()
-        logging.info(f"检索结果:\n{json.dumps(result, ensure_ascii=False, indent=2)}")
+    """后台调用 OpenCorporates 检索接口，并把结果写入任务状态和 XLSX。"""
+    url = os.getenv("SEARCH_URL", "")
 
-        inner = _extract_result_payload(result)
-        xlsx_path, summary, result_data = save_to_xlsx(inner, task_id, names)
-        set_task(
-            task_id,
-            {
-                "status": "done",
-                "file": str(xlsx_path),
-                "summary": summary,
-                "data": result_data,
-                "names": names,
-            },
-        )
+    logging.info(
+        f"开始检索，任务ID: {task_id}, 待查公司数量: {len(names)}"
+    )
 
-    except Exception as e:
-        logging.error(f"检索失败: {e}")
+    max_retries = 3
+    retry_interval = 5  # 秒
+
+    last_error = None
+
+    for attempt in range(1, max_retries + 1):
         try:
-            xlsx_path, summary, result_data = save_failure_xlsx(task_id, names, str(e))
+            logging.info(
+                f"开始请求检索服务，第 {attempt}/{max_retries} 次尝试"
+            )
+            response = requests.post(
+                url,
+                json={"company_name_list": names},
+                timeout=36000
+            )
+            response.raise_for_status()
+            result = response.json()
+            logging.info(
+                f"检索成功，第 {attempt} 次尝试成功"
+            )
+            logging.info(
+                f"检索结果:\n{json.dumps(result, ensure_ascii=False, indent=2)}"
+            )
+            inner = _extract_result_payload(result)
+            xlsx_path, summary, result_data = save_to_xlsx(
+                inner,
+                task_id,
+                names
+            )
             set_task(
                 task_id,
                 {
@@ -453,13 +464,39 @@ def do_search(task_id: str, names: list) -> None:
                     "summary": summary,
                     "data": result_data,
                     "names": names,
-                    "message": f"检索完成，但全部失败: {e}",
                 },
             )
-        except Exception as write_error:
-            logging.error(f"保存失败明细 CSV 失败: {write_error}")
-            set_task(task_id, {"status": "error", "message": str(e)})
-
+            return
+        except Exception as e:
+            last_error = e
+            logging.exception(
+                f"第 {attempt}/{max_retries} 次检索失败: {e}"
+            )
+            if attempt < max_retries:
+                logging.info(
+                    f"{retry_interval} 秒后开始重试..."
+                )
+                time.sleep(retry_interval)
+    # 三次都失败
+    logging.error(
+        f"检索最终失败，任务ID={task_id}，错误={last_error}"
+    )
+    xlsx_path, summary, result_data = save_failure_xlsx(
+        task_id,
+        names,
+        str(last_error)
+    )
+    set_task(
+        task_id,
+        {
+            "status": "done",
+            "file": str(xlsx_path),
+            "summary": summary,
+            "data": result_data,
+            "names": names,
+            "message": f"检索失败，已重试 {max_retries} 次: {last_error}",
+        },
+    )
 
 
 

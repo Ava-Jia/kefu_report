@@ -12,6 +12,7 @@ from utils.company_utils import (
     list_tasks,
     set_task,
     do_search,
+    clean_company_names,
     normalize_company_href,
 )
 
@@ -68,7 +69,7 @@ def _summarize_result_rows(data: dict) -> dict:
 @bp.route("/companys/search", methods=["GET"])
 def company_search():
     """异步检索，立即返回 task_id"""
-    names = request.args.getlist("name")
+    names = clean_company_names("\n".join(request.args.getlist("name")))
     if not names:
         return jsonify({"success": False, "message": "请提供公司名称"}), 400
 

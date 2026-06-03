@@ -1,4 +1,5 @@
 import os
+import re
 import csv
 import json
 import logging
@@ -482,6 +483,23 @@ def save_failure_xlsx(task_id: str, query_names: list[str], message: str) -> tup
     data = {name: {"status": "error", "message": message} for name in query_names}
     return save_to_xlsx(data, task_id, query_names)
 
+# 用户输入进行清洗
+def clean_company_names(text: str) -> list[str]:
+    result = []
+    for line in text.splitlines():
+        # 去首尾空白
+        line = line.strip()
+        # 去掉首尾连续双引号
+        line = re.sub(r'^"+|"+$', '', line)
+        # 再 trim 一次
+        line = line.strip()
+        # 合并多个空格
+        line = re.sub(r'\s+', ' ', line)
+        # 跳过空行
+        if not line:
+            continue
+        result.append(line)
+    return result
 
 def do_search(task_id: str, names: list) -> None:
     """后台调用 OpenCorporates 检索接口，并把结果写入任务状态和 XLSX。"""

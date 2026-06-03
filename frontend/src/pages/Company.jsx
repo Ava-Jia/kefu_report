@@ -37,7 +37,16 @@ export default function CompanySearch() {
   }, [tasks]);
 
   const getCompanyNames = () =>
-    multiText.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+    multiText
+      .split(/\r?\n/)
+      .map((line) =>
+        line
+          .trim()
+          .replace(/^"+|"+$/g, "")
+          .trim()
+          .replace(/\s+/g, " ")
+      )
+      .filter(Boolean);
 
   const formatTaskTime = (timestamp) => {
     if (!timestamp) return "";

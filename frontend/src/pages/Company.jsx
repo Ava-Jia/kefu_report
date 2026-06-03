@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Input, Button, Card, Tag, Space, Table,
-  Drawer, List, Badge, message, Tooltip
+  List, Badge, message, Tooltip, Modal, Empty
 } from "antd";
 import {
   SearchOutlined, DownloadOutlined,
@@ -12,10 +12,10 @@ import {
   searchCompany,
   checkCompanyResult,
   fetchCompanyTasks,
-  downloadCompanyCSV,
+  downloadCompanyXlsx,
 } from "../api.js";
 
-const DEFAULT_INPUT_ROW_COUNT = 8;
+const DEFAULT_INPUT_ROW_COUNT = 5;
 let companyInputRowId = 0;
 
 const createCompanyRow = (name = "") => ({
@@ -33,6 +33,9 @@ const cleanCompanyName = (value) =>
     .trim()
     .replace(/\s+/g, " ");
 
+const cleanSearchName = (value) =>
+  String(value || "").trim().replace(/\s+/g, " ");
+
 const parseCompanyPaste = (text) =>
   String(text || "")
     .split(/\r?\n/)
@@ -42,49 +45,131 @@ const parseCompanyPaste = (text) =>
     })
     .filter(Boolean);
 
+const DONE_STATUSES = new Set(["done", "completed", "complete", "success", "succeeded"]);
+const ERROR_STATUSES = new Set(["error", "failed", "fail", "failure", "cancelled", "canceled"]);
+
+const parseJsonValue = (value) => {
+  let current = value;
+  for (let i = 0; i < 2 && typeof current === "string"; i += 1) {
+    try {
+      current = JSON.parse(current);
+    } catch {
+      return value;
+    }
+  }
+  return current;
+};
+
+const normalizeTaskStatus = (status) => {
+  const value = String(status || "pending").trim().toLowerCase();
+  if (DONE_STATUSES.has(value)) return "done";
+  if (ERROR_STATUSES.has(value)) return "error";
+  return "pending";
+};
+
+const extractTaskList = (response) => {
+  const payload = response?.data ?? response;
+  const candidates = [
+    response?.tasks,
+    payload?.tasks,
+    payload?.data,
+    payload?.data?.tasks,
+    payload?.items,
+    payload?.results,
+    payload,
+  ];
+
+  return candidates.find(Array.isArray) || [];
+};
+
 export default function CompanySearch() {
   const [companyRows, setCompanyRows] = useState(() =>
     createCompanyRows(DEFAULT_INPUT_ROW_COUNT)
   );
   const [submitting, setSubmitting] = useState(false);
   const [loadingAllTasks, setLoadingAllTasks] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [searchNameModalOpen, setSearchNameModalOpen] = useState(false);
+  const [searchNameInput, setSearchNameInput] = useState("");
+  const [pendingCompanyNames, setPendingCompanyNames] = useState([]);
+  const [taskPage, setTaskPage] = useState(1);
+  const [taskPageSize, setTaskPageSize] = useState(10);
   const [tasks, setTasks] = useState(() => {
-  try {
-    const saved = localStorage.getItem("company_tasks");
-    return saved ? JSON.parse(saved) : [];
-  } catch {
-    return [];
-  }
-});
+    try {
+      const saved = localStorage.getItem("company_tasks");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const pollingRef = useRef(null);
   const tasksRef = useRef(tasks);
+  const taskListRef = useRef(null);
 
   // 保持 tasksRef 和 tasks 同步，避免闭包拿到旧值
   useEffect(() => {
-    tasksRef.current = tasks; 
+    tasksRef.current = tasks;
     localStorage.setItem("company_tasks", JSON.stringify(tasks));
   }, [tasks]);
 
   const getCompanyNames = () =>
     companyRows.map((row) => cleanCompanyName(row.name)).filter(Boolean);
 
-  const formatTaskTime = (timestamp) => {
-    if (!timestamp) return "";
-    const date = new Date(timestamp * 1000);
+  const scrollTaskListIntoView = useCallback(() => {
+    taskListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const formatTaskTime = (value) => {
+    if (!value) return "";
+    const numericValue = Number(value);
+    const date = Number.isFinite(numericValue)
+      ? new Date(numericValue < 100000000000 ? numericValue * 1000 : numericValue)
+      : new Date(value);
     if (Number.isNaN(date.getTime())) return "";
     return date.toLocaleString();
   };
 
-  const normalizeTask = (task) => ({
-    taskId: task.taskId || task.task_id,
-    names: Array.isArray(task.names) ? task.names : [],
-    status: task.status || "pending",
-    summary: task.summary,
-    message: task.message,
-    downloadable: task.downloadable,
-    createdAt: task.createdAt || formatTaskTime(task.updated_at),
-  });
+  const getTaskNames = (task) => {
+    const inputData = parseJsonValue(task.input_data) || {};
+    const names =
+      task.names ||
+      task.company_name_list ||
+      task.companyNameList ||
+      inputData.company_name_list ||
+      inputData.names;
+
+    return Array.isArray(names) ? names.map(cleanCompanyName).filter(Boolean) : [];
+  };
+
+  const getTaskSearchName = (task) => {
+    const inputData = parseJsonValue(task.input_data) || {};
+    return cleanSearchName(
+      task.searchName ||
+      task.search_name ||
+      task.searcher_name ||
+      inputData.search_name ||
+      inputData.searcher_name
+    );
+  };
+
+  const normalizeTask = (task) => {
+    const status = normalizeTaskStatus(task.status);
+    const taskId = task.taskId || task.task_id || task.id;
+    const createdAt =
+      task.createdAt ||
+      formatTaskTime(task.created_at || task.create_time || task.updated_at || task.updatedAt);
+
+    return {
+      taskId,
+      names: getTaskNames(task),
+      searchName: getTaskSearchName(task),
+      status,
+      rawStatus: task.status,
+      summary: task.summary,
+      message: task.message || task.error || task.error_message,
+      downloadable: status === "done",
+      createdAt,
+    };
+  };
 
   const updateCompanyRow = (key, name) => {
     setCompanyRows((rows) =>
@@ -160,43 +245,46 @@ export default function CompanySearch() {
   // 先查网络，拿到结果再更新状态
   const pollPendingTasks = useCallback(async () => {
     const pending = tasksRef.current.filter((t) => t.status === "pending");
-     console.log("poll 触发，pending 数量:", pending.length); 
     if (pending.length === 0) return;
 
     await Promise.all(
       pending.map(async (task) => {
         try {
           const res = await checkCompanyResult(task.taskId);
-          if (res.status === "done" || res.status === "error") {
-            setTasks((cur) =>
-              cur.map((t) =>
-                t.taskId === task.taskId
-                  ? {
-                      ...t,
-                      status: res.status,
-                      summary: res.summary,
-                      message: res.message,
-                    }
-                  : t
-              )
-            );
+          if (!res.success) {
+            throw new Error(res.error || res.message);
           }
+          const nextTask = normalizeTask({ ...task, ...(res.task || {}) });
+          setTasks((cur) =>
+            cur.map((t) =>
+              t.taskId === task.taskId
+                ? {
+                    ...t,
+                    ...nextTask,
+                    taskId: t.taskId,
+                    names: nextTask.names.length ? nextTask.names : t.names,
+                    searchName: nextTask.searchName || t.searchName,
+                  }
+                : t
+            )
+          );
         } catch {}
       })
     );
   }, []);
 
-  const handleFetchAllTasks = useCallback(async ({ openDrawer = false } = {}) => {
+  const handleFetchAllTasks = useCallback(async ({ revealList = false } = {}) => {
     setLoadingAllTasks(true);
     try {
       const res = await fetchCompanyTasks();
       if (!res.success) {
-        throw new Error(res.message);
+        throw new Error(res.error || res.message);
       }
-      const nextTasks = (res.tasks || []).map(normalizeTask);
+      const nextTasks = extractTaskList(res).map(normalizeTask).filter((task) => task.taskId);
       setTasks(nextTasks);
-      if (openDrawer) {
-        setDrawerOpen(true);
+      setTaskPage(1);
+      if (revealList) {
+        window.requestAnimationFrame(scrollTaskListIntoView);
       }
       message.success(`已同步 ${nextTasks.length} 个任务`);
     } catch (e) {
@@ -204,7 +292,7 @@ export default function CompanySearch() {
     } finally {
       setLoadingAllTasks(false);
     }
-  }, []);
+  }, [scrollTaskListIntoView]);
 
   // 有 pending 任务时启动轮询，全部完成后自动停止
   useEffect(() => {
@@ -221,27 +309,55 @@ export default function CompanySearch() {
     };
   }, [tasks, pollPendingTasks]);
 
+  useEffect(() => {
+    if (tasks.length === 0) {
+      setTaskPage(1);
+      return;
+    }
+    const maxPage = Math.max(1, Math.ceil(tasks.length / taskPageSize));
+    if (taskPage > maxPage) setTaskPage(maxPage);
+  }, [tasks.length, taskPageSize, taskPage]);
+
   const handleSearch = async () => {
     const companyNames = getCompanyNames();
     if (companyNames.length === 0) {
       message.warning("请至少输入一个公司名称");
       return;
     }
+    setPendingCompanyNames(companyNames);
+    setSearchNameInput("");
+    setSearchNameModalOpen(true);
+  };
+
+  const handleConfirmSearchName = async () => {
+    const searchName = cleanSearchName(searchNameInput);
+    if (!searchName) {
+      message.warning("请输入检索人名称");
+      return;
+    }
+    if (pendingCompanyNames.length === 0) {
+      message.warning("请至少输入一个公司名称");
+      setSearchNameModalOpen(false);
+      return;
+    }
     setSubmitting(true);
     try {
-      const params = companyNames.map((n) => `name=${encodeURIComponent(n)}`).join("&");
-      const res = await searchCompany(params);
-      if (!res.success) throw new Error(res.message);
+      const res = await searchCompany(pendingCompanyNames, searchName);
+      if (!res.success) throw new Error(res.error || res.message);
 
       setTasks((prev) => [
         {
           taskId: res.task_id,
-          names: companyNames,
+          names: res.company_name_list || pendingCompanyNames,
+          searchName: res.search_name || searchName,
           status: "pending",
           createdAt: new Date().toLocaleTimeString(),
         },
         ...prev,
       ]);
+      setTaskPage(1);
+      setSearchNameModalOpen(false);
+      setPendingCompanyNames([]);
       clearCompanyRows();
       message.success("任务已提交，可在任务列表中查看进度");
     } catch (e) {
@@ -253,7 +369,7 @@ export default function CompanySearch() {
 
   const handleDownload = async (taskId) => {
     try {
-      await downloadCompanyCSV(taskId);
+      await downloadCompanyXlsx(taskId);
       message.success("下载成功");
     } catch (e) {
       message.error(e.message || "下载失败");
@@ -262,6 +378,27 @@ export default function CompanySearch() {
 
   const pendingCount = tasks.filter((t) => t.status === "pending").length;
   const searchCount = getCompanyNames().length;
+  const taskPagination = useMemo(
+    () => ({
+      current: taskPage,
+      pageSize: taskPageSize,
+      total: tasks.length,
+      showSizeChanger: true,
+      pageSizeOptions: [5, 10, 20, 50],
+      showTotal: (total) => `共 ${total} 个任务`,
+      hideOnSinglePage: false,
+      selectProps: {
+        showSearch: false,
+        virtual: false,
+      },
+      onChange: (page, pageSize) => {
+        setTaskPage(page);
+        setTaskPageSize(pageSize);
+        window.requestAnimationFrame(scrollTaskListIntoView);
+      },
+    }),
+    [scrollTaskListIntoView, taskPage, taskPageSize, tasks.length]
+  );
   const companyColumns = [
     {
       title: "#",
@@ -307,7 +444,7 @@ export default function CompanySearch() {
           <Space>
             <Button
               icon={<ReloadOutlined />}
-              onClick={() => handleFetchAllTasks({ openDrawer: true })}
+              onClick={() => handleFetchAllTasks({ revealList: true })}
               loading={loadingAllTasks}
             >
               查询全部任务
@@ -315,7 +452,7 @@ export default function CompanySearch() {
             <Badge count={pendingCount} offset={[-4, 4]}>
               <Button
                 icon={<UnorderedListOutlined />}
-                onClick={() => setDrawerOpen(true)}
+                onClick={scrollTaskListIntoView}
               >
                 任务列表 ({tasks.length})
               </Button>
@@ -359,7 +496,7 @@ export default function CompanySearch() {
           pagination={false}
           columns={companyColumns}
           dataSource={companyRows}
-          scroll={{ y: 360 }}
+          scroll={{ y: 250 }}
           style={{ marginBottom: 8 }}
         />
         <div style={{ color: "#999", fontSize: 12 }}>
@@ -367,30 +504,32 @@ export default function CompanySearch() {
         </div>
       </Card>
 
-      <Drawer
-        title="任务列表"
-        placement="right"
-        width={480}
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        extra={
-          <Tooltip title="查询全部任务">
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => handleFetchAllTasks()}
-              loading={loadingAllTasks}
-              size="small"
-            />
-          </Tooltip>
-        }
-      >
-        {tasks.length === 0 ? (
-          <div style={{ color: "#999", textAlign: "center", marginTop: 60 }}>
-            暂无任务，请先提交检索
-          </div>
-        ) : (
+      <div ref={taskListRef} style={{ marginTop: 16 }}>
+        <Card
+          title="任务列表"
+          extra={
+            <Tooltip title="查询全部任务">
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => handleFetchAllTasks({ revealList: true })}
+                loading={loadingAllTasks}
+              >
+                刷新
+              </Button>
+            </Tooltip>
+          }
+        >
           <List
             dataSource={tasks}
+            pagination={tasks.length > 0 ? taskPagination : false}
+            locale={{
+              emptyText: (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="暂无任务，请先提交检索"
+                />
+              ),
+            }}
             renderItem={(task) => (
               <List.Item
                 key={task.taskId}
@@ -408,7 +547,7 @@ export default function CompanySearch() {
               >
                 <List.Item.Meta
                   title={
-                    <Space>
+                    <Space wrap>
                       {task.status === "pending" && <Badge status="processing" text="检索中" />}
                       {task.status === "done" && renderTaskStatus(task)}
                       {task.status === "error" && <Badge status="error" text="失败" />}
@@ -417,6 +556,11 @@ export default function CompanySearch() {
                   }
                   description={
                     <div>
+                      {task.searchName && (
+                        <div style={{ marginBottom: 8 }}>
+                          <Tag color="blue">检索人：{task.searchName}</Tag>
+                        </div>
+                      )}
                       {task.names.slice(0, 3).map((n) => (
                         <Tag key={n} style={{ marginBottom: 4 }}>{n}</Tag>
                       ))}
@@ -441,8 +585,34 @@ export default function CompanySearch() {
               </List.Item>
             )}
           />
-        )}
-      </Drawer>
+        </Card>
+      </div>
+
+      <Modal
+        title="请输入检索人名称"
+        open={searchNameModalOpen}
+        okText="提交检索"
+        cancelText="取消"
+        confirmLoading={submitting}
+        okButtonProps={{ disabled: !cleanSearchName(searchNameInput) }}
+        onOk={handleConfirmSearchName}
+        onCancel={() => {
+          if (submitting) return;
+          setSearchNameModalOpen(false);
+          setPendingCompanyNames([]);
+        }}
+      >
+        <Input
+          value={searchNameInput}
+          placeholder="例如：Qiang"
+          autoFocus
+          onChange={(event) => setSearchNameInput(event.target.value)}
+          onPressEnter={handleConfirmSearchName}
+        />
+        <div style={{ color: "#999", fontSize: 12, marginTop: 8 }}>
+          本次将提交 {pendingCompanyNames.length} 家公司
+        </div>
+      </Modal>
     </div>
   );
 }

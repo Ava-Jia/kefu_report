@@ -24,7 +24,8 @@ def search_companys():
         "company_name_list": [
             "TPD ENTERPRISE INC",
             "ABC COMPANY LLC"
-        ]
+        ],
+        "search_name": "张三"
     }
 
     返回:
@@ -32,7 +33,8 @@ def search_companys():
         "success": true,
         "task_id": "...",
         "message": "OpenCorporates查询任务已创建",
-        "company_name_list": [...]
+        "company_name_list": [...],
+        "search_name": "张三"
     }
     """
     try:
@@ -41,6 +43,9 @@ def search_companys():
         company_name_list = normalize_company_name_list(
             data.get("company_name_list")
         )
+        search_name = str(
+            data.get("search_name") or ""
+        ).strip()
 
         if not company_name_list:
             return jsonify({
@@ -48,13 +53,20 @@ def search_companys():
                 "error": "company_name_list不能为空，并且必须是数组"
             }), 400
 
-        result = submit_open_corporates_task(company_name_list)
+        if not search_name:
+            return jsonify({
+                "success": False,
+                "error": "search_name不能为空"
+            }), 400
+
+        result = submit_open_corporates_task(company_name_list, search_name)
 
         return jsonify({
             "success": True,
             "task_id": result.get("task_id"),
             "message": result.get("message"),
             "company_name_list": company_name_list,
+            "search_name": result.get("search_name") or search_name,
         })
 
     except requests.Timeout:

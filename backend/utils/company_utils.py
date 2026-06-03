@@ -98,7 +98,7 @@ def _get_system_a_base_url() -> str:
     return SYSTEM_A_BASE_URL
 
 
-def submit_open_corporates_task(company_name_list: list[str]) -> dict:
+def submit_open_corporates_task(company_name_list: list[str], search_name: str) -> dict:
     """
     提交 OpenCorporates 异步任务到系统A。
 
@@ -116,7 +116,10 @@ def submit_open_corporates_task(company_name_list: list[str]) -> dict:
 
     response = requests.post(
         f"{base_url}/openCorporates/search/async",
-        json={"company_name_list": company_name_list},
+        json={
+            "company_name_list": company_name_list,
+            "search_name": search_name,
+        },
         timeout=REQUEST_TIMEOUT,
     )
     response.raise_for_status()

@@ -9,8 +9,10 @@ from utils.company_utils import (
     FINAL_STATUS_PENDING,
     FINAL_STATUS_WHITELIST,
     get_task,
+    list_tasks,
     set_task,
     do_search,
+    clean_company_names,
     normalize_company_href,
 )
 
@@ -67,7 +69,7 @@ def _summarize_result_rows(data: dict) -> dict:
 @bp.route("/companys/search", methods=["GET"])
 def company_search():
     """异步检索，立即返回 task_id"""
-    names = request.args.getlist("name")
+    names = clean_company_names("\n".join(request.args.getlist("name")))
     if not names:
         return jsonify({"success": False, "message": "请提供公司名称"}), 400
 
@@ -80,6 +82,13 @@ def company_search():
     thread.start()
 
     return jsonify({"success": True, "task_id": task_id})
+
+
+@bp.route("/companys/tasks", methods=["GET"])
+def company_tasks():
+    """查询 SQLite 中全部公司检索任务摘要。"""
+    limit = request.args.get("limit", default=200, type=int)
+    return jsonify({"success": True, "tasks": list_tasks(limit)})
 
 
 @bp.route("/companys/result/<task_id>", methods=["GET"])

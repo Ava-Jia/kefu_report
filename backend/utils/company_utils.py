@@ -1,28 +1,40 @@
 import os
-import csv
+import re
 import json
 import logging
-import sqlite3
-import threading
 import requests
-import time
 from datetime import date
 from pathlib import Path
 from urllib.parse import urljoin
+
 from dotenv import load_dotenv
 from openpyxl import Workbook
 from openpyxl.styles import Font
 
-load_dotenv()
-CSV_DIR = Path("data/company_results")
-CSV_DIR.mkdir(parents=True, exist_ok=True)
 
-TASK_DB = Path("data/tasks.db")
-TASK_DB.parent.mkdir(parents=True, exist_ok=True)
+load_dotenv()
+
+# =========================
+# 基础配置
+# =========================
+
+EXPORT_DIR = Path("data/company_results")
+EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 OPEN_CORPORATES_BASE_URL = "https://opencorporates.com/"
 
-CSV_FIELDNAMES = [
+# 系统A地址，例如：
+# OPEN_CORPORATES_API_BASE_URL=http://127.0.0.1:8081
+SYSTEM_A_BASE_URL = os.getenv("OPEN_CORPORATES_API_BASE_URL", "").rstrip("/")
+
+REQUEST_TIMEOUT = int(os.getenv("OPEN_CORPORATES_REQUEST_TIMEOUT", "30"))
+
+
+# =========================
+# XLSX 字段配置
+# =========================
+
+XLSX_FIELDNAMES = [
     "query_name",
     "final_status",
     "search_status",
@@ -33,7 +45,7 @@ CSV_FIELDNAMES = [
     "company_href",
 ]
 
-CSV_HEADER_LABELS = {
+XLSX_HEADER_LABELS = {
     "query_name": "待查list_name",
     "final_status": "最终判定",
     "search_status": "检索状态",
@@ -75,66 +87,142 @@ MONTH_NUMBERS = {
     "december": 12,
 }
 
-task_lock = threading.Lock()
+
+# =========================
+# 系统A接口调用
+# =========================
+
+def _get_system_a_base_url() -> str:
+    if not SYSTEM_A_BASE_URL:
+        raise ValueError("缺少环境变量 OPEN_CORPORATES_API_BASE_URL")
+    return SYSTEM_A_BASE_URL
 
 
-def _connect_task_db():
-    conn = sqlite3.connect(TASK_DB, timeout=30)
-    conn.execute("PRAGMA busy_timeout = 30000")
-    conn.execute("PRAGMA journal_mode = WAL")
-    return conn
+def submit_open_corporates_task(company_name_list: list[str], search_name: str) -> dict:
+    """
+    提交 OpenCorporates 异步任务到系统A。
+
+    调用系统A：
+    POST /openCorporates/search/async
+
+    返回示例：
+    {
+        "success": true,
+        "task_id": "...",
+        "message": "OpenCorporates查询任务已创建"
+    }
+    """
+    base_url = _get_system_a_base_url()
+
+    response = requests.post(
+        f"{base_url}/openCorporates/search/async",
+        json={
+            "company_name_list": company_name_list,
+            "search_name": search_name,
+        },
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+
+    payload = response.json()
+    task_id = payload.get("task_id")
+
+    if not task_id:
+        raise ValueError(f"系统A未返回 task_id: {payload}")
+
+    return payload
 
 
-def _init_task_db() -> None:
-    with _connect_task_db() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS company_tasks (
-                task_id TEXT PRIMARY KEY,
-                payload TEXT NOT NULL,
-                updated_at REAL NOT NULL
-            )
-            """
-        )
+def get_open_corporates_task(task_id: str) -> dict:
+    """
+    查询系统A中的单个 OpenCorporates 任务详情。
+
+    调用系统A：
+    GET /openCorporates/task/{task_id}
+    """
+    base_url = _get_system_a_base_url()
+
+    response = requests.get(
+        f"{base_url}/openCorporates/task/{task_id}",
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
-_init_task_db()
+def list_open_corporates_tasks(limit: int = 100, offset: int = 0) -> dict:
+    """
+    查询系统A中的 OpenCorporates 历史任务列表。
+
+    调用系统A：
+    GET /openCorporates/tasks?limit=100&offset=0
+    """
+    base_url = _get_system_a_base_url()
+
+    response = requests.get(
+        f"{base_url}/openCorporates/tasks",
+        params={
+            "limit": limit,
+            "offset": offset,
+        },
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
-def get_task(task_id: str) -> dict | None:
-    """根据任务 ID 获取当前任务状态。"""
-    try:
-        with _connect_task_db() as conn:
-            row = conn.execute(
-                "SELECT payload FROM company_tasks WHERE task_id = ?",
-                (task_id,),
-            ).fetchone()
-        return json.loads(row[0]) if row else None
-    except Exception as e:
-        logging.error(f"读取任务数据库失败: {e}")
-        return None
+# =========================
+# 输入清洗
+# =========================
 
-def set_task(task_id: str, value: dict) -> None:
-    """线程安全地更新任务状态，并立即持久化。"""
-    with task_lock:
-        try:
-            with _connect_task_db() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO company_tasks (task_id, payload, updated_at)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(task_id) DO UPDATE SET
-                        payload = excluded.payload,
-                        updated_at = excluded.updated_at
-                    """,
-                    (task_id, json.dumps(value, ensure_ascii=False), time.time()),
-                )
-        except Exception as e:
-            logging.error(f"保存任务数据库失败: {e}")
+def clean_company_names(text: str) -> list[str]:
+    """
+    清洗用户输入的公司名。
+    支持用户一行一个公司名。
+    """
+    result = []
 
+    for line in text.splitlines():
+        line = line.strip()
+        line = re.sub(r'^"+|"+$', "", line)
+        line = line.strip()
+        line = re.sub(r"\s+", " ", line)
+
+        if not line:
+            continue
+
+        result.append(line)
+
+    return result
+
+
+def normalize_company_name_list(company_name_list) -> list[str]:
+    """
+    清洗 API 传入的公司名数组。
+    """
+    if not isinstance(company_name_list, list):
+        return []
+
+    return [
+        str(name).strip()
+        for name in company_name_list
+        if isinstance(name, str) and name.strip()
+    ]
+
+
+# =========================
+# 系统A结果解析
+# =========================
 
 def _decode_json_value(value):
-    """递归解析接口返回的 JSON 字符串，直到得到 Python 对象。"""
+    """
+    递归解析 JSON 字符串，直到得到 Python 对象。
+
+    兼容这些情况：
+    1. dict
+    2. JSON string
+    3. JSON string inside JSON string
+    """
     while isinstance(value, str):
         text = value.strip()
         if not text:
@@ -143,30 +231,80 @@ def _decode_json_value(value):
     return value
 
 
-def _extract_result_payload(response_payload):
-    """从接口响应中提取 query_name 到检索记录列表的结果对象。"""
-    payload = _decode_json_value(response_payload)
-    if isinstance(payload, dict) and "result" in payload:
-        payload = _decode_json_value(payload["result"])
-    if not isinstance(payload, dict):
-        raise ValueError("检索结果格式错误：应为 query_name -> records 的对象")
-    return payload
+def extract_company_result_from_task(task_payload: dict) -> dict:
+    """
+    从系统A任务详情中提取真正的 OpenCorporates 检索结果。
 
+    系统A返回格式通常是：
+    {
+        "status": "completed",
+        "result": {
+            "success": true,
+            "result": {
+                "TPD ENTERPRISE INC": [...]
+            },
+            "error": null
+        }
+    }
+
+    最终返回：
+    {
+        "TPD ENTERPRISE INC": [...]
+    }
+    """
+    if not isinstance(task_payload, dict):
+        raise ValueError("任务详情格式错误")
+
+    status = task_payload.get("status")
+
+    if status != "completed":
+        raise ValueError(f"任务尚未完成，当前状态: {status}")
+
+    result_wrapper = task_payload.get("result") or {}
+    result_wrapper = _decode_json_value(result_wrapper)
+
+    if not isinstance(result_wrapper, dict):
+        raise ValueError("任务 result 格式错误")
+
+    if result_wrapper.get("success") is False:
+        raise ValueError(result_wrapper.get("error") or "OpenCorporates任务执行失败")
+
+    result_data = result_wrapper.get("result") or {}
+    result_data = _decode_json_value(result_data)
+
+    if not isinstance(result_data, dict):
+        raise ValueError("OpenCorporates结果格式错误，应为 query_name -> records 的对象")
+
+    return result_data
+
+
+# =========================
+# 结果清洗与判定
+# =========================
 
 def _looks_like_failure(record: dict) -> str:
-    """判断单条接口记录是否表示失败，失败时返回错误信息。"""
+    """
+    判断单条接口记录是否表示失败。
+    如果失败，返回错误信息；否则返回空字符串。
+    """
     status = str(record.get("status") or record.get("search_status") or "").strip().lower()
+
     if status in {"error", "failed", "fail", "失败", "检索失败"}:
         return str(record.get("message") or record.get("error") or "检索失败").strip()
+
     if record.get("success") is False:
         return str(record.get("message") or record.get("error") or "检索失败").strip()
+
     if record.get("error"):
         return str(record.get("error")).strip()
+
     return ""
 
 
 def _empty_row(query_name: str, search_status: str, final_status: str = "") -> dict:
-    """生成一行只有查询名称和检索状态的占位结果。"""
+    """
+    生成一行占位结果。
+    """
     return {
         "query_name": query_name,
         "final_status": final_status,
@@ -175,42 +313,79 @@ def _empty_row(query_name: str, search_status: str, final_status: str = "") -> d
 
 
 def _normalize_company_name(name) -> str:
-    """归一化公司名：去掉常见符号和空格，并统一转为大写。"""
+    """
+    归一化公司名：去掉常见符号和空格，并统一转为大写。
+    """
     chars_to_remove = " -.,'&"
-    return str(name or "").translate(str.maketrans("", "", chars_to_remove)).upper()
+    return str(name or "").translate(
+        str.maketrans("", "", chars_to_remove)
+    ).upper()
 
 
 def _is_same_company_name(query_name: str, company_name) -> bool:
-    """比较待查名称和检索结果公司名归一化后是否完全一致。"""
+    """
+    判断待查公司名和检索结果公司名是否完全一致。
+    """
     normalized_query = _normalize_company_name(query_name)
     normalized_company = _normalize_company_name(company_name)
-    return bool(normalized_query and normalized_company and normalized_query == normalized_company)
+
+    return bool(
+        normalized_query
+        and normalized_company
+        and normalized_query == normalized_company
+    )
 
 
 def normalize_company_href(href) -> str:
-    """补全 OpenCorporates 公司链接的主域名。"""
+    """
+    补全 OpenCorporates 公司链接。
+    """
     text = str(href or "").strip()
+
     if not text:
         return ""
+
     lower_text = text.lower()
+
     if lower_text.startswith(("http://", "https://")):
         return text
+
     if text.startswith("//"):
         return f"https:{text}"
+
     if lower_text.startswith("opencorporates.com/"):
         return f"https://{text}"
+
     return urljoin(OPEN_CORPORATES_BASE_URL, text)
 
 
 def _is_inactive_company_status(company_status) -> bool:
-    """判断公司状态是否为 inactive / inactivate。"""
+    """
+    判断公司状态是否为 inactive / inactivate。
+    """
     status = str(company_status or "").strip().lower()
-    return status in {"inactive", "inactivate"} or status.startswith(("inactive ", "inactivate "))
+
+    return (
+        status in {"inactive", "inactivate"}
+        or status.startswith(("inactive ", "inactivate "))
+    )
+
+
+def _normalize_year(year_text: str) -> int:
+    year = int(year_text)
+
+    if year < 100:
+        return 2000 + year if year <= 68 else 1900 + year
+
+    return year
 
 
 def _parse_start_date(company_start_date) -> date | None:
-    """解析 OpenCorporates 常见注册时间格式，用于多结果合并时取最早记录。"""
+    """
+    解析 OpenCorporates 常见注册时间格式，用于多结果合并时取最早记录。
+    """
     text = str(company_start_date or "").strip()
+
     if not text:
         return None
 
@@ -219,6 +394,7 @@ def _parse_start_date(company_start_date) -> date | None:
         for part in text.replace("-", " ").replace("/", " ").split()
         if part.strip(".,")
     ]
+
     if len(parts) < 3:
         return None
 
@@ -227,40 +403,44 @@ def _parse_start_date(company_start_date) -> date | None:
             day = int(parts[0])
             month = MONTH_NUMBERS[parts[1].lower()]
             year = _normalize_year(parts[2])
+
         elif parts[0].isdigit() and len(parts[0]) == 4 and parts[1].lower() in MONTH_NUMBERS:
             year = _normalize_year(parts[0])
             month = MONTH_NUMBERS[parts[1].lower()]
             day = int(parts[2])
+
         elif parts[0].isdigit() and len(parts[0]) == 4 and parts[1].isdigit() and parts[2].isdigit():
             year = _normalize_year(parts[0])
             month = int(parts[1])
             day = int(parts[2])
+
         else:
             return None
+
         return date(year, month, day)
+
     except (TypeError, ValueError):
         return None
 
 
-def _normalize_year(year_text: str) -> int:
-    year = int(year_text)
-    if year < 100:
-        return 2000 + year if year <= 68 else 1900 + year
-    return year
-
-
 def _select_final_record(records: list[dict]) -> dict:
-    """多条命中结果合并为一条：优先有地址，再取注册时间最早的记录。"""
+    """
+    多条命中结果合并为一条：
+    1. 优先选择有地址的记录
+    2. 再选择注册时间最早的记录
+    """
     records_with_address = [
         record
         for record in records
         if str(record.get("company_address") or "").strip()
     ]
+
     candidates = records_with_address or records
 
     def sort_key(indexed_record):
         index, record = indexed_record
         start_date = _parse_start_date(record.get("company_start_date"))
+
         return (
             0 if start_date else 1,
             start_date or date.max,
@@ -271,17 +451,31 @@ def _select_final_record(records: list[dict]) -> dict:
 
 
 def _final_row_from_record(query_name: str, record: dict, final_status: str) -> dict:
-    """把命中的公司记录收敛为最终 CSV 的单行结果。"""
+    """
+    把命中的公司记录收敛为最终 XLSX 的单行结果。
+    """
     row = dict(record)
+
     row["query_name"] = query_name
     row["final_status"] = final_status
     row["search_status"] = row.get("search_status") or "检索成功"
     row["company_href"] = normalize_company_href(row.get("company_href"))
+
     return row
 
 
 def _rows_for_query(query_name: str, records) -> tuple[list[dict], str]:
-    """清洗单个查询名对应的检索记录，并返回可写入 CSV 的行和汇总状态。"""
+    """
+    清洗单个 query_name 的检索记录。
+    返回：
+    (
+        rows,
+        query_status
+    )
+
+    query_status 只会是：
+    success / failed / no_result
+    """
     if records is None or records == []:
         return [_empty_row(query_name, "检索无结果", FINAL_STATUS_BLACKLIST)], "no_result"
 
@@ -290,8 +484,10 @@ def _rows_for_query(query_name: str, records) -> tuple[list[dict], str]:
 
     if isinstance(records, dict):
         failure_message = _looks_like_failure(records)
+
         if failure_message:
             return [_empty_row(query_name, f"检索失败: {failure_message}", FINAL_STATUS_PENDING)], "failed"
+
         records = [records]
 
     if not isinstance(records, list):
@@ -299,16 +495,18 @@ def _rows_for_query(query_name: str, records) -> tuple[list[dict], str]:
 
     matched_records = []
     failure_messages = []
+
     for record in records:
         if not isinstance(record, dict):
             failure_messages.append("结果格式异常")
             continue
 
         failure_message = _looks_like_failure(record)
+
         if failure_message:
             failure_messages.append(failure_message)
             continue
-        logging.debug(f"正在清洗检索噪声")
+
         if not _is_same_company_name(query_name, record.get("company_name")):
             continue
 
@@ -320,6 +518,7 @@ def _rows_for_query(query_name: str, records) -> tuple[list[dict], str]:
             for record in matched_records
             if not _is_inactive_company_status(record.get("company_status"))
         ]
+
         if active_records:
             return [
                 _final_row_from_record(
@@ -328,6 +527,7 @@ def _rows_for_query(query_name: str, records) -> tuple[list[dict], str]:
                     FINAL_STATUS_WHITELIST,
                 )
             ], "success"
+
         return [
             _final_row_from_record(
                 query_name,
@@ -337,19 +537,33 @@ def _rows_for_query(query_name: str, records) -> tuple[list[dict], str]:
         ], "success"
 
     if failure_messages:
-        message = "; ".join(dict.fromkeys(str(msg).strip() for msg in failure_messages if str(msg).strip()))
+        message = "; ".join(
+            dict.fromkeys(
+                str(msg).strip()
+                for msg in failure_messages
+                if str(msg).strip()
+            )
+        )
+
         return [
-            _empty_row(query_name, f"检索失败: {message or '系统原因'}", FINAL_STATUS_PENDING)
+            _empty_row(
+                query_name,
+                f"检索失败: {message or '系统原因'}",
+                FINAL_STATUS_PENDING,
+            )
         ], "failed"
 
     return [_empty_row(query_name, "检索无精确匹配结果", FINAL_STATUS_BLACKLIST)], "no_result"
 
 
 def _build_summary(total: int, counts: dict) -> dict:
-    """根据成功、失败、无结果数量生成前端展示用的任务汇总。"""
+    """
+    生成前端展示用汇总。
+    """
     failed = counts["failed"]
     no_result = counts["no_result"]
     success = counts["success"]
+
     return {
         "total": total,
         "success": success,
@@ -361,38 +575,31 @@ def _build_summary(total: int, counts: dict) -> dict:
     }
 
 
-def save_to_csv(data: dict, task_id: str, query_names: list[str] | None = None) -> tuple[Path, dict]:
-    """将检索结果清洗后保存为 CSV，并返回文件路径和汇总信息。"""
-    csv_path = CSV_DIR / f"{task_id}.csv"
-    counts = {"success": 0, "failed": 0, "no_result": 0}
-    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES, extrasaction="ignore")
-        writer.writerow(CSV_HEADER_LABELS)
-        ordered_query_names = list(query_names or data.keys())
-        ordered_query_names.extend(k for k in data.keys() if k not in ordered_query_names)
-
-        for query_name in ordered_query_names:
-            rows, query_status = _rows_for_query(query_name, data.get(query_name))
-            counts[query_status] += 1
-            for row in rows:
-                writer.writerow(row)
-    return csv_path, _build_summary(len(ordered_query_names), counts)
-
-
-def save_failure_csv(task_id: str, query_names: list[str], message: str) -> tuple[Path, dict]:
-    """整批请求失败时生成可下载的失败明细 CSV。"""
-    data = {name: {"status": "error", "message": message} for name in query_names}
-    return save_to_csv(data, task_id, query_names)
-
-
 def build_result_rows(data: dict, query_names: list[str] | None = None) -> tuple[list[dict], dict]:
-    counts = {"success": 0, "failed": 0, "no_result": 0}
+    """
+    把系统A原始结果清洗成可写入 XLSX 的 rows。
+    """
+    counts = {
+        "success": 0,
+        "failed": 0,
+        "no_result": 0,
+    }
+
     rows = []
+
     ordered_query_names = list(query_names or data.keys())
-    ordered_query_names.extend(k for k in data.keys() if k not in ordered_query_names)
+    ordered_query_names.extend(
+        key
+        for key in data.keys()
+        if key not in ordered_query_names
+    )
 
     for query_name in ordered_query_names:
-        query_rows, query_status = _rows_for_query(query_name, data.get(query_name))
+        query_rows, query_status = _rows_for_query(
+            query_name,
+            data.get(query_name),
+        )
+
         counts[query_status] += 1
         rows.extend(query_rows)
 
@@ -400,118 +607,101 @@ def build_result_rows(data: dict, query_names: list[str] | None = None) -> tuple
 
 
 def group_result_rows(rows: list[dict]) -> dict:
+    """
+    按 query_name 分组，方便前端展示。
+    """
     grouped = {}
+
     for row in rows:
         name = row.get("query_name") or row.get("company_name") or "unknown"
         grouped.setdefault(name, []).append(row)
+
     return grouped
 
 
-def save_to_xlsx(data: dict, task_id: str, query_names: list[str] | None = None) -> tuple[Path, dict, dict]:
-    xlsx_path = CSV_DIR / f"{task_id}.xlsx"
+# =========================
+# XLSX 生成
+# =========================
+
+def save_to_xlsx(
+    data: dict,
+    task_id: str,
+    query_names: list[str] | None = None,
+) -> tuple[Path, dict, dict]:
+    """
+    将 OpenCorporates 结果清洗后保存为 XLSX。
+
+    返回：
+    (
+        xlsx_path,
+        summary,
+        grouped_result_data
+    )
+    """
+    xlsx_path = EXPORT_DIR / f"{task_id}.xlsx"
+
     rows, summary = build_result_rows(data, query_names)
 
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "company_results"
 
-    for col_index, field in enumerate(CSV_FIELDNAMES, start=1):
-        cell = sheet.cell(row=1, column=col_index, value=CSV_HEADER_LABELS.get(field, field))
+    for col_index, field in enumerate(XLSX_FIELDNAMES, start=1):
+        cell = sheet.cell(
+            row=1,
+            column=col_index,
+            value=XLSX_HEADER_LABELS.get(field, field),
+        )
         cell.font = Font(bold=True)
         sheet.column_dimensions[cell.column_letter].width = 24
 
     for row_index, row in enumerate(rows, start=2):
-        for col_index, field in enumerate(CSV_FIELDNAMES, start=1):
-            sheet.cell(row=row_index, column=col_index, value=str(row.get(field, "") or ""))
+        for col_index, field in enumerate(XLSX_FIELDNAMES, start=1):
+            sheet.cell(
+                row=row_index,
+                column=col_index,
+                value=str(row.get(field, "") or ""),
+            )
 
     workbook.save(xlsx_path)
+
     return xlsx_path, summary, group_result_rows(rows)
 
 
-def save_failure_xlsx(task_id: str, query_names: list[str], message: str) -> tuple[Path, dict, dict]:
-    data = {name: {"status": "error", "message": message} for name in query_names}
+def save_failure_xlsx(
+    task_id: str,
+    query_names: list[str],
+    message: str,
+) -> tuple[Path, dict, dict]:
+    """
+    整批请求失败时生成失败明细 XLSX。
+    """
+    data = {
+        name: {
+            "status": "error",
+            "message": message,
+        }
+        for name in query_names
+    }
+
     return save_to_xlsx(data, task_id, query_names)
 
 
-def do_search(task_id: str, names: list) -> None:
-    """后台调用 OpenCorporates 检索接口，并把结果写入任务状态和 XLSX。"""
-    url = os.getenv("SEARCH_URL", "")
+def create_xlsx_from_open_corporates_task(task_id: str) -> tuple[Path, dict, dict]:
+    """
+    根据系统A的 task_id 查询结果，并生成 XLSX。
 
-    logging.info(
-        f"开始检索，任务ID: {task_id}, 待查公司数量: {len(names)}"
-    )
+    适合 Flask 下载接口中调用。
+    """
+    task_payload = get_open_corporates_task(task_id)
 
-    max_retries = 3
-    retry_interval = 5  # 秒
+    input_data = task_payload.get("input_data") or {}
+    query_names = input_data.get("company_name_list") or []
 
-    last_error = None
+    company_result = extract_company_result_from_task(task_payload)
 
-    for attempt in range(1, max_retries + 1):
-        try:
-            logging.info(
-                f"开始请求检索服务，第 {attempt}/{max_retries} 次尝试"
-            )
-            response = requests.post(
-                url,
-                json={"company_name_list": names},
-                timeout=36000
-            )
-            response.raise_for_status()
-            result = response.json()
-            logging.info(
-                f"检索成功，第 {attempt} 次尝试成功"
-            )
-            logging.info(
-                f"检索结果:\n{json.dumps(result, ensure_ascii=False, indent=2)}"
-            )
-            inner = _extract_result_payload(result)
-            xlsx_path, summary, result_data = save_to_xlsx(
-                inner,
-                task_id,
-                names
-            )
-            set_task(
-                task_id,
-                {
-                    "status": "done",
-                    "file": str(xlsx_path),
-                    "summary": summary,
-                    "data": result_data,
-                    "names": names,
-                },
-            )
-            return
-        except Exception as e:
-            last_error = e
-            logging.exception(
-                f"第 {attempt}/{max_retries} 次检索失败: {e}"
-            )
-            if attempt < max_retries:
-                logging.info(
-                    f"{retry_interval} 秒后开始重试..."
-                )
-                time.sleep(retry_interval)
-    # 三次都失败
-    logging.error(
-        f"检索最终失败，任务ID={task_id}，错误={last_error}"
-    )
-    xlsx_path, summary, result_data = save_failure_xlsx(
+    return save_to_xlsx(
+        company_result,
         task_id,
-        names,
-        str(last_error)
+        query_names,
     )
-    set_task(
-        task_id,
-        {
-            "status": "done",
-            "file": str(xlsx_path),
-            "summary": summary,
-            "data": result_data,
-            "names": names,
-            "message": f"检索失败，已重试 {max_retries} 次: {last_error}",
-        },
-    )
-
-
-
-    

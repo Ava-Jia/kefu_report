@@ -75,29 +75,61 @@ export async function archiveKnowledgeItem(id) {
   return data;
 }
 
+const unwrapCompanyError = (error) => {
+  if (error.response?.data) {
+    return error.response.data;
+  }
+  throw error;
+};
+
 /** 公司检索 - 异步任务，返回 task_id */
-export const searchCompany = async (params) => {
-  const response = await fetch(`/api/companys/search?${params}`);
-  return response.json();
+export const searchCompany = async (companyNameList, searchName) => {
+  try {
+    const { data } = await client.post("/companys/search", {
+      company_name_list: companyNameList,
+      search_name: searchName,
+    });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
 };
 
 /** 查询检索任务状态 */
 export const checkCompanyResult = async (taskId) => {
-  const response = await fetch(`/api/companys/result/${encodeURIComponent(taskId)}`);
-  return response.json();
+  try {
+    const { data } = await client.get(`/companys/task/${encodeURIComponent(taskId)}`);
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
 };
 
-/** 下载公司检索结果为 CSV */
-export const downloadCompanyCSV = async (taskId) => {
-  const response = await fetch(`/api/companys/download/${encodeURIComponent(taskId)}`);
+/** 查询全部公司检索任务 */
+export const fetchCompanyTasks = async (limit = 200, offset = 0) => {
+  try {
+    const { data } = await client.get("/companys/tasks", {
+      params: { limit, offset },
+    });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
+/** 下载公司检索结果为 XLSX */
+export const downloadCompanyXlsx = async (taskId) => {
+  const response = await fetch(`/api/companys/task/${encodeURIComponent(taskId)}/export-xlsx`);
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
-    throw new Error(err.message || "下载失败");
+    throw new Error(err.error || err.message || "下载失败");
   }
   const blob = await response.blob();
   const disposition = response.headers.get("Content-Disposition") || "";
   const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-  const filename = match ? match[1].replace(/['"]/g, "") : `company_${taskId.slice(0, 8)}.csv`;
+  const filename = match
+    ? match[1].replace(/['"]/g, "")
+    : `open_corporates_${taskId}.xlsx`;
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

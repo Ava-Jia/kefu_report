@@ -114,6 +114,56 @@ def get_task(task_id: str) -> dict | None:
         logging.error(f"读取任务数据库失败: {e}")
         return None
 
+
+def list_tasks(limit: int = 200) -> list[dict]:
+    """从 SQLite 中按更新时间倒序读取任务摘要。"""
+    safe_limit = max(1, min(int(limit or 200), 500))
+    try:
+        with _connect_task_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT task_id, payload, updated_at
+                FROM company_tasks
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+    except Exception as e:
+        logging.error(f"读取任务列表失败: {e}")
+        return []
+
+    tasks = []
+    for task_id, payload_text, updated_at in rows:
+        try:
+            payload = json.loads(payload_text)
+        except Exception as e:
+            logging.error(f"解析任务数据失败 task_id={task_id}: {e}")
+            payload = {
+                "status": "error",
+                "message": "任务数据解析失败",
+                "names": [],
+            }
+
+        names = payload.get("names") or []
+        if not isinstance(names, list):
+            names = [str(names)]
+
+        file_path = payload.get("file")
+        tasks.append(
+            {
+                "task_id": task_id,
+                "status": payload.get("status") or "pending",
+                "names": names,
+                "summary": payload.get("summary"),
+                "message": payload.get("message"),
+                "updated_at": updated_at,
+                "downloadable": bool(file_path) and Path(file_path).exists(),
+            }
+        )
+    return tasks
+
+
 def set_task(task_id: str, value: dict) -> None:
     """线程安全地更新任务状态，并立即持久化。"""
     with task_lock:

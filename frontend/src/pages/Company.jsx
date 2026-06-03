@@ -7,11 +7,17 @@ import {
   SearchOutlined, DownloadOutlined,
   UnorderedListOutlined, ReloadOutlined
 } from "@ant-design/icons";
-import { searchCompany, checkCompanyResult, downloadCompanyCSV } from "../api.js";
+import {
+  searchCompany,
+  checkCompanyResult,
+  fetchCompanyTasks,
+  downloadCompanyCSV,
+} from "../api.js";
 
 export default function CompanySearch() {
   const [multiText, setMultiText] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [loadingAllTasks, setLoadingAllTasks] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [tasks, setTasks] = useState(() => {
   try {
@@ -32,6 +38,23 @@ export default function CompanySearch() {
 
   const getCompanyNames = () =>
     multiText.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+
+  const formatTaskTime = (timestamp) => {
+    if (!timestamp) return "";
+    const date = new Date(timestamp * 1000);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleString();
+  };
+
+  const normalizeTask = (task) => ({
+    taskId: task.taskId || task.task_id,
+    names: Array.isArray(task.names) ? task.names : [],
+    status: task.status || "pending",
+    summary: task.summary,
+    message: task.message,
+    downloadable: task.downloadable,
+    createdAt: task.createdAt || formatTaskTime(task.updated_at),
+  });
 
   const renderTaskStatus = (task) => {
     if (task.status === "pending") {
@@ -80,6 +103,26 @@ export default function CompanySearch() {
         } catch {}
       })
     );
+  }, []);
+
+  const handleFetchAllTasks = useCallback(async ({ openDrawer = false } = {}) => {
+    setLoadingAllTasks(true);
+    try {
+      const res = await fetchCompanyTasks();
+      if (!res.success) {
+        throw new Error(res.message);
+      }
+      const nextTasks = (res.tasks || []).map(normalizeTask);
+      setTasks(nextTasks);
+      if (openDrawer) {
+        setDrawerOpen(true);
+      }
+      message.success(`已同步 ${nextTasks.length} 个任务`);
+    } catch (e) {
+      message.error(e.message || "查询任务失败");
+    } finally {
+      setLoadingAllTasks(false);
+    }
   }, []);
 
   // 有 pending 任务时启动轮询，全部完成后自动停止
@@ -144,14 +187,23 @@ export default function CompanySearch() {
       <Card
         title="公司信息批量检索"
         extra={
-          <Badge count={pendingCount} offset={[-4, 4]}>
+          <Space>
             <Button
-              icon={<UnorderedListOutlined />}
-              onClick={() => setDrawerOpen(true)}
+              icon={<ReloadOutlined />}
+              onClick={() => handleFetchAllTasks({ openDrawer: true })}
+              loading={loadingAllTasks}
             >
-              任务列表 ({tasks.length})
+              查询全部任务
             </Button>
-          </Badge>
+            <Badge count={pendingCount} offset={[-4, 4]}>
+              <Button
+                icon={<UnorderedListOutlined />}
+                onClick={() => setDrawerOpen(true)}
+              >
+                任务列表 ({tasks.length})
+              </Button>
+            </Badge>
+          </Space>
         }
       >
         <div style={{ marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
@@ -186,8 +238,13 @@ export default function CompanySearch() {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         extra={
-          <Tooltip title="手动刷新状态">
-            <Button icon={<ReloadOutlined />} onClick={pollPendingTasks} size="small" />
+          <Tooltip title="查询全部任务">
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => handleFetchAllTasks()}
+              loading={loadingAllTasks}
+              size="small"
+            />
           </Tooltip>
         }
       >
@@ -208,7 +265,7 @@ export default function CompanySearch() {
                       icon={<DownloadOutlined />}
                       onClick={() => handleDownload(task.taskId)}
                     >
-                      下载
+                      下载 XLSX
                     </Button>
                   ),
                 ]}

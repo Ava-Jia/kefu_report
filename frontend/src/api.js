@@ -87,7 +87,13 @@ export const checkCompanyResult = async (taskId) => {
   return response.json();
 };
 
-/** 下载公司检索结果为 CSV */
+/** 查询全部公司检索任务 */
+export const fetchCompanyTasks = async (limit = 200) => {
+  const response = await fetch(`/api/companys/tasks?limit=${encodeURIComponent(limit)}`);
+  return response.json();
+};
+
+/** 下载公司检索结果为 XLSX */
 export const downloadCompanyCSV = async (taskId) => {
   const response = await fetch(`/api/companys/download/${encodeURIComponent(taskId)}`);
   if (!response.ok) {
@@ -97,7 +103,7 @@ export const downloadCompanyCSV = async (taskId) => {
   const blob = await response.blob();
   const disposition = response.headers.get("Content-Disposition") || "";
   const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-  const filename = match ? match[1].replace(/['"]/g, "") : `company_${taskId.slice(0, 8)}.csv`;
+  const filename = match ? match[1].replace(/['"]/g, "") : `company_${taskId.slice(0, 8)}.xlsx`;
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

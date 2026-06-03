@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
-  Input, Button, Card, Tag, Space,
+  Input, Button, Card, Tag, Space, Table,
   Drawer, List, Badge, message, Tooltip
 } from "antd";
 import {
   SearchOutlined, DownloadOutlined,
-  UnorderedListOutlined, ReloadOutlined
+  UnorderedListOutlined, ReloadOutlined,
+  PlusOutlined, DeleteOutlined, ClearOutlined
 } from "@ant-design/icons";
 import {
   searchCompany,
@@ -14,8 +15,37 @@ import {
   downloadCompanyCSV,
 } from "../api.js";
 
+const DEFAULT_INPUT_ROW_COUNT = 8;
+let companyInputRowId = 0;
+
+const createCompanyRow = (name = "") => ({
+  key: `company-input-${companyInputRowId++}`,
+  name,
+});
+
+const createCompanyRows = (count) =>
+  Array.from({ length: count }, () => createCompanyRow());
+
+const cleanCompanyName = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/^"+|"+$/g, "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+const parseCompanyPaste = (text) =>
+  String(text || "")
+    .split(/\r?\n/)
+    .map((line) => {
+      const cells = line.split("\t").map(cleanCompanyName).filter(Boolean);
+      return cells[0] || cleanCompanyName(line);
+    })
+    .filter(Boolean);
+
 export default function CompanySearch() {
-  const [multiText, setMultiText] = useState("");
+  const [companyRows, setCompanyRows] = useState(() =>
+    createCompanyRows(DEFAULT_INPUT_ROW_COUNT)
+  );
   const [submitting, setSubmitting] = useState(false);
   const [loadingAllTasks, setLoadingAllTasks] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -37,16 +67,7 @@ export default function CompanySearch() {
   }, [tasks]);
 
   const getCompanyNames = () =>
-    multiText
-      .split(/\r?\n/)
-      .map((line) =>
-        line
-          .trim()
-          .replace(/^"+|"+$/g, "")
-          .trim()
-          .replace(/\s+/g, " ")
-      )
-      .filter(Boolean);
+    companyRows.map((row) => cleanCompanyName(row.name)).filter(Boolean);
 
   const formatTaskTime = (timestamp) => {
     if (!timestamp) return "";
@@ -64,6 +85,57 @@ export default function CompanySearch() {
     downloadable: task.downloadable,
     createdAt: task.createdAt || formatTaskTime(task.updated_at),
   });
+
+  const updateCompanyRow = (key, name) => {
+    setCompanyRows((rows) =>
+      rows.map((row) => (row.key === key ? { ...row, name } : row))
+    );
+  };
+
+  const addCompanyRows = (count = 1) => {
+    setCompanyRows((rows) => [...rows, ...createCompanyRows(count)]);
+  };
+
+  const removeCompanyRow = (key) => {
+    setCompanyRows((rows) => {
+      const nextRows = rows.filter((row) => row.key !== key);
+      return nextRows.length > 0 ? nextRows : createCompanyRows(1);
+    });
+  };
+
+  const clearCompanyRows = () => {
+    setCompanyRows(createCompanyRows(DEFAULT_INPUT_ROW_COUNT));
+  };
+
+  const fillCompanyRowsFromPaste = (startKey, names) => {
+    setCompanyRows((rows) => {
+      const startIndex = Math.max(
+        rows.findIndex((row) => row.key === startKey),
+        0
+      );
+      const nextRows = [...rows];
+      while (nextRows.length < startIndex + names.length) {
+        nextRows.push(createCompanyRow());
+      }
+      names.forEach((name, offset) => {
+        const rowIndex = startIndex + offset;
+        nextRows[rowIndex] = { ...nextRows[rowIndex], name };
+      });
+      return nextRows;
+    });
+  };
+
+  const handleCompanyPaste = (event, key) => {
+    const pastedText = event.clipboardData?.getData("text") || "";
+    const pastedNames = parseCompanyPaste(pastedText);
+    if (!pastedNames.length || !/[\r\n\t]/.test(pastedText)) {
+      return;
+    }
+
+    event.preventDefault();
+    fillCompanyRowsFromPaste(key, pastedNames);
+    message.success(`已粘贴 ${pastedNames.length} 家公司`);
+  };
 
   const renderTaskStatus = (task) => {
     if (task.status === "pending") {
@@ -170,7 +242,7 @@ export default function CompanySearch() {
         },
         ...prev,
       ]);
-      setMultiText("");
+      clearCompanyRows();
       message.success("任务已提交，可在任务列表中查看进度");
     } catch (e) {
       message.error(e.message || "提交失败");
@@ -190,6 +262,42 @@ export default function CompanySearch() {
 
   const pendingCount = tasks.filter((t) => t.status === "pending").length;
   const searchCount = getCompanyNames().length;
+  const companyColumns = [
+    {
+      title: "#",
+      key: "index",
+      width: 64,
+      align: "center",
+      render: (_, __, index) => index + 1,
+    },
+    {
+      title: "公司名称",
+      dataIndex: "name",
+      render: (_, record) => (
+        <Input
+          value={record.name}
+          placeholder="粘贴或输入公司名称"
+          onChange={(event) => updateCompanyRow(record.key, event.target.value)}
+          onPaste={(event) => handleCompanyPaste(event, record.key)}
+        />
+      ),
+    },
+    {
+      title: "",
+      key: "actions",
+      width: 72,
+      align: "center",
+      render: (_, record) => (
+        <Tooltip title="删除行">
+          <Button
+            type="text"
+            icon={<DeleteOutlined />}
+            onClick={() => removeCompanyRow(record.key)}
+          />
+        </Tooltip>
+      ),
+    },
+  ];
 
   return (
     <div style={{ padding: 24, background: "#f0f2f5", minHeight: "100vh" }}>
@@ -215,8 +323,25 @@ export default function CompanySearch() {
           </Space>
         }
       >
-        <div style={{ marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
-          <span style={{ color: "#666" }}>每行一个公司名称</span>
+        <div
+          style={{
+            marginBottom: 8,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <Space>
+            <span style={{ color: "#666" }}>公司名称表格</span>
+            <Button icon={<PlusOutlined />} onClick={() => addCompanyRows(5)}>
+              新增行
+            </Button>
+            <Button icon={<ClearOutlined />} onClick={clearCompanyRows}>
+              清空
+            </Button>
+          </Space>
           <Button
             type="primary"
             icon={<SearchOutlined />}
@@ -228,12 +353,14 @@ export default function CompanySearch() {
             提交检索 ({searchCount} 家)
           </Button>
         </div>
-        <Input.TextArea
-          rows={6}
-          placeholder={"Tencent Holdings Ltd\nAlibaba Group Holding Ltd\nBaidu Inc"}
-          value={multiText}
-          onChange={(e) => setMultiText(e.target.value)}
-          style={{ fontFamily: "monospace", marginBottom: 8 }}
+        <Table
+          rowKey="key"
+          size="small"
+          pagination={false}
+          columns={companyColumns}
+          dataSource={companyRows}
+          scroll={{ y: 360 }}
+          style={{ marginBottom: 8 }}
         />
         <div style={{ color: "#999", fontSize: 12 }}>
           提交后任务在后台运行，可继续提交新任务

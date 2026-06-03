@@ -41,6 +41,7 @@ services:
       - analyze_summary_data:/app/analyze_summary
       - knowledge_data:/app/knowledge
       - logs_data:/app/logs
+      - company_data:/app/data
     depends_on:
       - backend
     restart: unless-stopped
@@ -51,3 +52,4 @@ volumes:
   analyze_summary_data:
   knowledge_data:
   logs_data:
+  company_data:

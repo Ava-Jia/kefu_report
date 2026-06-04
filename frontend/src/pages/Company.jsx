@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Input, Button, Card, Tag, Space, Table,
-  List, Badge, message, Tooltip, Modal, Empty
+  List, Badge, message, Tooltip, Modal, Empty, AutoComplete
 } from "antd";
 import {
   SearchOutlined, DownloadOutlined,
@@ -16,6 +16,10 @@ import {
 } from "../api.js";
 
 const DEFAULT_INPUT_ROW_COUNT = 5;
+
+// 固定检索人候选项：在这里改成你需要的名字
+const SEARCHER_OPTIONS = ["luna", "IRIS", "H", "TEST"];
+
 let companyInputRowId = 0;
 
 const createCompanyRow = (name = "") => ({
@@ -101,11 +105,11 @@ export default function CompanySearch() {
       return [];
     }
   });
+
   const pollingRef = useRef(null);
   const tasksRef = useRef(tasks);
   const taskListRef = useRef(null);
 
-  // 保持 tasksRef 和 tasks 同步，避免闭包拿到旧值
   useEffect(() => {
     tasksRef.current = tasks;
     localStorage.setItem("company_tasks", JSON.stringify(tasks));
@@ -199,13 +203,16 @@ export default function CompanySearch() {
         0
       );
       const nextRows = [...rows];
+
       while (nextRows.length < startIndex + names.length) {
         nextRows.push(createCompanyRow());
       }
+
       names.forEach((name, offset) => {
         const rowIndex = startIndex + offset;
         nextRows[rowIndex] = { ...nextRows[rowIndex], name };
       });
+
       return nextRows;
     });
   };
@@ -213,6 +220,7 @@ export default function CompanySearch() {
   const handleCompanyPaste = (event, key) => {
     const pastedText = event.clipboardData?.getData("text") || "";
     const pastedNames = parseCompanyPaste(pastedText);
+
     if (!pastedNames.length || !/[\r\n\t]/.test(pastedText)) {
       return;
     }
@@ -226,23 +234,28 @@ export default function CompanySearch() {
     if (task.status === "pending") {
       return <Badge status="processing" text="检索中" />;
     }
+
     if (task.status === "error") {
       return <Badge status="error" text="失败" />;
     }
+
     const summary = task.summary;
+
     if (summary?.failed > 0 && !summary?.success) {
       return <Badge status="error" text="已完成（全部失败）" />;
     }
+
     if (summary?.failed > 0) {
       return <Badge status="warning" text="已完成（部分失败）" />;
     }
+
     if (summary?.no_result > 0) {
       return <Badge status="warning" text="已完成（含无结果）" />;
     }
+
     return <Badge status="success" text="已完成" />;
   };
 
-  // 先查网络，拿到结果再更新状态
   const pollPendingTasks = useCallback(async () => {
     const pending = tasksRef.current.filter((t) => t.status === "pending");
     if (pending.length === 0) return;
@@ -251,10 +264,13 @@ export default function CompanySearch() {
       pending.map(async (task) => {
         try {
           const res = await checkCompanyResult(task.taskId);
+
           if (!res.success) {
             throw new Error(res.error || res.message);
           }
+
           const nextTask = normalizeTask({ ...task, ...(res.task || {}) });
+
           setTasks((cur) =>
             cur.map((t) =>
               t.taskId === task.taskId
@@ -275,17 +291,25 @@ export default function CompanySearch() {
 
   const handleFetchAllTasks = useCallback(async ({ revealList = false } = {}) => {
     setLoadingAllTasks(true);
+
     try {
       const res = await fetchCompanyTasks();
+
       if (!res.success) {
         throw new Error(res.error || res.message);
       }
-      const nextTasks = extractTaskList(res).map(normalizeTask).filter((task) => task.taskId);
+
+      const nextTasks = extractTaskList(res)
+        .map(normalizeTask)
+        .filter((task) => task.taskId);
+
       setTasks(nextTasks);
       setTaskPage(1);
+
       if (revealList) {
         window.requestAnimationFrame(scrollTaskListIntoView);
       }
+
       message.success(`已同步 ${nextTasks.length} 个任务`);
     } catch (e) {
       message.error(e.message || "查询任务失败");
@@ -294,16 +318,18 @@ export default function CompanySearch() {
     }
   }, [scrollTaskListIntoView]);
 
-  // 有 pending 任务时启动轮询，全部完成后自动停止
   useEffect(() => {
     const hasPending = tasks.some((t) => t.status === "pending");
+
     if (hasPending && !pollingRef.current) {
-      pollingRef.current = setInterval(pollPendingTasks, 30000); // 每30秒轮询一次
+      pollingRef.current = setInterval(pollPendingTasks, 30000);
     }
+
     if (!hasPending && pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
+
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
@@ -314,16 +340,22 @@ export default function CompanySearch() {
       setTaskPage(1);
       return;
     }
+
     const maxPage = Math.max(1, Math.ceil(tasks.length / taskPageSize));
-    if (taskPage > maxPage) setTaskPage(maxPage);
+
+    if (taskPage > maxPage) {
+      setTaskPage(maxPage);
+    }
   }, [tasks.length, taskPageSize, taskPage]);
 
   const handleSearch = async () => {
     const companyNames = getCompanyNames();
+
     if (companyNames.length === 0) {
       message.warning("请至少输入一个公司名称");
       return;
     }
+
     setPendingCompanyNames(companyNames);
     setSearchNameInput("");
     setSearchNameModalOpen(true);
@@ -331,19 +363,26 @@ export default function CompanySearch() {
 
   const handleConfirmSearchName = async () => {
     const searchName = cleanSearchName(searchNameInput);
+
     if (!searchName) {
-      message.warning("请输入检索人名称");
+      message.warning("请选择或输入检索人名称");
       return;
     }
+
     if (pendingCompanyNames.length === 0) {
       message.warning("请至少输入一个公司名称");
       setSearchNameModalOpen(false);
       return;
     }
+
     setSubmitting(true);
+
     try {
       const res = await searchCompany(pendingCompanyNames, searchName);
-      if (!res.success) throw new Error(res.error || res.message);
+
+      if (!res.success) {
+        throw new Error(res.error || res.message);
+      }
 
       setTasks((prev) => [
         {
@@ -355,6 +394,7 @@ export default function CompanySearch() {
         },
         ...prev,
       ]);
+
       setTaskPage(1);
       setSearchNameModalOpen(false);
       setPendingCompanyNames([]);
@@ -378,6 +418,12 @@ export default function CompanySearch() {
 
   const pendingCount = tasks.filter((t) => t.status === "pending").length;
   const searchCount = getCompanyNames().length;
+
+  const searcherAutoCompleteOptions = SEARCHER_OPTIONS.map((name) => ({
+    value: name,
+    label: name,
+  }));
+
   const taskPagination = useMemo(
     () => ({
       current: taskPage,
@@ -399,6 +445,7 @@ export default function CompanySearch() {
     }),
     [scrollTaskListIntoView, taskPage, taskPageSize, tasks.length]
   );
+
   const companyColumns = [
     {
       title: "#",
@@ -449,6 +496,7 @@ export default function CompanySearch() {
             >
               查询全部任务
             </Button>
+
             <Badge count={pendingCount} offset={[-4, 4]}>
               <Button
                 icon={<UnorderedListOutlined />}
@@ -472,13 +520,16 @@ export default function CompanySearch() {
         >
           <Space>
             <span style={{ color: "#666" }}>公司名称表格</span>
+
             <Button icon={<PlusOutlined />} onClick={() => addCompanyRows(5)}>
               新增行
             </Button>
+
             <Button icon={<ClearOutlined />} onClick={clearCompanyRows}>
               清空
             </Button>
           </Space>
+
           <Button
             type="primary"
             icon={<SearchOutlined />}
@@ -490,6 +541,7 @@ export default function CompanySearch() {
             提交检索 ({searchCount} 家)
           </Button>
         </div>
+
         <Table
           rowKey="key"
           size="small"
@@ -499,6 +551,7 @@ export default function CompanySearch() {
           scroll={{ y: 250 }}
           style={{ marginBottom: 8 }}
         />
+
         <div style={{ color: "#999", fontSize: 12 }}>
           提交后任务在后台运行，可继续提交新任务
         </div>
@@ -548,10 +601,19 @@ export default function CompanySearch() {
                 <List.Item.Meta
                   title={
                     <Space wrap>
-                      {task.status === "pending" && <Badge status="processing" text="检索中" />}
+                      {task.status === "pending" && (
+                        <Badge status="processing" text="检索中" />
+                      )}
+
                       {task.status === "done" && renderTaskStatus(task)}
-                      {task.status === "error" && <Badge status="error" text="失败" />}
-                      <span style={{ color: "#999", fontSize: 12 }}>{task.createdAt}</span>
+
+                      {task.status === "error" && (
+                        <Badge status="error" text="失败" />
+                      )}
+
+                      <span style={{ color: "#999", fontSize: 12 }}>
+                        {task.createdAt}
+                      </span>
                     </Space>
                   }
                   description={
@@ -561,12 +623,17 @@ export default function CompanySearch() {
                           <Tag color="blue">检索人：{task.searchName}</Tag>
                         </div>
                       )}
+
                       {task.names.slice(0, 3).map((n) => (
-                        <Tag key={n} style={{ marginBottom: 4 }}>{n}</Tag>
+                        <Tag key={n} style={{ marginBottom: 4 }}>
+                          {n}
+                        </Tag>
                       ))}
+
                       {task.names.length > 3 && (
                         <Tag>+{task.names.length - 3} 家</Tag>
                       )}
+
                       {task.summary && (
                         <div style={{ marginTop: 8 }}>
                           <Tag color="green">成功 {task.summary.success || 0}</Tag>
@@ -574,6 +641,7 @@ export default function CompanySearch() {
                           <Tag color="red">失败 {task.summary.failed || 0}</Tag>
                         </div>
                       )}
+
                       {task.message && (
                         <div style={{ color: "#999", fontSize: 12, marginTop: 4 }}>
                           {task.message}
@@ -589,7 +657,7 @@ export default function CompanySearch() {
       </div>
 
       <Modal
-        title="请输入检索人名称"
+        title="请选择或输入检索人名称"
         open={searchNameModalOpen}
         okText="提交检索"
         cancelText="取消"
@@ -602,13 +670,27 @@ export default function CompanySearch() {
           setPendingCompanyNames([]);
         }}
       >
-        <Input
+        <AutoComplete
           value={searchNameInput}
-          placeholder="例如：Qiang"
+          options={searcherAutoCompleteOptions}
+          placeholder="请选择或输入检索人，例如：Qiang"
+          style={{ width: "100%" }}
           autoFocus
-          onChange={(event) => setSearchNameInput(event.target.value)}
-          onPressEnter={handleConfirmSearchName}
+          allowClear
+          onChange={setSearchNameInput}
+          onSelect={setSearchNameInput}
+          filterOption={(inputValue, option) =>
+            String(option?.value || "")
+              .toLowerCase()
+              .includes(String(inputValue || "").toLowerCase())
+          }
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              handleConfirmSearchName();
+            }
+          }}
         />
+
         <div style={{ color: "#999", fontSize: 12, marginTop: 8 }}>
           本次将提交 {pendingCompanyNames.length} 家公司
         </div>

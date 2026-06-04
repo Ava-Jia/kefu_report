@@ -298,6 +298,10 @@ def _looks_like_failure(record: dict) -> str:
     if record.get("error"):
         return str(record.get("error")).strip()
 
+    company_status = str(record.get("company_status") or "").strip()
+    if "搜索结果加载失败或未找到结果" in company_status:
+        return company_status
+
     return ""
 
 
@@ -492,6 +496,7 @@ def _rows_for_query(query_name: str, records) -> tuple[list[dict], str]:
 
     if not isinstance(records, list):
         return [_empty_row(query_name, "结果格式异常", FINAL_STATUS_PENDING)], "failed"
+    
 
     matched_records = []
     failure_messages = []

@@ -82,13 +82,17 @@ npm run build
 
 ## API 说明
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/report/save` | 保存日报，生成 `姓名_日期.txt` |
-| GET | `/api/reports` | 列表，查询参数：`name`、`start_date`、`end_date` |
-| GET | `/api/report?name=&date=` | 读取单条（用于编辑回填） |
-| POST | `/api/analyze` | AI 分析，body：`names`、`start_date`、`end_date` |
-| GET | `/api/health` | 健康检查 |
+| 方法 | 路径                                     | 说明                                             |
+| ---- | ---------------------------------------- | ------------------------------------------------ |
+| POST | `/api/report/save`                       | 保存日报，生成 `姓名_日期.txt`                   |
+| GET  | `/api/reports`                           | 列表，查询参数：`name`、`start_date`、`end_date` |
+| GET  | `/api/report?name=&date=`                | 读取单条（用于编辑回填）                         |
+| POST | `/api/analyze`                           | AI 分析，body：`names`、`start_date`、`end_date` |
+| GET  | `/api/health`                            | 健康检查                                         |
+| POST | `/api/companys/search`                     | 检索公司                                         |
+| GET  | `/api/companys/task/<task_id>`             | 根据task_id查看任务状态                          |
+| GET  | `/api/companys/tasks`                      | 获取全部任务状态                                 |
+| GET  | `/api/companys/task/<task_id>/export-xlsx` | 将任务结果导出为xlsx文件                         |
 
 **分析接口**：`names` 为空数组表示**全部人员**；提供姓名数组则为**多人**（单人时数组长度为 1）。日期为范围筛选；单日可将开始与结束设为同一天。
 

@@ -11,6 +11,7 @@ import {
 import {
   searchCompany,
   checkCompanyResult,
+  retryCompanyTask,
   fetchCompanyTasks,
   downloadCompanyXlsx,
 } from "../api.js";
@@ -51,6 +52,7 @@ const parseCompanyPaste = (text) =>
 
 const DONE_STATUSES = new Set(["done", "completed", "complete", "success", "succeeded"]);
 const ERROR_STATUSES = new Set(["error", "failed", "fail", "failure", "cancelled", "canceled"]);
+const RUNNING_STATUSES = new Set(["running", "processing", "in_progress", "started"]);
 
 const parseJsonValue = (value) => {
   let current = value;
@@ -65,10 +67,12 @@ const parseJsonValue = (value) => {
 };
 
 const normalizeTaskStatus = (status) => {
-  const value = String(status || "pending").trim().toLowerCase();
+  const value = String(status || "running").trim().toLowerCase();
   if (DONE_STATUSES.has(value)) return "done";
   if (ERROR_STATUSES.has(value)) return "error";
-  return "pending";
+  if (RUNNING_STATUSES.has(value)) return "running";
+  if (value === "pending") return "pending";
+  return "running";
 };
 
 const extractTaskList = (response) => {
@@ -92,6 +96,7 @@ export default function CompanySearch() {
   );
   const [submitting, setSubmitting] = useState(false);
   const [loadingAllTasks, setLoadingAllTasks] = useState(false);
+  const [retryingTaskIds, setRetryingTaskIds] = useState(() => new Set());
   const [searchNameModalOpen, setSearchNameModalOpen] = useState(false);
   const [searchNameInput, setSearchNameInput] = useState("");
   const [pendingCompanyNames, setPendingCompanyNames] = useState([]);
@@ -231,8 +236,12 @@ export default function CompanySearch() {
   };
 
   const renderTaskStatus = (task) => {
-    if (task.status === "pending") {
+    if (task.status === "running") {
       return <Badge status="processing" text="检索中" />;
+    }
+
+    if (task.status === "pending") {
+      return <Badge status="error" text="任务失败，请重试" />;
     }
 
     if (task.status === "error") {
@@ -256,12 +265,12 @@ export default function CompanySearch() {
     return <Badge status="success" text="已完成" />;
   };
 
-  const pollPendingTasks = useCallback(async () => {
-    const pending = tasksRef.current.filter((t) => t.status === "pending");
-    if (pending.length === 0) return;
+  const pollRunningTasks = useCallback(async () => {
+    const running = tasksRef.current.filter((t) => t.status === "running");
+    if (running.length === 0) return;
 
     await Promise.all(
-      pending.map(async (task) => {
+      running.map(async (task) => {
         try {
           const res = await checkCompanyResult(task.taskId);
 
@@ -319,13 +328,13 @@ export default function CompanySearch() {
   }, [scrollTaskListIntoView]);
 
   useEffect(() => {
-    const hasPending = tasks.some((t) => t.status === "pending");
+    const hasRunning = tasks.some((t) => t.status === "running");
 
-    if (hasPending && !pollingRef.current) {
-      pollingRef.current = setInterval(pollPendingTasks, 30000);
+    if (hasRunning && !pollingRef.current) {
+      pollingRef.current = setInterval(pollRunningTasks, 30000);
     }
 
-    if (!hasPending && pollingRef.current) {
+    if (!hasRunning && pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
@@ -333,7 +342,7 @@ export default function CompanySearch() {
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, [tasks, pollPendingTasks]);
+  }, [tasks, pollRunningTasks]);
 
   useEffect(() => {
     if (tasks.length === 0) {
@@ -389,7 +398,7 @@ export default function CompanySearch() {
           taskId: res.task_id,
           names: res.company_name_list || pendingCompanyNames,
           searchName: res.search_name || searchName,
-          status: "pending",
+          status: "running",
           createdAt: new Date().toLocaleTimeString(),
         },
         ...prev,
@@ -416,7 +425,81 @@ export default function CompanySearch() {
     }
   };
 
-  const pendingCount = tasks.filter((t) => t.status === "pending").length;
+  const setTaskRetrying = (taskId, retrying) => {
+    setRetryingTaskIds((current) => {
+      const next = new Set(current);
+
+      if (retrying) {
+        next.add(taskId);
+      } else {
+        next.delete(taskId);
+      }
+
+      return next;
+    });
+  };
+
+  const handleRetryTask = async (task) => {
+    if (!task.taskId || retryingTaskIds.has(task.taskId)) return;
+
+    setTaskRetrying(task.taskId, true);
+
+    try {
+      const res = await retryCompanyTask(task.taskId);
+
+      if (!res.success) {
+        throw new Error(res.error || res.message);
+      }
+
+      const nextTaskId = res.task_id || res.taskId || res.id;
+
+      if (!nextTaskId) {
+        throw new Error("重试接口未返回 task_id");
+      }
+
+      const nextTaskNames = Array.isArray(res.company_name_list)
+        ? res.company_name_list.map(cleanCompanyName).filter(Boolean)
+        : task.names || [];
+
+      const nextTask = {
+        taskId: nextTaskId,
+        names: nextTaskNames,
+        searchName: res.search_name || task.searchName,
+        status: "running",
+        createdAt: new Date().toLocaleTimeString(),
+        message: res.message,
+        sourceTaskId: task.taskId,
+      };
+
+      setTasks((prev) => {
+        const exists = prev.some((item) => item.taskId === nextTaskId);
+
+        if (exists) {
+          return prev.map((item) =>
+            item.taskId === nextTaskId
+              ? {
+                  ...item,
+                  ...nextTask,
+                  names: nextTask.names.length ? nextTask.names : item.names,
+                  searchName: nextTask.searchName || item.searchName,
+                }
+              : item
+          );
+        }
+
+        return [nextTask, ...prev];
+      });
+
+      setTaskPage(1);
+      message.success("重试任务已提交");
+    } catch (e) {
+      message.error(e.message || "重试失败");
+    } finally {
+      setTaskRetrying(task.taskId, false);
+    }
+  };
+
+  const retryableCount = tasks.filter((t) => t.status === "pending").length;
   const searchCount = getCompanyNames().length;
 
   const searcherAutoCompleteOptions = SEARCHER_OPTIONS.map((name) => ({
@@ -497,7 +580,7 @@ export default function CompanySearch() {
               查询全部任务
             </Button>
 
-            <Badge count={pendingCount} offset={[-4, 4]}>
+            <Badge count={retryableCount} offset={[-4, 4]}>
               <Button
                 icon={<UnorderedListOutlined />}
                 onClick={scrollTaskListIntoView}
@@ -587,6 +670,16 @@ export default function CompanySearch() {
               <List.Item
                 key={task.taskId}
                 actions={[
+                  task.status === "pending" && (
+                    <Button
+                      type="link"
+                      icon={<ReloadOutlined />}
+                      loading={retryingTaskIds.has(task.taskId)}
+                      onClick={() => handleRetryTask(task)}
+                    >
+                      重试
+                    </Button>
+                  ),
                   task.status === "done" && (
                     <Button
                       type="link"
@@ -601,15 +694,7 @@ export default function CompanySearch() {
                 <List.Item.Meta
                   title={
                     <Space wrap>
-                      {task.status === "pending" && (
-                        <Badge status="processing" text="检索中" />
-                      )}
-
-                      {task.status === "done" && renderTaskStatus(task)}
-
-                      {task.status === "error" && (
-                        <Badge status="error" text="失败" />
-                      )}
+                      {renderTaskStatus(task)}
 
                       <span style={{ color: "#999", fontSize: 12 }}>
                         {task.createdAt}

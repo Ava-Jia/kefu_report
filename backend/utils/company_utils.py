@@ -150,6 +150,23 @@ def get_open_corporates_task(task_id: str) -> dict:
     return response.json()
 
 
+def retry_open_corporates_task(task_id: str) -> dict:
+    """
+    Retry an OpenCorporates task in System A.
+
+    Calls System A:
+    POST /openCorporates/task/{task_id}/retry
+    """
+    base_url = _get_system_a_base_url()
+
+    response = requests.post(
+        f"{base_url}/openCorporates/task/{task_id}/retry",
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
 def list_open_corporates_tasks(limit: int = 100, offset: int = 0) -> dict:
     """
     查询系统A中的 OpenCorporates 历史任务列表。

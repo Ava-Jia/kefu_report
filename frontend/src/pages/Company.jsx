@@ -11,7 +11,6 @@ import {
 import {
   searchCompany,
   checkCompanyResult,
-  retryCompanyTask,
   fetchCompanyTasks,
   downloadCompanyXlsx,
 } from "../api.js";
@@ -96,7 +95,6 @@ export default function CompanySearch() {
   );
   const [submitting, setSubmitting] = useState(false);
   const [loadingAllTasks, setLoadingAllTasks] = useState(false);
-  const [retryingTaskIds, setRetryingTaskIds] = useState(() => new Set());
   const [searchNameModalOpen, setSearchNameModalOpen] = useState(false);
   const [searchNameInput, setSearchNameInput] = useState("");
   const [pendingCompanyNames, setPendingCompanyNames] = useState([]);
@@ -241,7 +239,7 @@ export default function CompanySearch() {
     }
 
     if (task.status === "pending") {
-      return <Badge status="error" text="任务失败，请重试" />;
+      return <Badge status="processing" text="排队中" />;
     }
 
     if (task.status === "error") {
@@ -266,7 +264,9 @@ export default function CompanySearch() {
   };
 
   const pollRunningTasks = useCallback(async () => {
-    const running = tasksRef.current.filter((t) => t.status === "running");
+    const running = tasksRef.current.filter(
+      (t) => t.status === "running" || t.status === "pending"
+    );
     if (running.length === 0) return;
 
     await Promise.all(
@@ -328,19 +328,24 @@ export default function CompanySearch() {
   }, [scrollTaskListIntoView]);
 
   useEffect(() => {
-    const hasRunning = tasks.some((t) => t.status === "running");
+    const hasActive = tasks.some(
+      (t) => t.status === "running" || t.status === "pending"
+    );
 
-    if (hasRunning && !pollingRef.current) {
+    if (hasActive && !pollingRef.current) {
       pollingRef.current = setInterval(pollRunningTasks, 30000);
     }
 
-    if (!hasRunning && pollingRef.current) {
+    if (!hasActive && pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
 
     return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
     };
   }, [tasks, pollRunningTasks]);
 
@@ -399,7 +404,7 @@ export default function CompanySearch() {
           names: res.company_name_list || pendingCompanyNames,
           searchName: res.search_name || searchName,
           status: "running",
-          createdAt: new Date().toLocaleTimeString(),
+          createdAt: new Date().toLocaleString(),
         },
         ...prev,
       ]);
@@ -425,81 +430,6 @@ export default function CompanySearch() {
     }
   };
 
-  const setTaskRetrying = (taskId, retrying) => {
-    setRetryingTaskIds((current) => {
-      const next = new Set(current);
-
-      if (retrying) {
-        next.add(taskId);
-      } else {
-        next.delete(taskId);
-      }
-
-      return next;
-    });
-  };
-
-  const handleRetryTask = async (task) => {
-    if (!task.taskId || retryingTaskIds.has(task.taskId)) return;
-
-    setTaskRetrying(task.taskId, true);
-
-    try {
-      const res = await retryCompanyTask(task.taskId);
-
-      if (!res.success) {
-        throw new Error(res.error || res.message);
-      }
-
-      const nextTaskId = res.task_id || res.taskId || res.id;
-
-      if (!nextTaskId) {
-        throw new Error("重试接口未返回 task_id");
-      }
-
-      const nextTaskNames = Array.isArray(res.company_name_list)
-        ? res.company_name_list.map(cleanCompanyName).filter(Boolean)
-        : task.names || [];
-
-      const nextTask = {
-        taskId: nextTaskId,
-        names: nextTaskNames,
-        searchName: res.search_name || task.searchName,
-        status: "running",
-        createdAt: new Date().toLocaleTimeString(),
-        message: res.message,
-        sourceTaskId: task.taskId,
-      };
-
-      setTasks((prev) => {
-        const exists = prev.some((item) => item.taskId === nextTaskId);
-
-        if (exists) {
-          return prev.map((item) =>
-            item.taskId === nextTaskId
-              ? {
-                  ...item,
-                  ...nextTask,
-                  names: nextTask.names.length ? nextTask.names : item.names,
-                  searchName: nextTask.searchName || item.searchName,
-                }
-              : item
-          );
-        }
-
-        return [nextTask, ...prev];
-      });
-
-      setTaskPage(1);
-      message.success("重试任务已提交");
-    } catch (e) {
-      message.error(e.message || "重试失败");
-    } finally {
-      setTaskRetrying(task.taskId, false);
-    }
-  };
-
-  const retryableCount = tasks.filter((t) => t.status === "pending").length;
   const searchCount = getCompanyNames().length;
 
   const searcherAutoCompleteOptions = SEARCHER_OPTIONS.map((name) => ({
@@ -580,14 +510,12 @@ export default function CompanySearch() {
               查询全部任务
             </Button>
 
-            <Badge count={retryableCount} offset={[-4, 4]}>
-              <Button
-                icon={<UnorderedListOutlined />}
-                onClick={scrollTaskListIntoView}
-              >
-                任务列表 ({tasks.length})
-              </Button>
-            </Badge>
+            <Button
+              icon={<UnorderedListOutlined />}
+              onClick={scrollTaskListIntoView}
+            >
+              任务列表 ({tasks.length})
+            </Button>
           </Space>
         }
       >
@@ -670,17 +598,7 @@ export default function CompanySearch() {
               <List.Item
                 key={task.taskId}
                 actions={[
-                  task.status === "pending" && (
-                    <Button
-                      type="link"
-                      icon={<ReloadOutlined />}
-                      loading={retryingTaskIds.has(task.taskId)}
-                      onClick={() => handleRetryTask(task)}
-                    >
-                      重试
-                    </Button>
-                  ),
-                  task.status === "done" && (
+                  task.status === "done" ? (
                     <Button
                       type="link"
                       icon={<DownloadOutlined />}
@@ -688,8 +606,8 @@ export default function CompanySearch() {
                     >
                       下载 XLSX
                     </Button>
-                  ),
-                ]}
+                  ) : null,
+                ].filter(Boolean)}
               >
                 <List.Item.Meta
                   title={

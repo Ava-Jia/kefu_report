@@ -6,6 +6,7 @@ from utils.company_utils import (
     normalize_company_name_list,
     submit_open_corporates_task,
     get_open_corporates_task,
+    retry_open_corporates_task,
     list_open_corporates_tasks,
     create_xlsx_from_open_corporates_task,
 )
@@ -117,6 +118,68 @@ def get_company_task(task_id):
             "success": False,
             "error": "查询系统A任务失败",
             "detail": str(e),
+        }), 502
+
+    except requests.Timeout:
+        return jsonify({
+            "success": False,
+            "error": "请求系统A超时"
+        }), 504
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@bp.route("/companys/task/<task_id>/retry", methods=["POST"])
+def retry_company_task(task_id):
+    """
+    Retry an OpenCorporates task in System A.
+
+    Proxies:
+    POST /openCorporates/task/{task_id}/retry
+    """
+    try:
+        result = retry_open_corporates_task(task_id)
+
+        return jsonify({
+            **result,
+            "success": result.get("success", True),
+            "source_task_id": task_id,
+        })
+
+    except requests.HTTPError as e:
+        status_code = e.response.status_code if e.response is not None else 502
+
+        if status_code == 404:
+            return jsonify({
+                "success": False,
+                "error": "OpenCorporates任务不存在",
+                "task_id": task_id,
+            }), 404
+
+        if status_code in {400, 409, 422}:
+            detail = None
+            if e.response is not None:
+                try:
+                    detail = e.response.json()
+                except ValueError:
+                    detail = e.response.text
+
+            return jsonify({
+                "success": False,
+                "error": "OpenCorporates任务重试失败",
+                "detail": detail or str(e),
+                "task_id": task_id,
+            }), status_code
+
+        return jsonify({
+            "success": False,
+            "error": "请求系统A重试OpenCorporates任务失败",
+            "detail": str(e),
+            "task_id": task_id,
         }), 502
 
     except requests.Timeout:

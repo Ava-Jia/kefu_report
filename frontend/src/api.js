@@ -105,6 +105,16 @@ export const checkCompanyResult = async (taskId) => {
   }
 };
 
+/** 重试 OpenCorporates 检索任务 */
+export const retryCompanyTask = async (taskId) => {
+  try {
+    const { data } = await client.post(`/companys/task/${encodeURIComponent(taskId)}/retry`);
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
 /** 查询全部公司检索任务 */
 export const fetchCompanyTasks = async (limit = 200, offset = 0) => {
   try {

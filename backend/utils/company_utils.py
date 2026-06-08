@@ -143,7 +143,7 @@ def get_open_corporates_task(task_id: str) -> dict:
     base_url = _get_system_a_base_url()
 
     response = requests.get(
-        f"{base_url}/openCorporates/task/{task_id}",
+        f"{base_url}/openCorporates/company-results/{task_id}",
         timeout=REQUEST_TIMEOUT,
     )
     response.raise_for_status()
@@ -247,52 +247,42 @@ def _decode_json_value(value):
         value = json.loads(text)
     return value
 
-
 def extract_company_result_from_task(task_payload: dict) -> dict:
     """
-    从系统A任务详情中提取真正的 OpenCorporates 检索结果。
+    从任务详情中提取 OpenCorporates 检索结果。
 
-    系统A返回格式通常是：
+    输入格式：
     {
         "status": "completed",
-        "result": {
-            "success": true,
-            "result": {
-                "TPD ENTERPRISE INC": [...]
-            },
-            "error": null
-        }
+        "company_results": [
+            {"company_name": "TPD ENTERPRISE INC", "result": [...]},
+            ...
+        ]
     }
 
-    最终返回：
+    返回：
     {
-        "TPD ENTERPRISE INC": [...]
+        "TPD ENTERPRISE INC": [...],
+        ...
     }
     """
     if not isinstance(task_payload, dict):
         raise ValueError("任务详情格式错误")
 
     status = task_payload.get("status")
-
     if status != "completed":
         raise ValueError(f"任务尚未完成，当前状态: {status}")
 
-    result_wrapper = task_payload.get("result") or {}
-    result_wrapper = _decode_json_value(result_wrapper)
+    company_results = task_payload.get("company_results") or []
+    if not isinstance(company_results, list):
+        raise ValueError("company_results 格式错误，应为列表")
 
-    if not isinstance(result_wrapper, dict):
-        raise ValueError("任务 result 格式错误")
+    return {
+        item["company_name"]: item.get("result")
+        for item in company_results
+        if isinstance(item, dict) and "company_name" in item
+    }
 
-    if result_wrapper.get("success") is False:
-        raise ValueError(result_wrapper.get("error") or "OpenCorporates任务执行失败")
-
-    result_data = result_wrapper.get("result") or {}
-    result_data = _decode_json_value(result_data)
-
-    if not isinstance(result_data, dict):
-        raise ValueError("OpenCorporates结果格式错误，应为 query_name -> records 的对象")
-
-    return result_data
 
 
 # =========================

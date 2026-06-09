@@ -333,7 +333,7 @@ export default function CompanySearch() {
     );
 
     if (hasActive && !pollingRef.current) {
-      pollingRef.current = setInterval(pollRunningTasks, 30000);
+      pollingRef.current = setInterval(pollRunningTasks, 120000);
     }
 
     if (!hasActive && pollingRef.current) {

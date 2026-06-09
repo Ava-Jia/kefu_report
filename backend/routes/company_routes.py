@@ -91,23 +91,25 @@ def company_tasks():
     return jsonify({"success": True, "tasks": list_tasks(limit)})
 
 
-@bp.route("/companys/result/<task_id>", methods=["GET"])
+@bp.route("/companys/task/<task_id>", methods=["GET"])
 def company_result(task_id: str):
     """查询任务状态"""
     task = get_task(task_id)
     if not task:
-        return jsonify({"success": False, "message": "任务不存在"}), 404
+        return jsonify({"success": False, "task": {"status": "error", "message": "任务不存在"}}), 404
 
     status = task.get("status")
     if status == "pending":
-        return jsonify({"success": True, "status": "pending", "message": "检索中，请稍后查询"})
+        return jsonify({"success": True, "task": {"status": "pending", "message": task.get("message") or "检索中，请稍后查询"}})
 
     if status == "error":
         return jsonify(
             {
                 "success": False,
-                "status": "error",
-                "message": task.get("message") or "检索失败",
+                "task": {
+                    "status": "error",
+                    "message": task.get("message") or "检索失败",
+                },
             }
         )
 
@@ -115,8 +117,10 @@ def company_result(task_id: str):
         return jsonify(
             {
                 "success": False,
-                "status": "error",
-                "message": f"任务状态异常: {status or 'unknown'}",
+                "task": {
+                    "status": "error",
+                    "message": f"任务状态异常: {status or 'unknown'}",
+                },
             }
         )
 
@@ -125,8 +129,10 @@ def company_result(task_id: str):
         return jsonify(
             {
                 "success": False,
-                "status": "error",
-                "message": "任务缺少结果文件",
+                "task": {
+                    "status": "error",
+                    "message": "任务缺少结果文件",
+                },
             }
         )
 
@@ -136,8 +142,10 @@ def company_result(task_id: str):
         return jsonify(
             {
                 "success": False,
-                "status": "error",
-                "message": "结果文件不存在",
+                "task": {
+                    "status": "error",
+                    "message": "结果文件不存在",
+                },
             }
         )
 
@@ -145,9 +153,10 @@ def company_result(task_id: str):
         return jsonify(
             {
                 "success": True,
-                "status": "done",
-                "data": task["data"],
-                "summary": task.get("summary") or _summarize_result_rows(task["data"]),
+                "task": {
+                    "status": "done",
+                    "summary": task.get("summary") or _summarize_result_rows(task["data"]),
+                },
             }
         )
 
@@ -161,7 +170,7 @@ def company_result(task_id: str):
             data[name].append(row)
 
     summary = task.get("summary") or _summarize_result_rows(data)
-    return jsonify({"success": True, "status": "done", "data": data, "summary": summary})
+    return jsonify({"success": True, "task": {"status": "done", "summary": summary}})
 
 
 @bp.route("/companys/download/<task_id>", methods=["GET"])

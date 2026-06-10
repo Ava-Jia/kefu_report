@@ -50,6 +50,7 @@ const parseCompanyPaste = (text) =>
     .filter(Boolean);
 
 const DONE_STATUSES = new Set(["done", "completed", "complete", "success", "succeeded"]);
+const RUNNING_STATUSES = new Set(["running", "processing", "in_progress", "in-progress", "searching"]);
 const ERROR_STATUSES = new Set(["error", "failed", "fail", "failure", "cancelled", "canceled"]);
 const RUNNING_STATUSES = new Set(["running", "processing", "in_progress", "started"]);
 
@@ -68,6 +69,7 @@ const parseJsonValue = (value) => {
 const normalizeTaskStatus = (status) => {
   const value = String(status || "running").trim().toLowerCase();
   if (DONE_STATUSES.has(value)) return "done";
+  if (RUNNING_STATUSES.has(value)) return "running";
   if (ERROR_STATUSES.has(value)) return "error";
   if (RUNNING_STATUSES.has(value)) return "running";
   if (value === "pending") return "pending";
@@ -126,48 +128,173 @@ export default function CompanySearch() {
   }, []);
 
   const formatTaskTime = (value) => {
-    if (!value) return "";
+    const date = parseTaskDate(value);
+    if (!date) return "";
+    return date.toLocaleString();
+  };
+
+  const parseTaskDate = (value) => {
+    if (!value) return null;
     const numericValue = Number(value);
     const date = Number.isFinite(numericValue)
       ? new Date(numericValue < 100000000000 ? numericValue * 1000 : numericValue)
       : new Date(value);
-    if (Number.isNaN(date.getTime())) return "";
-    return date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+
+  const pickTaskValue = (task, keys) =>
+    keys
+      .map((key) => task?.[key])
+      .find((value) => value !== undefined && value !== null && value !== "");
+
+  const getTaskInputData = (task) => {
+    const inputData = parseJsonValue(
+      task.input_data || task.inputData || task.input || task.request_data || task.requestData
+    );
+    return inputData && typeof inputData === "object" && !Array.isArray(inputData)
+      ? inputData
+      : {};
+  };
+
+  const formatDuration = (milliseconds) => {
+    if (!Number.isFinite(milliseconds) || milliseconds < 0) return "";
+
+    const totalSeconds = Math.round(milliseconds / 1000);
+    if (totalSeconds < 60) return `${totalSeconds}秒`;
+
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (totalMinutes < 60) return seconds ? `${totalMinutes}分${seconds}秒` : `${totalMinutes}分`;
+
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours < 24) return minutes ? `${hours}小时${minutes}分` : `${hours}小时`;
+
+    const days = Math.floor(hours / 24);
+    const restHours = hours % 24;
+    return restHours ? `${days}天${restHours}小时` : `${days}天`;
+  };
+
+  const formatExplicitDuration = (value) => {
+    if (value === undefined || value === null || value === "") return "";
+
+    const numericValue = Number(value);
+    if (Number.isFinite(numericValue)) {
+      return formatDuration(numericValue < 100000 ? numericValue * 1000 : numericValue);
+    }
+
+    return String(value).trim();
+  };
+
+  const getTaskCompanyCount = (task, names) => {
+    const inputData = getTaskInputData(task);
+    const inputCompanyCount = Array.isArray(inputData.company_name_list)
+      ? inputData.company_name_list.map(cleanCompanyName).filter(Boolean).length
+      : 0;
+    const candidates = [
+      inputCompanyCount,
+      Array.isArray(inputData.names)
+        ? inputData.names.map(cleanCompanyName).filter(Boolean).length
+        : undefined,
+      task.company_count,
+      task.companyCount,
+      task.total_companies,
+      task.totalCompanies,
+      task.company_total,
+      task.companyTotal,
+      task.total_count,
+      task.totalCount,
+      task.count,
+      task.summary?.total,
+      inputData.company_count,
+      inputData.companyCount,
+      names.length,
+    ];
+
+    const count = candidates
+      .map((value) => Number(value))
+      .find((value) => Number.isFinite(value) && value > 0);
+
+    return count || 0;
   };
 
   const getTaskNames = (task) => {
-    const inputData = parseJsonValue(task.input_data) || {};
+    const inputData = getTaskInputData(task);
     const names =
+      inputData.company_name_list ||
+      inputData.names ||
       task.names ||
       task.company_name_list ||
-      task.companyNameList ||
-      inputData.company_name_list ||
-      inputData.names;
+      task.companyNameList;
 
     return Array.isArray(names) ? names.map(cleanCompanyName).filter(Boolean) : [];
   };
 
   const getTaskSearchName = (task) => {
-    const inputData = parseJsonValue(task.input_data) || {};
+    const inputData = getTaskInputData(task);
     return cleanSearchName(
+      inputData.search_name ||
+      inputData.searcher_name ||
       task.searchName ||
       task.search_name ||
-      task.searcher_name ||
-      inputData.search_name ||
-      inputData.searcher_name
+      task.searcher_name
     );
   };
 
   const normalizeTask = (task) => {
     const status = normalizeTaskStatus(task.status);
     const taskId = task.taskId || task.task_id || task.id;
+    const names = getTaskNames(task);
+    const startRaw = pickTaskValue(task, [
+      "start_time",
+      "startTime",
+      "started_at",
+      "startedAt",
+      "start_at",
+      "startAt",
+      "created_at",
+      "createdAt",
+      "create_time",
+      "createTime",
+    ]);
+    const endRaw = pickTaskValue(task, [
+      "end_time",
+      "endTime",
+      "finished_at",
+      "finishedAt",
+      "completed_at",
+      "completedAt",
+      "done_at",
+      "doneAt",
+      "updated_at",
+      "updatedAt",
+    ]);
+    const startDate = parseTaskDate(startRaw);
+    const endDate = ["pending", "running"].includes(status) ? null : parseTaskDate(endRaw);
+    const companyCount = getTaskCompanyCount(task, names);
+    const explicitAverageTime = formatExplicitDuration(
+      pickTaskValue(task, [
+        "average_time",
+        "averageTime",
+        "avg_time",
+        "avgTime",
+        "average_duration",
+        "averageDuration",
+        "avg_duration",
+        "avgDuration",
+        "average_seconds",
+        "averageSeconds",
+        "avg_seconds",
+        "avgSeconds",
+      ])
+    );
     const createdAt =
       task.createdAt ||
       formatTaskTime(task.created_at || task.create_time || task.updated_at || task.updatedAt);
 
     return {
       taskId,
-      names: getTaskNames(task),
+      names,
       searchName: getTaskSearchName(task),
       status,
       rawStatus: task.status,
@@ -175,6 +302,14 @@ export default function CompanySearch() {
       message: task.message || task.error || task.error_message,
       downloadable: status === "done",
       createdAt,
+      startTime: startDate ? startDate.toLocaleString() : "",
+      endTime: endDate ? endDate.toLocaleString() : "",
+      companyCount,
+      averageTime:
+        explicitAverageTime ||
+        (startDate && endDate && companyCount > 0
+          ? formatDuration((endDate.getTime() - startDate.getTime()) / companyCount)
+          : ""),
     };
   };
 
@@ -234,6 +369,10 @@ export default function CompanySearch() {
   };
 
   const renderTaskStatus = (task) => {
+    if (task.status === "pending") {
+      return <Badge status="warning" text="等待中" />;
+    }
+
     if (task.status === "running") {
       return <Badge status="processing" text="检索中" />;
     }
@@ -263,11 +402,11 @@ export default function CompanySearch() {
     return <Badge status="success" text="已完成" />;
   };
 
-  const pollRunningTasks = useCallback(async () => {
-    const running = tasksRef.current.filter(
-      (t) => t.status === "running" || t.status === "pending"
+  const pollPendingTasks = useCallback(async () => {
+    const pending = tasksRef.current.filter((t) =>
+      ["pending", "running"].includes(t.status)
     );
-    if (running.length === 0) return;
+    if (pending.length === 0) return;
 
     await Promise.all(
       running.map(async (task) => {
@@ -328,9 +467,7 @@ export default function CompanySearch() {
   }, [scrollTaskListIntoView]);
 
   useEffect(() => {
-    const hasActive = tasks.some(
-      (t) => t.status === "running" || t.status === "pending"
-    );
+    const hasPending = tasks.some((t) => ["pending", "running"].includes(t.status));
 
     if (hasActive && !pollingRef.current) {
       pollingRef.current = setInterval(pollRunningTasks, 120000);
@@ -393,6 +530,7 @@ export default function CompanySearch() {
 
     try {
       const res = await searchCompany(pendingCompanyNames, searchName);
+      const submittedAt = new Date();
 
       if (!res.success) {
         throw new Error(res.error || res.message);
@@ -403,8 +541,12 @@ export default function CompanySearch() {
           taskId: res.task_id,
           names: res.company_name_list || pendingCompanyNames,
           searchName: res.search_name || searchName,
-          status: "running",
-          createdAt: new Date().toLocaleString(),
+          status: "pending",
+          createdAt: submittedAt.toLocaleTimeString(),
+          startTime: submittedAt.toLocaleString(),
+          endTime: "",
+          companyCount: pendingCompanyNames.length,
+          averageTime: "",
         },
         ...prev,
       ]);
@@ -430,6 +572,7 @@ export default function CompanySearch() {
     }
   };
 
+  const pendingCount = tasks.filter((t) => ["pending", "running"].includes(t.status)).length;
   const searchCount = getCompanyNames().length;
 
   const searcherAutoCompleteOptions = SEARCHER_OPTIONS.map((name) => ({
@@ -612,7 +755,19 @@ export default function CompanySearch() {
                 <List.Item.Meta
                   title={
                     <Space wrap>
-                      {renderTaskStatus(task)}
+                      {task.status === "pending" && (
+                        <Badge status="warning" text="等待中" />
+                      )}
+
+                      {task.status === "running" && (
+                        <Badge status="processing" text="检索中" />
+                      )}
+
+                      {task.status === "done" && renderTaskStatus(task)}
+
+                      {task.status === "error" && (
+                        <Badge status="error" text="失败" />
+                      )}
 
                       <span style={{ color: "#999", fontSize: 12 }}>
                         {task.createdAt}
@@ -624,6 +779,19 @@ export default function CompanySearch() {
                       {task.searchName && (
                         <div style={{ marginBottom: 8 }}>
                           <Tag color="blue">检索人：{task.searchName}</Tag>
+                        </div>
+                      )}
+
+                      {(task.startTime || task.endTime || task.averageTime || task.companyCount > 0) && (
+                        <div style={{ marginBottom: 8 }}>
+                          {task.companyCount > 0 && (
+                            <Tag color="geekblue">公司数 {task.companyCount}</Tag>
+                          )}
+                          <Tag>开始：{task.startTime || "-"}</Tag>
+                          <Tag>结束：{task.endTime || "-"}</Tag>
+                          <Tag color={task.averageTime ? "purple" : undefined}>
+                            平均：{task.averageTime || "-"}
+                          </Tag>
                         </div>
                       )}
 

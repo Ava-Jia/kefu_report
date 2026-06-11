@@ -52,7 +52,6 @@ const parseCompanyPaste = (text) =>
 const DONE_STATUSES = new Set(["done", "completed", "complete", "success", "succeeded"]);
 const RUNNING_STATUSES = new Set(["running", "processing", "in_progress", "in-progress", "searching"]);
 const ERROR_STATUSES = new Set(["error", "failed", "fail", "failure", "cancelled", "canceled"]);
-const RUNNING_STATUSES = new Set(["running", "processing", "in_progress", "started"]);
 
 const parseJsonValue = (value) => {
   let current = value;

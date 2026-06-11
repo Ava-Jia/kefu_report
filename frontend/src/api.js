@@ -79,6 +79,11 @@ export async function fetchWechatBotKnowledge(params = {}) {
   const { data } = await client.get("/items", { params });
   return data;
 }
+export async function fetchKnowledgeCategories() {
+  const res = await axios.get("/api/categories");
+  return res.data
+  
+}
 
 const unwrapCompanyError = (error) => {
   if (error.response?.data) {
@@ -154,5 +159,6 @@ export const downloadCompanyXlsx = async (taskId) => {
   document.body.removeChild(a);
   window.URL.revokeObjectURL(url);
 };
+
 
 export default client;

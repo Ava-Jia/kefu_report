@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from sqlalchemy import select, func
+from sqlalchemy import select, func, distinct
 from sqlalchemy.orm import Session
 from data.database import engine
 from models import QaKnowledge
@@ -48,3 +48,23 @@ def get_items():
     except Exception as e:
         logger.exception("查询失败")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+@bp.route("/categories", methods=["GET"])
+def get_categories():
+    try:
+        with Session(engine) as session:
+            stmt = select(distinct(QaKnowledge.category)).where(
+                QaKnowledge.category.isnot(None)).order_by(
+                    QaKnowledge.category)
+
+            categories = session.execute(stmt).scalars().all()
+
+        return jsonify({
+            "code": 200,
+            "message": "success",
+            "data": categories
+        })
+    except Exception as e:
+        logger.exception("获取分类失败")
+        return jsonify({"code":500, "message":"服务器错误", "error": str(e)}), 500
+    

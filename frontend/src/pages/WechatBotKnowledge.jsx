@@ -13,30 +13,22 @@ import {
   message,
 } from "antd";
 import dayjs from "dayjs";
-import { fetchWechatBotKnowledge } from "../api";
-
-const CATEGORY_OPTIONS = [
-  { label: "全部分类", value: "" },
-  { label: "product_knowledge", value: "product_knowledge" },
-  { label: "company_info", value: "company_info" },
-  { label: "workflow_issues", value: "workflow_issues" },
-  { label: "after_sales_support", value: "after_sales_support" },
-  { label: "conversation_context", value: "conversation_context" },
-];
+import { fetchKnowledgeCategories, fetchWechatBotKnowledge } from "../api";
 
 const { Paragraph, Text, Title } = Typography;
 
+// ─── 工具函数 ────────────────────────────────────────────────
 function formatDateTime(value) {
   if (!value) return "-";
   const date = dayjs(value);
   return date.isValid() ? date.format("YYYY-MM-DD HH:mm:ss") : "-";
 }
 
+// ─── 子组件：文本预览（支持折叠展开）────────────────────────
 function TextPreview({ value, empty }) {
   if (!value) {
     return <Text type="secondary">{empty}</Text>;
   }
-
   return (
     <Paragraph
       ellipsis={{ rows: 3, expandable: true, symbol: "展开" }}
@@ -47,6 +39,7 @@ function TextPreview({ value, empty }) {
   );
 }
 
+// ─── 主组件 ──────────────────────────────────────────────────
 export default function WechatBotKnowledge() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -56,37 +49,60 @@ export default function WechatBotKnowledge() {
   const [category, setCategory] = useState("");
   const [categoryInput, setCategoryInput] = useState("");
 
-  const loadItems = useCallback(async (nextPage = 1, nextPageSize = pageSize, nextCategory = category) => {
-    setLoading(true);
-    try {
-      const res = await fetchWechatBotKnowledge({
-        page: nextPage,
-        page_size: nextPageSize,
-        ...(nextCategory ? { category: nextCategory } : {}),
-      });
 
-      if (res?.code !== 200) {
-        throw new Error(res?.message || "加载知识库失败");
+  const [categoryOptions, setCategoryOptions] = useState([
+    { label: "全部分类", value: "" },
+  ]);
+
+  useEffect(() => {
+    fetchKnowledgeCategories().then((res) => {
+      if (res?.code === 200) {
+        setCategoryOptions([
+          { label: "全部分类", value: "" },
+          ...res.data.map((c) => ({ label: c, value: c })),
+        ]);
       }
+    });
+  }, []);
 
-      const payload = res.data || {};
-      const pagination = payload.pagination || {};
+  // ─── 数据加载 ─────────────────────────────────────────────
+  const loadItems = useCallback(
+    async (nextPage = 1, nextPageSize = pageSize, nextCategory = category) => {
+      setLoading(true);
+      try {
+        const res = await fetchWechatBotKnowledge({
+          page: nextPage,
+          page_size: nextPageSize,
+          ...(nextCategory ? { category: nextCategory } : {}),
+        });
 
-      setItems(payload.list || []);
-      setTotal(Number(pagination.total) || 0);
-      setPage(Number(pagination.page) || nextPage);
-      setPageSize(Number(pagination.page_size) || nextPageSize);
-    } catch (error) {
-      message.error(error?.response?.data?.message || error.message || "加载知识库失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [pageSize, category]);
+        if (res?.code !== 200) {
+          throw new Error(res?.message || "加载知识库失败");
+        }
+
+        const payload = res.data || {};
+        const pagination = payload.pagination || {};
+
+        setItems(payload.list || []);
+        setTotal(Number(pagination.total) || 0);
+        setPage(Number(pagination.page) || nextPage);
+        setPageSize(Number(pagination.page_size) || nextPageSize);
+      } catch (error) {
+        message.error(
+          error?.response?.data?.message || error.message || "加载知识库失败"
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [pageSize, category]
+  );
 
   useEffect(() => {
     loadItems(1, pageSize, category);
   }, [loadItems, pageSize, category]);
 
+  // ─── 事件处理 ─────────────────────────────────────────────
   const handleSearch = useCallback(() => {
     setCategory(categoryInput.trim());
   }, [categoryInput]);
@@ -96,6 +112,7 @@ export default function WechatBotKnowledge() {
     setCategoryInput("");
   }, []);
 
+  // ─── 表格列定义 ───────────────────────────────────────────
   const columns = useMemo(
     () => [
       {
@@ -132,7 +149,11 @@ export default function WechatBotKnowledge() {
         key: "category",
         width: 180,
         render: (value) =>
-          value ? <Tag color="blue">{value}</Tag> : <Text type="secondary">未分类</Text>,
+          value ? (
+            <Tag color="blue">{value}</Tag>
+          ) : (
+            <Text type="secondary">未分类</Text>
+          ),
       },
       {
         title: "状态",
@@ -141,9 +162,11 @@ export default function WechatBotKnowledge() {
         width: 100,
         align: "center",
         render: (value) =>
-          value !== null && value !== undefined
-            ? <Tag color="gold">{String(value)}</Tag>
-            : <Text type="secondary">-</Text>,
+          value !== null && value !== undefined ? (
+            <Tag color="gold">{String(value)}</Tag>
+          ) : (
+            <Text type="secondary">-</Text>
+          ),
       },
       {
         title: "创建时间",
@@ -163,6 +186,7 @@ export default function WechatBotKnowledge() {
     []
   );
 
+  // ─── 渲染 ─────────────────────────────────────────────────
   return (
     <div className="page-shell wechat-bot-page">
       <div className="page-header-block">
@@ -171,9 +195,12 @@ export default function WechatBotKnowledge() {
             <BookOutlined style={{ marginRight: 10 }} />
             Wechat Bot 知识库
           </Title>
-          <Text type="secondary">展示 `wechat_rag` 路由返回的知识库内容。</Text>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={() => loadItems(page, pageSize, category)} loading={loading}>
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={() => loadItems(page, pageSize, category)}
+          loading={loading}
+        >
           刷新
         </Button>
       </div>
@@ -181,27 +208,22 @@ export default function WechatBotKnowledge() {
       <Card className="page-card wechat-bot-card" variant="borderless">
         <div className="wechat-bot-toolbar">
           <Space wrap>
+       
             <Select
               value={categoryInput}
-              onChange={setCategoryInput}
-              options={CATEGORY_OPTIONS}
+              onChange={(val) => {
+                const nextCategory = val ?? "";
+                setCategoryInput(nextCategory);
+                setCategory(nextCategory);
+              }}
+              options={categoryOptions}
               style={{ width: 240 }}
               placeholder="选择分类"
               showSearch
               allowClear
               optionFilterProp="label"
             />
-            <Input
-              value={categoryInput}
-              onChange={(event) => setCategoryInput(event.target.value)}
-              placeholder="或直接输入 category"
-              style={{ width: 260 }}
-              allowClear
-            />
-            <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
-              查询
-            </Button>
-            <Button onClick={handleReset}>重置</Button>
+            
           </Space>
         </div>
 

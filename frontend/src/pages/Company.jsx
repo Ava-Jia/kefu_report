@@ -408,7 +408,7 @@ export default function CompanySearch() {
     if (pending.length === 0) return;
 
     await Promise.all(
-      running.map(async (task) => {
+      pending.map(async (task) => {
         try {
           const res = await checkCompanyResult(task.taskId);
 
@@ -468,11 +468,11 @@ export default function CompanySearch() {
   useEffect(() => {
     const hasPending = tasks.some((t) => ["pending", "running"].includes(t.status));
 
-    if (hasActive && !pollingRef.current) {
-      pollingRef.current = setInterval(pollRunningTasks, 120000);
+    if (hasPending && !pollingRef.current) {
+      pollingRef.current = setInterval(pollPendingTasks, 120000);
     }
 
-    if (!hasActive && pollingRef.current) {
+    if (!hasPending && pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
@@ -483,7 +483,7 @@ export default function CompanySearch() {
         pollingRef.current = null;
       }
     };
-  }, [tasks, pollRunningTasks]);
+  }, [tasks, pollPendingTasks]);
 
   useEffect(() => {
     if (tasks.length === 0) {

@@ -270,6 +270,21 @@ body {
   -webkit-line-clamp: 2;
 }
 
+.wechat-bot-card .ant-card-body {
+  padding-top: 18px;
+}
+
+.wechat-bot-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.wechat-bot-page .ant-typography {
+  word-break: break-word;
+}
+
 /* —— Markdown —— */
 .analyze-markdown h1,
 .analyze-markdown h2,

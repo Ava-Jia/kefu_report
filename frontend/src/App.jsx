@@ -5,17 +5,12 @@ import {
   LineChartOutlined,
   RobotOutlined,
 } from "@ant-design/icons";
-import {
-  Link,
-  Navigate,
-  Route,
-  Routes,
-  useLocation,
-} from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import ReportForm from "./pages/ReportForm.jsx";
 import Analysis from "./pages/Analysis.jsx";
 import Knowledge from "./pages/Knowledge.jsx";
 import CompanySearch from "./pages/Company.jsx";
+import WechatBotKnowledge from "./pages/WechatBotKnowledge.jsx";
 
 const { Sider, Content } = Layout;
 
@@ -25,9 +20,39 @@ function SideMenu() {
     ? ["/knowledge"]
     : location.pathname.startsWith("/analyze")
       ? ["/analyze"]
-      : location.pathname.startsWith("/company-search")
-        ? ["/company-search"]
-        : ["/"];
+      : location.pathname.startsWith("/wechat-bot-knowledge")
+        ? ["/wechat-bot-knowledge"]
+        : location.pathname.startsWith("/company-search")
+          ? ["/company-search"]
+          : ["/"];
+
+  const menuItems = [
+    {
+      key: "/",
+      icon: <FileTextOutlined />,
+      label: <Link to="/">日报管理</Link>,
+    },
+    {
+      key: "/analyze",
+      icon: <LineChartOutlined />,
+      label: <Link to="/analyze">问题总结</Link>,
+    },
+    {
+      key: "/knowledge",
+      icon: <BookOutlined />,
+      label: <Link to="/knowledge">知识库</Link>,
+    },
+    {
+      key: "/company-search",
+      icon: <BookOutlined />,
+      label: <Link to="/company-search">公司检索</Link>,
+    },
+    {
+      key: "/wechat-bot-knowledge",
+      icon: <BookOutlined />,
+      label: <Link to="/wechat-bot-knowledge">Wechat Bot 知识库</Link>,
+    },
+  ];
 
   return (
     <>
@@ -45,28 +70,7 @@ function SideMenu() {
         mode="inline"
         selectedKeys={selected}
         style={{ borderInlineEnd: "none", marginTop: 8 }}
-        items={[
-          {
-            key: "/",
-            icon: <FileTextOutlined />,
-            label: <Link to="/">日报管理</Link>,
-          },
-          {
-            key: "/analyze",
-            icon: <LineChartOutlined />,
-            label: <Link to="/analyze">问题总结</Link>,
-          },
-          {
-            key: "/knowledge",
-            icon: <BookOutlined />,
-            label: <Link to="/knowledge">知识库</Link>,
-          },
-          {
-            key: "/company-search",
-            icon: <BookOutlined />,
-            label: <Link to="/company-search">公司检索</Link>,
-          },
-        ]}
+        items={menuItems}
       />
     </>
   );
@@ -77,7 +81,8 @@ export default function App() {
   const location = useLocation();
   const contentClass =
     location.pathname.startsWith("/analyze") ||
-    location.pathname.startsWith("/knowledge")
+    location.pathname.startsWith("/knowledge") ||
+    location.pathname.startsWith("/wechat-bot-knowledge")
       ? "app-content app-content--analyze-spread"
       : "app-content";
 
@@ -99,6 +104,7 @@ export default function App() {
             <Route path="/analyze" element={<Analysis />} />
             <Route path="/knowledge" element={<Knowledge />} />
             <Route path="/company-search" element={<CompanySearch />} />
+            <Route path="/wechat-bot-knowledge" element={<WechatBotKnowledge />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Content>

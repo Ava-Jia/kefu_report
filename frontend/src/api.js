@@ -75,6 +75,11 @@ export async function archiveKnowledgeItem(id) {
   return data;
 }
 
+export async function fetchWechatBotKnowledge(params = {}) {
+  const { data } = await client.get("/items", { params });
+  return data;
+}
+
 const unwrapCompanyError = (error) => {
   if (error.response?.data) {
     return error.response.data;

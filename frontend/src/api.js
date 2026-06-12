@@ -81,8 +81,13 @@ export async function fetchWechatBotKnowledge(params = {}) {
 }
 export async function fetchKnowledgeCategories() {
   const res = await axios.get("/api/categories");
-  return res.data
-  
+  return res.data;
+}
+
+/** grouped=true 时返回 { insert: [], update: [] } */
+export async function fetchWechatBotTodos(params = {}) {
+  const { data } = await client.get("/todos", { params });
+  return data;
 }
 
 const unwrapCompanyError = (error) => {

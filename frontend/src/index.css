@@ -282,7 +282,42 @@ body {
 }
 
 .wechat-bot-page .ant-typography {
+  font-size: 12px;
   word-break: break-word;
+}
+
+.wechat-bot-page .ant-table,
+.wechat-bot-page .ant-table .ant-typography {
+  font-size: 12px;
+}
+
+.wechat-bot-page .ant-table-thead > tr > th {
+  font-size: 12px;
+  padding: 10px 12px;
+}
+
+.wechat-bot-page .ant-table-tbody > tr > td {
+  font-size: 12px;
+  padding: 10px 12px;
+}
+
+.wechat-bot-page .ant-tag {
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.wechat-bot-page .ant-tabs-tab {
+  font-size: 13px;
+}
+
+.wechat-bot-page .wechat-bot-toolbar,
+.wechat-bot-page .wechat-bot-toolbar .ant-typography,
+.wechat-bot-page .ant-select-single .ant-select-selector {
+  font-size: 12px;
+}
+
+.wechat-bot-tabs .ant-tabs-nav {
+  margin-bottom: 18px;
 }
 
 /* —— Markdown —— */

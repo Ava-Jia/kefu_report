@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy import select, func, distinct
 from sqlalchemy.orm import Session
 from data.database import engine
-from models import QaKnowledge
+from models import QaKnowledge, Todo
 from models.wechat_rag_todo import (
     fetch_todos_grouped_by_action_type,
     list_todos,
@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 @bp.route("/items", methods=["GET"])
 def get_items():
+    """获取QaKnowledge全部"""
     page = max(1, request.args.get("page", default=1, type=int))
     page_size = max(1, request.args.get("page_size", default=10, type=int))
     category = request.args.get("category", default=None, type=str)
@@ -56,6 +57,7 @@ def get_items():
 
 @bp.route("/categories", methods=["GET"])
 def get_categories():
+    """获取QaKnowledge的全部类别"""
     try:
         with Session(engine) as session:
             stmt = select(distinct(QaKnowledge.category)).where(
@@ -72,10 +74,16 @@ def get_categories():
     except Exception as e:
         logger.exception("获取分类失败")
         return jsonify({"code":500, "message":"服务器错误", "error": str(e)}), 500
-    
+# 增加一个条目
+
+
+
+
+
 # 删除某个条目
 @bp.route("/items/<item_id>", methods=["DELETE"])
 def delete_item(item_id):
+    """删除QaKnowledge的某个条目"""
     try:
         with Session(engine) as session:
             item = session.get(QaKnowledge, item_id)
@@ -106,6 +114,7 @@ def delete_item(item_id):
 
 @bp.route("/items/<item_id>", methods=["PUT"])
 def update_item(item_id):
+    """修改QaKnowledge的某个条目"""
     try:
         # body不能为空
         body = request.get_json()
@@ -157,6 +166,7 @@ def update_item(item_id):
 
 @bp.route("/todos", methods=["GET"])
 def get_todos():
+    """提取todos表中的数据"""
     """按 action_type 提取 todo 数据；不传 action_type 时返回 insert/update 分组结果。"""
     action_type = request.args.get("action_type", default=None, type=str)
     status = request.args.get("status", default=None, type=str)
@@ -186,3 +196,89 @@ def get_todos():
         logger.exception("查询 todo 失败")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
+   
+# 删除某个条目
+@bp.route("/todos/<todo_id>", methods=["DELETE"])
+def delete_todo(todo_id):
+    """删除todos的某个条目"""
+    try:
+        with Session(engine) as session:
+            todo = session.get(Todo, todo_id)
+            # 没有返回错误
+            if todo is None:
+                return jsonify({
+                    "code": 404,
+                    "message": "数据不存在"
+                }), 404
+            
+            # 如果有，就删除
+            session.delete(todo)
+            session.commit()
+        return jsonify({
+            "code": 200,
+            "message": "删除成功"
+        })
+
+    except Exception as e:
+        logger.exception("删除失败")
+        return jsonify({
+            "code": 500,
+            "message": "服务器错误",
+            "error": str(e)
+        }), 500
+
+# 修改某个条目
+
+@bp.route("/todos/<todo_id>", methods=["PUT"])
+def update_todo(todo_id):
+    """修改todos的某个条目"""
+    try:
+        # body不能为空
+        body = request.get_json()
+        if not body:
+            return jsonify({
+                "code": 400,
+                "message": "请求体不能为空"
+            }), 400
+        
+        with Session(engine) as session:
+            todo = session.get(Todo, todo_id)
+            # 没有返回错误
+            if todo is None:
+                return jsonify({
+                    "code": 404,
+                    "message": "数据不存在"
+                }), 404
+            
+            # 如果有，就修改
+            if "question" in body:
+                todo.question = body["question"]
+            
+            if "answer" in body:
+                todo.answer = body["answer"]
+            if "category" in body:
+                todo.category = body["category"]
+
+            # 更新状态
+            todo.status = "已修改"
+            session.commit()
+            session.refresh(todo)
+
+            data = TodoItem.model_validate(todo).model_dump()
+
+        return jsonify({
+            "code": 200,
+            "message": "修改成功",
+            "data": data
+        })
+    
+    except Exception as e:
+        logger.exception("修改失败")
+        return jsonify({
+            "code": 500,
+            "message": "服务器错误",
+            "error": str(e)
+        }), 500
+
+# 将todo中的条目写入到QaKnowledge中
+@bp

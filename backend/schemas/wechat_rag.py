@@ -29,6 +29,7 @@ class TodoItem(BaseModel):
     embedding: str | None = None
     qa_id: int | None = None
     similar_question: str | None = None
+    similar_answer: str | None = None
     reason: str | None = None
     status: str
     is_write: int | None = None

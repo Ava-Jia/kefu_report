@@ -15,6 +15,11 @@ bp = Blueprint("wechatrag", __name__, url_prefix="/api")
 logger = logging.getLogger(__name__)
 
 
+def serialize_todos(rows: list[Todo]) -> list[dict]:
+    """序列化 todo 列表。"""
+    return [TodoItem.model_validate(row).model_dump() for row in rows]
+
+
 @bp.route("/items", methods=["GET"])
 def get_items():
     """获取QaKnowledge全部"""
@@ -225,15 +230,15 @@ def get_todos():
         if grouped or action_type is None:
             data = fetch_todos_grouped_by_action_type(status=status, limit=limit)
             serialized = {
-                key: [TodoItem.model_validate(row).model_dump() for row in rows]
+                key: serialize_todos(rows)
                 for key, rows in data.items()
             }
         elif action_type in ("insert", "update"):
             rows = list_todos_by_action_type(action_type, status=status, limit=limit)
-            serialized = [TodoItem.model_validate(row).model_dump() for row in rows]
+            serialized = serialize_todos(rows)
         else:
             rows = list_todos(action_type=action_type, status=status, limit=limit)
-            serialized = [TodoItem.model_validate(row).model_dump() for row in rows]
+            serialized = serialize_todos(rows)
 
         return jsonify({
             "code": 200,
@@ -306,6 +311,10 @@ def update_todo(todo_id):
                 todo.answer = body["answer"]
             if "category" in body:
                 todo.category = body["category"]
+            if "similar_question" in body:
+                todo.similar_question = body["similar_question"]
+            if "similar_answer" in body:
+                todo.similar_answer = body["similar_answer"]
 
             if "status" in body:
                 todo.status = body["status"]

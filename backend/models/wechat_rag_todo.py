@@ -36,6 +36,7 @@ def insert_todo(
     status: str = "pending",
     qa_id: int | None = None,
     similar_question: str | None = None,
+    similar_answer: str | None = None,
     reason: str | None = None,
     session: Session | None = None,
 ) -> int:
@@ -47,6 +48,7 @@ def insert_todo(
         category=category,
         qa_id=qa_id,
         similar_question=similar_question,
+        similar_answer=similar_answer,
         reason=reason,
         status=status,
     )

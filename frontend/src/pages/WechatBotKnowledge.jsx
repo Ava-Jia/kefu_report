@@ -284,20 +284,18 @@ function useTodoTables() {
   const updateExtraColumns = useMemo(
     () => [
       {
-        title: "关联 QA",
-        dataIndex: "qa_id",
-        key: "qa_id",
-        width: 88,
-        align: "center",
-        render: (value) =>
-          value ? <Text>{value}</Text> : <Text type="secondary">-</Text>,
-      },
-      {
         title: "相似问题",
         dataIndex: "similar_question",
         key: "similar_question",
         ellipsis: false,
         render: (value) => <TextPreview value={value} empty="暂无相似问题" />,
+      },
+      {
+        title: "相似答案",
+        dataIndex: "similar_answer",
+        key: "similar_answer",
+        ellipsis: false,
+        render: (value) => <TextPreview value={value} empty="暂无相似答案" />,
       },
     ],
     []

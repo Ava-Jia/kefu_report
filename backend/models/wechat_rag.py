@@ -34,6 +34,7 @@ class Todo(Base):
     embedding: Mapped[str | None] = mapped_column(Text)
     qa_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     similar_question: Mapped[str | None] = mapped_column(Text, nullable=True)
+    similar_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="pending")
     created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, server_default=func.now())

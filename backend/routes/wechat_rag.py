@@ -341,24 +341,49 @@ def write_todo_to_qa(todo_id):
                     "code": 404,
                     "message": "Todo数据不存在"
                 }), 404
-            item = QaKnowledge(
-                question = todo.question,
-                answer = todo.answer,
-                category = todo.category,
-                embedding = todo.embedding,
-                status="updated" if todo.action_type == "update" else "new",
-            )
 
-            session.add(item)
-            session.flush()
-            todo.qa_id = item.id
+            if todo.action_type == "update":
+                if not todo.qa_id:
+                    return jsonify({
+                        "code": 400,
+                        "message": "待更新条目缺少关联 QA ID"
+                    }), 400
+
+                item = session.get(QaKnowledge, todo.qa_id)
+                if item is None:
+                    return jsonify({
+                        "code": 404,
+                        "message": "关联的知识库条目不存在"
+                    }), 404
+
+                item.question = todo.question
+                item.answer = todo.answer
+                item.category = todo.category
+                if todo.embedding is not None:
+                    item.embedding = todo.embedding
+                item.status = "updated"
+            else:
+                item = QaKnowledge(
+                    question=todo.question,
+                    answer=todo.answer,
+                    category=todo.category,
+                    embedding=todo.embedding,
+                    status="new",
+                )
+                session.add(item)
+                session.flush()
+                todo.qa_id = item.id
+
             todo.is_write = 1
             session.commit()
             session.refresh(item)
 
+            data = QaKnowledgeItem.model_validate(item).model_dump()
+
             return jsonify({
                 "code": 200,
-                "message": "写入成功"
+                "message": "写入成功",
+                "data": data,
             })
     except Exception as e:
         logger.exception("写入失败")

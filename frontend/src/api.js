@@ -79,6 +79,22 @@ export async function fetchWechatBotKnowledge(params = {}) {
   const { data } = await client.get("/items", { params });
   return data;
 }
+
+export async function addWechatBotKnowledgeItem(body) {
+  const { data } = await client.post("/items", body);
+  return data;
+}
+
+export async function updateWechatBotKnowledgeItem(id, body) {
+  const { data } = await client.put(`/items/${encodeURIComponent(id)}`, body);
+  return data;
+}
+
+export async function deleteWechatBotKnowledgeItem(id) {
+  const { data } = await client.delete(`/items/${encodeURIComponent(id)}`);
+  return data;
+}
+
 export async function fetchKnowledgeCategories() {
   const res = await axios.get("/api/categories");
   return res.data;
@@ -87,6 +103,21 @@ export async function fetchKnowledgeCategories() {
 /** grouped=true 时返回 { insert: [], update: [] } */
 export async function fetchWechatBotTodos(params = {}) {
   const { data } = await client.get("/todos", { params });
+  return data;
+}
+
+export async function updateWechatBotTodo(id, body) {
+  const { data } = await client.put(`/todos/${encodeURIComponent(id)}`, body);
+  return data;
+}
+
+export async function deleteWechatBotTodo(id) {
+  const { data } = await client.delete(`/todos/${encodeURIComponent(id)}`);
+  return data;
+}
+
+export async function writeWechatBotTodoToQa(id) {
+  const { data } = await client.post(`/todos/${encodeURIComponent(id)}/writetoqa`);
   return data;
 }
 

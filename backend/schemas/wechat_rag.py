@@ -26,10 +26,12 @@ class TodoItem(BaseModel):
     question: str
     answer: str
     category: str
+    embedding: str | None = None
     qa_id: int | None = None
     similar_question: str | None = None
     reason: str | None = None
     status: str
+    is_write: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

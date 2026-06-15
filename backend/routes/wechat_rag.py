@@ -74,8 +74,56 @@ def get_categories():
     except Exception as e:
         logger.exception("获取分类失败")
         return jsonify({"code":500, "message":"服务器错误", "error": str(e)}), 500
+    
 # 增加一个条目
+@bp.route("/items", methods=["POST"])
+def add_item():
+    """ add QaKnowledge item"""
+    try:
+        body = request.get_json(silent=True)
 
+        if not body:
+            return jsonify({
+                "code": 400,
+                "message": "请求体必须是JSON"
+            }), 400
+        
+        question = body.get("question")
+        answer = body.get("answer")
+        category = body.get("category")
+        embedding = body.get("embedding")
+        status = body.get("status") or "new"
+
+        if not question:
+            return jsonify({
+                "code": 400,
+                "message": "question 不能为空"
+            }),400
+        
+        with Session(engine) as session:
+            item = QaKnowledge(
+                question = question,
+                answer = answer,
+                category = category,
+                embedding = embedding,
+                status = status
+            )
+
+            session.add(item)
+            session.commit()
+            session.refresh(item)
+
+            return jsonify({
+                "code": 200,
+                "message": "增加成功"
+            })
+    except Exception as e:
+        logger.exception("增加失败")
+        return jsonify({
+            "code": 500,
+            "message": "服务器错误",
+            "error": str(e)
+        }), 500
 
 
 
@@ -143,7 +191,7 @@ def update_item(item_id):
                 item.category = body["category"]
 
             # 更新状态
-            item.status = "已修改"
+            item.status = "updated"
             session.commit()
             session.refresh(item)
 
@@ -259,8 +307,8 @@ def update_todo(todo_id):
             if "category" in body:
                 todo.category = body["category"]
 
-            # 更新状态
-            todo.status = "已修改"
+            if "status" in body:
+                todo.status = body["status"]
             session.commit()
             session.refresh(todo)
 
@@ -281,4 +329,41 @@ def update_todo(todo_id):
         }), 500
 
 # 将todo中的条目写入到QaKnowledge中
-@bp
+@bp.route("/todos/<todo_id>/writetoqa", methods=["POST"])
+def write_todo_to_qa(todo_id):
+    """将 todo 条目 写入Qa"""
+    try:
+        with Session(engine) as session:
+            todo = session.get(Todo, todo_id)
+
+            if todo is None:
+                return jsonify({
+                    "code": 404,
+                    "message": "Todo数据不存在"
+                }), 404
+            item = QaKnowledge(
+                question = todo.question,
+                answer = todo.answer,
+                category = todo.category,
+                embedding = todo.embedding,
+                status="updated" if todo.action_type == "update" else "new",
+            )
+
+            session.add(item)
+            session.flush()
+            todo.qa_id = item.id
+            todo.is_write = 1
+            session.commit()
+            session.refresh(item)
+
+            return jsonify({
+                "code": 200,
+                "message": "写入成功"
+            })
+    except Exception as e:
+        logger.exception("写入失败")
+        return jsonify({
+            "code": 500,
+            "message": "服务器错误",
+            "error": str(e)
+        }), 500

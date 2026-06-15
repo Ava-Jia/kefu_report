@@ -101,12 +101,114 @@ function TodoActionCell({ record, onWrite, onEdit, onDelete }) {
   );
 }
 
-const TODO_TABLE_PAGINATION = {
-  pageSize: 10,
+const TODO_TABLE_PAGINATION_OPTIONS = {
   showSizeChanger: true,
   pageSizeOptions: [10, 20, 50, 100],
   showTotal: (value) => `共 ${value} 条`,
 };
+
+function useTodoTable(actionType) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
+
+  const loadItems = useCallback(
+    async (nextPage = 1, nextPageSize = pageSize) => {
+      setLoading(true);
+      try {
+        const res = await fetchWechatBotTodos({
+          action_type: actionType,
+          page: nextPage,
+          page_size: nextPageSize,
+        });
+
+        if (res?.code !== 200) {
+          throw new Error(res?.message || "加载待处理事项失败");
+        }
+
+        const payload = res.data || {};
+        const pagination = payload.pagination || {};
+
+        setItems(payload.list || []);
+        setTotal(Number(pagination.total) || 0);
+        setPage(Number(pagination.page) || nextPage);
+        setPageSize(Number(pagination.page_size) || nextPageSize);
+      } catch (error) {
+        message.error(
+          error?.response?.data?.message || error.message || "加载待处理事项失败"
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [actionType, pageSize]
+  );
+
+  const baseColumns = useMemo(
+    () => [
+      {
+        title: "问题",
+        dataIndex: "question",
+        key: "question",
+        ellipsis: false,
+        render: (value) => <TextPreview value={value} empty="暂无问题" />,
+      },
+      {
+        title: "答案",
+        dataIndex: "answer",
+        key: "answer",
+        ellipsis: false,
+        render: (value) => <TextPreview value={value} empty="暂无答案" />,
+      },
+      {
+        title: "分类",
+        dataIndex: "category",
+        key: "category",
+        width: 112,
+        render: (value) =>
+          value ? (
+            <Tag color="blue">{value}</Tag>
+          ) : (
+            <Text type="secondary">未分类</Text>
+          ),
+      },
+    ],
+    []
+  );
+
+  const updateExtraColumns = useMemo(
+    () => [
+      {
+        title: "相似问题",
+        dataIndex: "similar_question",
+        key: "similar_question",
+        ellipsis: false,
+        render: (value) => <TextPreview value={value} empty="暂无相似问题" />,
+      },
+      {
+        title: "相似答案",
+        dataIndex: "similar_answer",
+        key: "similar_answer",
+        ellipsis: false,
+        render: (value) => <TextPreview value={value} empty="暂无相似答案" />,
+      },
+    ],
+    []
+  );
+
+  return {
+    items,
+    loading,
+    page,
+    pageSize,
+    total,
+    loadItems,
+    baseColumns,
+    updateExtraColumns,
+  };
+}
 
 function useKnowledgeTable() {
   const [items, setItems] = useState([]);
@@ -220,97 +322,6 @@ function useKnowledgeTable() {
   };
 }
 
-function useTodoTables() {
-  const [insertTodos, setInsertTodos] = useState([]);
-  const [updateTodos, setUpdateTodos] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  const loadTodos = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetchWechatBotTodos({
-        grouped: true,
-        limit: 200,
-      });
-
-      if (res?.code !== 200) {
-        throw new Error(res?.message || "加载待处理事项失败");
-      }
-
-      const data = res.data || {};
-      setInsertTodos(Array.isArray(data.insert) ? data.insert : []);
-      setUpdateTodos(Array.isArray(data.update) ? data.update : []);
-    } catch (error) {
-      message.error(
-        error?.response?.data?.message || error.message || "加载待处理事项失败"
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const baseColumns = useMemo(
-    () => [
-      {
-        title: "问题",
-        dataIndex: "question",
-        key: "question",
-        ellipsis: false,
-        render: (value) => <TextPreview value={value} empty="暂无问题" />,
-      },
-      {
-        title: "答案",
-        dataIndex: "answer",
-        key: "answer",
-        ellipsis: false,
-        render: (value) => <TextPreview value={value} empty="暂无答案" />,
-      },
-      {
-        title: "分类",
-        dataIndex: "category",
-        key: "category",
-        width: 112,
-        render: (value) =>
-          value ? (
-            <Tag color="blue">{value}</Tag>
-          ) : (
-            <Text type="secondary">未分类</Text>
-          ),
-      },
-    ],
-    []
-  );
-
-  const updateExtraColumns = useMemo(
-    () => [
-      {
-        title: "相似问题",
-        dataIndex: "similar_question",
-        key: "similar_question",
-        ellipsis: false,
-        render: (value) => <TextPreview value={value} empty="暂无相似问题" />,
-      },
-      {
-        title: "相似答案",
-        dataIndex: "similar_answer",
-        key: "similar_answer",
-        ellipsis: false,
-        render: (value) => <TextPreview value={value} empty="暂无相似答案" />,
-      },
-    ],
-    []
-  );
-
-  return {
-    insertTodos,
-    updateTodos,
-    loading,
-    loadTodos,
-    baseColumns,
-    updateExtraColumns,
-  };
-}
-
 export default function WechatBotKnowledge() {
   const [activeTab, setActiveTab] = useState("knowledge");
   const [form] = Form.useForm();
@@ -321,13 +332,36 @@ export default function WechatBotKnowledge() {
   const [saving, setSaving] = useState(false);
 
   const knowledge = useKnowledgeTable();
-  const todos = useTodoTables();
+  const insertTodos = useTodoTable("insert");
+  const updateTodos = useTodoTable("update");
+
+  const reloadActiveTodoTable = useCallback(() => {
+    if (activeTab === "insert") {
+      insertTodos.loadItems(insertTodos.page, insertTodos.pageSize);
+      return;
+    }
+    if (activeTab === "update") {
+      updateTodos.loadItems(updateTodos.page, updateTodos.pageSize);
+    }
+  }, [
+    activeTab,
+    insertTodos.loadItems,
+    insertTodos.page,
+    insertTodos.pageSize,
+    updateTodos.loadItems,
+    updateTodos.page,
+    updateTodos.pageSize,
+  ]);
 
   useEffect(() => {
-    if (activeTab === "insert" || activeTab === "update") {
-      todos.loadTodos();
+    if (activeTab === "insert") {
+      insertTodos.loadItems(insertTodos.page, insertTodos.pageSize);
+    } else if (activeTab === "update") {
+      updateTodos.loadItems(updateTodos.page, updateTodos.pageSize);
     }
-  }, [activeTab, todos.loadTodos]);
+    // 仅在切换 Tab 时加载，翻页由 Table pagination.onChange 触发
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   const closeModal = useCallback(() => {
     setModalOpen(false);
@@ -418,7 +452,7 @@ export default function WechatBotKnowledge() {
 
       message.success("修改成功");
       closeModal();
-      todos.loadTodos();
+      reloadActiveTodoTable();
     } catch (error) {
       if (error?.errorFields) return;
       message.error(error?.response?.data?.message || error.message || "保存失败");
@@ -432,7 +466,7 @@ export default function WechatBotKnowledge() {
     editRecord,
     closeModal,
     knowledge,
-    todos,
+    reloadActiveTodoTable,
   ]);
 
   const onDeleteKnowledge = useCallback(
@@ -463,12 +497,12 @@ export default function WechatBotKnowledge() {
         }
         message.success("删除成功");
         if (editRecord?.id === record.id) closeModal();
-        todos.loadTodos();
+        reloadActiveTodoTable();
       } catch (error) {
         message.error(error?.response?.data?.message || error.message || "删除失败");
       }
     },
-    [editRecord, closeModal, todos]
+    [editRecord, closeModal, reloadActiveTodoTable]
   );
 
   const onWriteTodoToQa = useCallback(
@@ -480,12 +514,12 @@ export default function WechatBotKnowledge() {
           return;
         }
         message.success("已写入知识库");
-        todos.loadTodos();
+        reloadActiveTodoTable();
       } catch (error) {
         message.error(error?.response?.data?.message || error.message || "写入失败");
       }
     },
-    [todos]
+    [reloadActiveTodoTable]
   );
 
   const knowledgeActionColumn = useMemo(
@@ -547,13 +581,13 @@ export default function WechatBotKnowledge() {
   );
 
   const insertColumns = useMemo(
-    () => [...todos.baseColumns, todoActionColumn],
-    [todos.baseColumns, todoActionColumn]
+    () => [...insertTodos.baseColumns, todoActionColumn],
+    [insertTodos.baseColumns, todoActionColumn]
   );
 
   const updateColumns = useMemo(
-    () => [...todos.baseColumns, ...todos.updateExtraColumns, todoActionColumn],
-    [todos.baseColumns, todos.updateExtraColumns, todoActionColumn]
+    () => [...updateTodos.baseColumns, ...updateTodos.updateExtraColumns, todoActionColumn],
+    [updateTodos.baseColumns, updateTodos.updateExtraColumns, todoActionColumn]
   );
 
   const handleRefresh = () => {
@@ -561,7 +595,7 @@ export default function WechatBotKnowledge() {
       knowledge.loadItems(knowledge.page, knowledge.pageSize, knowledge.category);
       return;
     }
-    todos.loadTodos();
+    reloadActiveTodoTable();
   };
 
   const modalTitle =
@@ -639,18 +673,23 @@ export default function WechatBotKnowledge() {
       ),
       children: (
         <>
-          <div className="wechat-bot-toolbar">
-            <Text type="secondary">共 {todos.insertTodos.length} 条</Text>
-          </div>
           <Table
             rowKey="id"
             size="small"
             className="report-list-table wechat-bot-todo-table"
             tableLayout="fixed"
-            loading={todos.loading}
+            loading={insertTodos.loading}
             columns={insertColumns}
-            dataSource={todos.insertTodos}
-            pagination={TODO_TABLE_PAGINATION}
+            dataSource={insertTodos.items}
+            pagination={{
+              current: insertTodos.page,
+              pageSize: insertTodos.pageSize,
+              total: insertTodos.total,
+              ...TODO_TABLE_PAGINATION_OPTIONS,
+              onChange: (nextPage, nextPageSize) => {
+                insertTodos.loadItems(nextPage, nextPageSize);
+              },
+            }}
             locale={{
               emptyText: (
                 <Empty
@@ -673,18 +712,23 @@ export default function WechatBotKnowledge() {
       ),
       children: (
         <>
-          <div className="wechat-bot-toolbar">
-            <Text type="secondary">共 {todos.updateTodos.length} 条</Text>
-          </div>
           <Table
             rowKey="id"
             size="small"
             className="report-list-table wechat-bot-todo-table"
             tableLayout="fixed"
-            loading={todos.loading}
+            loading={updateTodos.loading}
             columns={updateColumns}
-            dataSource={todos.updateTodos}
-            pagination={TODO_TABLE_PAGINATION}
+            dataSource={updateTodos.items}
+            pagination={{
+              current: updateTodos.page,
+              pageSize: updateTodos.pageSize,
+              total: updateTodos.total,
+              ...TODO_TABLE_PAGINATION_OPTIONS,
+              onChange: (nextPage, nextPageSize) => {
+                updateTodos.loadItems(nextPage, nextPageSize);
+              },
+            }}
             locale={{
               emptyText: (
                 <Empty
@@ -700,7 +744,11 @@ export default function WechatBotKnowledge() {
   ];
 
   const pageLoading =
-    activeTab === "knowledge" ? knowledge.loading : todos.loading;
+    activeTab === "knowledge"
+      ? knowledge.loading
+      : activeTab === "insert"
+        ? insertTodos.loading
+        : updateTodos.loading;
 
   return (
     <div className="page-shell wechat-bot-page">

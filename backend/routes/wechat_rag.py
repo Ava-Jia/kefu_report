@@ -7,6 +7,7 @@ from models.wechat_rag_todo import (
     fetch_todos_grouped_by_action_type,
     list_todos,
     list_todos_by_action_type,
+    list_todos_paginated,
 )
 from schemas import QaKnowledgeItem, TodoItem
 import logging
@@ -219,14 +220,38 @@ def update_item(item_id):
 
 @bp.route("/todos", methods=["GET"])
 def get_todos():
-    """提取todos表中的数据"""
-    """按 action_type 提取 todo 数据；不传 action_type 时返回 insert/update 分组结果。"""
+    """按 action_type 提取 todo 数据；支持分页；不传 action_type 时返回 insert/update 分组结果。"""
     action_type = request.args.get("action_type", default=None, type=str)
     status = request.args.get("status", default=None, type=str)
     limit = request.args.get("limit", default=None, type=int)
     grouped = request.args.get("grouped", default="false", type=str).lower() == "true"
+    page = request.args.get("page", default=None, type=int)
+    page_size = request.args.get("page_size", default=None, type=int)
 
     try:
+        if action_type in ("insert", "update") and (page is not None or page_size is not None):
+            page = max(1, page or 1)
+            page_size = max(1, page_size or 10)
+            rows, total = list_todos_paginated(
+                action_type,
+                page=page,
+                page_size=page_size,
+                status=status,
+            )
+            return jsonify({
+                "code": 200,
+                "message": "查询成功",
+                "data": {
+                    "list": serialize_todos(rows),
+                    "pagination": {
+                        "page": page,
+                        "page_size": page_size,
+                        "total": total,
+                        "total_pages": (total + page_size - 1) // page_size,
+                    },
+                },
+            })
+
         if grouped or action_type is None:
             data = fetch_todos_grouped_by_action_type(status=status, limit=limit)
             serialized = {

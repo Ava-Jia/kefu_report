@@ -100,7 +100,7 @@ export async function fetchKnowledgeCategories() {
   return res.data;
 }
 
-/** grouped=true 时返回 { insert: [], update: [] } */
+/** action_type=insert|update 且传 page/page_size 时返回 { list, pagination } */
 export async function fetchWechatBotTodos(params = {}) {
   const { data } = await client.get("/todos", { params });
   return data;

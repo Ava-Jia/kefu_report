@@ -1,7 +1,7 @@
 import logging
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from data.database import engine
@@ -12,20 +12,47 @@ logger = logging.getLogger(__name__)
 ActionType = Literal["insert", "update"]
 
 
+def _build_todo_filters(
+    action_type: str | None = None,
+    status: str | None = None,
+):
+    filters = []
+    if action_type is not None:
+        filters.append(Todo.action_type == action_type)
+    if status is not None:
+        filters.append(Todo.status == status)
+    return filters
+
+
 def _build_todo_stmt(
     action_type: str | None = None,
     status: str | None = None,
     limit: int | None = None,
+    offset: int | None = None,
 ):
     stmt = select(Todo)
-    if action_type is not None:
-        stmt = stmt.where(Todo.action_type == action_type)
-    if status is not None:
-        stmt = stmt.where(Todo.status == status)
+    filters = _build_todo_filters(action_type, status)
+    if filters:
+        stmt = stmt.where(*filters)
     stmt = stmt.order_by(Todo.id.desc())
+    if offset is not None:
+        stmt = stmt.offset(offset)
     if limit is not None:
         stmt = stmt.limit(limit)
     return stmt
+
+
+def count_todos(
+    action_type: str | None = None,
+    status: str | None = None,
+) -> int:
+    """统计 todo 数量，可按 action_type、status 过滤。"""
+    stmt = select(func.count()).select_from(Todo)
+    filters = _build_todo_filters(action_type, status)
+    if filters:
+        stmt = stmt.where(*filters)
+    with Session(engine) as db:
+        return int(db.execute(stmt).scalar() or 0)
 
 
 def insert_todo(
@@ -70,10 +97,28 @@ def list_todos(
     action_type: str | None = None,
     status: str | None = None,
     limit: int | None = None,
+    offset: int | None = None,
 ) -> list[Todo]:
     """查询 todo 列表，可按 action_type、status 过滤。"""
     with Session(engine) as db:
-        return list(db.execute(_build_todo_stmt(action_type, status, limit)).scalars().all())
+        return list(
+            db.execute(_build_todo_stmt(action_type, status, limit, offset)).scalars().all()
+        )
+
+
+def list_todos_paginated(
+    action_type: ActionType,
+    page: int = 1,
+    page_size: int = 10,
+    status: str | None = None,
+) -> tuple[list[Todo], int]:
+    """分页查询指定 action_type 的 todo 列表，返回 (rows, total)。"""
+    page = max(1, page)
+    page_size = max(1, page_size)
+    offset = (page - 1) * page_size
+    rows = list_todos(action_type=action_type, status=status, limit=page_size, offset=offset)
+    total = count_todos(action_type=action_type, status=status)
+    return rows, total
 
 
 def list_todos_by_action_type(

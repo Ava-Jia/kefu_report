@@ -80,7 +80,35 @@ def get_categories():
     except Exception as e:
         logger.exception("获取分类失败")
         return jsonify({"code":500, "message":"服务器错误", "error": str(e)}), 500
-    
+
+
+@bp.route("/todos/categories", methods=["GET"])
+def get_todo_categories():
+    """获取Todo中某action_type的全部类别，action_type取值为 insert 或 update"""
+    action_type = request.args.get("action_type", default=None, type=str)
+    if action_type not in ("insert", "update"):
+        return jsonify({"code": 400, "message": "action_type 必须是 insert 或 update"}), 400
+
+    try:
+        with Session(engine) as session:
+            stmt = (
+                select(distinct(Todo.category))
+                .where(Todo.action_type == action_type)
+                .where(Todo.category.isnot(None))
+                .order_by(Todo.category)
+            )
+            categories = session.execute(stmt).scalars().all()
+
+        return jsonify({
+            "code": 200,
+            "message": "success",
+            "data": categories,
+        })
+    except Exception as e:
+        logger.exception("获取Todo分类失败")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
 # 增加一个条目
 @bp.route("/items", methods=["POST"])
 def add_item():

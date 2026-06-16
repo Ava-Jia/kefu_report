@@ -15,23 +15,27 @@ ActionType = Literal["insert", "update"]
 def _build_todo_filters(
     action_type: str | None = None,
     status: str | None = None,
+    category: str | None = None,
 ):
     filters = []
     if action_type is not None:
         filters.append(Todo.action_type == action_type)
     if status is not None:
         filters.append(Todo.status == status)
+    if category is not None:
+        filters.append(Todo.category == category)
     return filters
 
 
 def _build_todo_stmt(
     action_type: str | None = None,
     status: str | None = None,
+    category: str | None = None,
     limit: int | None = None,
     offset: int | None = None,
 ):
     stmt = select(Todo)
-    filters = _build_todo_filters(action_type, status)
+    filters = _build_todo_filters(action_type, status, category)
     if filters:
         stmt = stmt.where(*filters)
     stmt = stmt.order_by(Todo.id.desc())
@@ -45,10 +49,11 @@ def _build_todo_stmt(
 def count_todos(
     action_type: str | None = None,
     status: str | None = None,
+    category: str | None = None,
 ) -> int:
-    """统计 todo 数量，可按 action_type、status 过滤。"""
+    """统计 todo 数量，可按 action_type、status、category 过滤。"""
     stmt = select(func.count()).select_from(Todo)
-    filters = _build_todo_filters(action_type, status)
+    filters = _build_todo_filters(action_type, status, category)
     if filters:
         stmt = stmt.where(*filters)
     with Session(engine) as db:
@@ -96,13 +101,14 @@ def insert_todo(
 def list_todos(
     action_type: str | None = None,
     status: str | None = None,
+    category: str | None = None,
     limit: int | None = None,
     offset: int | None = None,
 ) -> list[Todo]:
-    """查询 todo 列表，可按 action_type、status 过滤。"""
+    """查询 todo 列表，可按 action_type、status、category 过滤。"""
     with Session(engine) as db:
         return list(
-            db.execute(_build_todo_stmt(action_type, status, limit, offset)).scalars().all()
+            db.execute(_build_todo_stmt(action_type, status, category, limit, offset)).scalars().all()
         )
 
 
@@ -111,23 +117,25 @@ def list_todos_paginated(
     page: int = 1,
     page_size: int = 10,
     status: str | None = None,
+    category: str | None = None,
 ) -> tuple[list[Todo], int]:
     """分页查询指定 action_type 的 todo 列表，返回 (rows, total)。"""
     page = max(1, page)
     page_size = max(1, page_size)
     offset = (page - 1) * page_size
-    rows = list_todos(action_type=action_type, status=status, limit=page_size, offset=offset)
-    total = count_todos(action_type=action_type, status=status)
+    rows = list_todos(action_type=action_type, status=status, category=category, limit=page_size, offset=offset)
+    total = count_todos(action_type=action_type, status=status, category=category)
     return rows, total
 
 
 def list_todos_by_action_type(
     action_type: ActionType,
     status: str | None = None,
+    category: str | None = None,
     limit: int | None = None,
 ) -> list[Todo]:
     """按指定 action_type 提取 todo 数据。"""
-    return list_todos(action_type=action_type, status=status, limit=limit)
+    return list_todos(action_type=action_type, status=status, category=category, limit=limit)
 
 
 def fetch_todos_grouped_by_action_type(

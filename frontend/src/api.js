@@ -116,6 +116,13 @@ export async function deleteWechatBotTodo(id) {
   return data;
 }
 
+export async function fetchTodoCategories(actionType) {
+  const { data } = await client.get("/todos/categories", {
+    params: { action_type: actionType },
+  });
+  return data;
+}
+
 export async function writeWechatBotTodoToQa(id) {
   const { data } = await client.post(`/todos/${encodeURIComponent(id)}/writetoqa`);
   return data;

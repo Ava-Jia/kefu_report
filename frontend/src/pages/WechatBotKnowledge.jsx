@@ -30,6 +30,7 @@ import {
   deleteWechatBotKnowledgeItem,
   deleteWechatBotTodo,
   fetchKnowledgeCategories,
+  fetchTodoCategories,
   fetchWechatBotKnowledge,
   fetchWechatBotTodos,
   updateWechatBotKnowledgeItem,
@@ -113,15 +114,36 @@ function useTodoTable(actionType) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [total, setTotal] = useState(0);
+  const [category, setCategory] = useState("");
+  const [categoryInput, setCategoryInput] = useState("");
+  const [categoryOptions, setCategoryOptions] = useState([
+    { label: "全部分类", value: "" },
+  ]);
+
+  const refreshCategories = useCallback(() => {
+    fetchTodoCategories(actionType).then((res) => {
+      if (res?.code === 200) {
+        setCategoryOptions([
+          { label: "全部分类", value: "" },
+          ...res.data.map((c) => ({ label: c, value: c })),
+        ]);
+      }
+    });
+  }, [actionType]);
+
+  useEffect(() => {
+    refreshCategories();
+  }, [refreshCategories]);
 
   const loadItems = useCallback(
-    async (nextPage = 1, nextPageSize = pageSize) => {
+    async (nextPage = 1, nextPageSize = pageSize, nextCategory = category) => {
       setLoading(true);
       try {
         const res = await fetchWechatBotTodos({
           action_type: actionType,
           page: nextPage,
           page_size: nextPageSize,
+          ...(nextCategory ? { category: nextCategory } : {}),
         });
 
         if (res?.code !== 200) {
@@ -143,8 +165,12 @@ function useTodoTable(actionType) {
         setLoading(false);
       }
     },
-    [actionType, pageSize]
+    [actionType, pageSize, category]
   );
+
+  useEffect(() => {
+    loadItems(1, pageSize, category);
+  }, [loadItems, pageSize, category]);
 
   const baseColumns = useMemo(
     () => [
@@ -204,9 +230,15 @@ function useTodoTable(actionType) {
     page,
     pageSize,
     total,
+    category,
+    categoryInput,
+    setCategoryInput,
+    setCategory,
+    categoryOptions,
     loadItems,
     baseColumns,
     updateExtraColumns,
+    refreshCategories,
   };
 }
 
@@ -337,27 +369,29 @@ export default function WechatBotKnowledge() {
 
   const reloadActiveTodoTable = useCallback(() => {
     if (activeTab === "insert") {
-      insertTodos.loadItems(insertTodos.page, insertTodos.pageSize);
+      insertTodos.loadItems(insertTodos.page, insertTodos.pageSize, insertTodos.category);
       return;
     }
     if (activeTab === "update") {
-      updateTodos.loadItems(updateTodos.page, updateTodos.pageSize);
+      updateTodos.loadItems(updateTodos.page, updateTodos.pageSize, updateTodos.category);
     }
   }, [
     activeTab,
     insertTodos.loadItems,
     insertTodos.page,
     insertTodos.pageSize,
+    insertTodos.category,
     updateTodos.loadItems,
     updateTodos.page,
     updateTodos.pageSize,
+    updateTodos.category,
   ]);
 
   useEffect(() => {
     if (activeTab === "insert") {
-      insertTodos.loadItems(insertTodos.page, insertTodos.pageSize);
+      insertTodos.loadItems(insertTodos.page, insertTodos.pageSize, insertTodos.category);
     } else if (activeTab === "update") {
-      updateTodos.loadItems(updateTodos.page, updateTodos.pageSize);
+      updateTodos.loadItems(updateTodos.page, updateTodos.pageSize, updateTodos.category);
     }
     // 仅在切换 Tab 时加载，翻页由 Table pagination.onChange 触发
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -673,6 +707,22 @@ export default function WechatBotKnowledge() {
       ),
       children: (
         <>
+          <div className="wechat-bot-toolbar">
+            <Select
+              value={insertTodos.categoryInput}
+              onChange={(val) => {
+                const nextCategory = val ?? "";
+                insertTodos.setCategoryInput(nextCategory);
+                insertTodos.setCategory(nextCategory);
+              }}
+              options={insertTodos.categoryOptions}
+              style={{ width: 240 }}
+              placeholder="选择分类"
+              showSearch
+              allowClear
+              optionFilterProp="label"
+            />
+          </div>
           <Table
             rowKey="id"
             size="small"
@@ -687,7 +737,7 @@ export default function WechatBotKnowledge() {
               total: insertTodos.total,
               ...TODO_TABLE_PAGINATION_OPTIONS,
               onChange: (nextPage, nextPageSize) => {
-                insertTodos.loadItems(nextPage, nextPageSize);
+                insertTodos.loadItems(nextPage, nextPageSize, insertTodos.category);
               },
             }}
             locale={{
@@ -712,6 +762,22 @@ export default function WechatBotKnowledge() {
       ),
       children: (
         <>
+          <div className="wechat-bot-toolbar">
+            <Select
+              value={updateTodos.categoryInput}
+              onChange={(val) => {
+                const nextCategory = val ?? "";
+                updateTodos.setCategoryInput(nextCategory);
+                updateTodos.setCategory(nextCategory);
+              }}
+              options={updateTodos.categoryOptions}
+              style={{ width: 240 }}
+              placeholder="选择分类"
+              showSearch
+              allowClear
+              optionFilterProp="label"
+            />
+          </div>
           <Table
             rowKey="id"
             size="small"
@@ -726,7 +792,7 @@ export default function WechatBotKnowledge() {
               total: updateTodos.total,
               ...TODO_TABLE_PAGINATION_OPTIONS,
               onChange: (nextPage, nextPageSize) => {
-                updateTodos.loadItems(nextPage, nextPageSize);
+                updateTodos.loadItems(nextPage, nextPageSize, updateTodos.category);
               },
             }}
             locale={{

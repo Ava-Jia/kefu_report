@@ -251,6 +251,7 @@ def get_todos():
     """按 action_type 提取 todo 数据；支持分页；不传 action_type 时返回 insert/update 分组结果。"""
     action_type = request.args.get("action_type", default=None, type=str)
     status = request.args.get("status", default=None, type=str)
+    category = request.args.get("category", default=None, type=str)
     limit = request.args.get("limit", default=None, type=int)
     grouped = request.args.get("grouped", default="false", type=str).lower() == "true"
     page = request.args.get("page", default=None, type=int)
@@ -265,6 +266,7 @@ def get_todos():
                 page=page,
                 page_size=page_size,
                 status=status,
+                category=category,
             )
             return jsonify({
                 "code": 200,
@@ -287,10 +289,10 @@ def get_todos():
                 for key, rows in data.items()
             }
         elif action_type in ("insert", "update"):
-            rows = list_todos_by_action_type(action_type, status=status, limit=limit)
+            rows = list_todos_by_action_type(action_type, status=status, category=category, limit=limit)
             serialized = serialize_todos(rows)
         else:
-            rows = list_todos(action_type=action_type, status=status, limit=limit)
+            rows = list_todos(action_type=action_type, status=status, category=category, limit=limit)
             serialized = serialize_todos(rows)
 
         return jsonify({

@@ -9,6 +9,7 @@
     "preview": "node ./node_modules/vite/bin/vite.js preview"
   },
   "dependencies": {
+    "@ant-design/icons": "^5.6.1",
     "antd": "^5.21.0",
     "axios": "^1.7.7",
     "dayjs": "^1.11.13",

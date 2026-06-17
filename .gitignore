@@ -29,6 +29,5 @@ backend/knowledge/qa_store.json
 .vscode/
 
 backend/logs/
-backend/data/
 frontend/vite-dev.err.log
 frontend/vite-dev.out.log

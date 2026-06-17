@@ -14,6 +14,7 @@ import {
   Card,
   Empty,
   Form,
+  AutoComplete,
   Input,
   Modal,
   Popconfirm,
@@ -637,6 +638,25 @@ export default function WechatBotKnowledge() {
         : "修改知识"
       : "修改待办";
 
+  const modalCategoryOptions = useMemo(() => {
+    const source =
+      modalTarget === "knowledge"
+        ? knowledge.categoryOptions
+        : activeTab === "insert"
+          ? insertTodos.categoryOptions
+          : updateTodos.categoryOptions;
+
+    return source
+      .filter((item) => item.value)
+      .map((item) => ({ value: item.value, label: item.label }));
+  }, [
+    modalTarget,
+    activeTab,
+    knowledge.categoryOptions,
+    insertTodos.categoryOptions,
+    updateTodos.categoryOptions,
+  ]);
+
   const tabItems = [
     {
       key: "knowledge",
@@ -862,7 +882,17 @@ export default function WechatBotKnowledge() {
             <TextArea rows={8} placeholder="回答内容" maxLength={12000} showCount />
           </Form.Item>
           <Form.Item label="分类" name="category">
-            <Input placeholder="分类名称" maxLength={128} />
+            <AutoComplete
+              options={modalCategoryOptions}
+              placeholder="输入或选择分类"
+              maxLength={128}
+              filterOption={(inputValue, option) =>
+                String(option?.value || "")
+                  .toLowerCase()
+                  .includes(inputValue.toLowerCase())
+              }
+              allowClear
+            />
           </Form.Item>
         </Form>
       </Modal>

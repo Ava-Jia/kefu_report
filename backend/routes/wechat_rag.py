@@ -423,8 +423,6 @@ def update_todo(todo_id):
             if "similar_answer" in body:
                 todo.similar_answer = body["similar_answer"]
 
-            if "status" in body:
-                todo.status = body["status"]
             session.commit()
             session.refresh(todo)
 

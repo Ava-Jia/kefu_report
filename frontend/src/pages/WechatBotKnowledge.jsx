@@ -435,7 +435,6 @@ export default function WechatBotKnowledge() {
         question: record.question || "",
         answer: record.answer || "",
         category: record.category || "",
-        status: record.status || "",
       });
       setModalOpen(true);
     },
@@ -475,7 +474,6 @@ export default function WechatBotKnowledge() {
         question: values.question.trim(),
         answer: (values.answer || "").trim(),
         category: (values.category || "").trim(),
-        status: (values.status || "").trim(),
       };
 
       const res = await updateWechatBotTodo(editRecord.id, payload);
@@ -866,11 +864,6 @@ export default function WechatBotKnowledge() {
           <Form.Item label="分类" name="category">
             <Input placeholder="分类名称" maxLength={128} />
           </Form.Item>
-          {modalTarget === "todo" && (
-            <Form.Item label="状态" name="status">
-              <Input placeholder="状态" maxLength={64} />
-            </Form.Item>
-          )}
         </Form>
       </Modal>
     </div>

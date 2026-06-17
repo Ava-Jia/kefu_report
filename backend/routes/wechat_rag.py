@@ -10,7 +10,13 @@ from models.wechat_rag_todo import (
     list_todos_paginated,
 )
 from schemas import QaKnowledgeItem, TodoItem
+from services.faiss_client import (
+    delete_vector_by_id,
+    insert_vector_by_id,
+    update_vector_by_id,
+)
 import logging
+import requests
 
 bp = Blueprint("wechatrag", __name__, url_prefix="/api")
 logger = logging.getLogger(__name__)
@@ -19,6 +25,42 @@ logger = logging.getLogger(__name__)
 def serialize_todos(rows: list[Todo]) -> list[dict]:
     """序列化 todo 列表。"""
     return [TodoItem.model_validate(row).model_dump() for row in rows]
+
+
+def _insert_qa_to_faiss(item: QaKnowledge) -> None:
+    """将新增 QaKnowledge 条目写入远程 FAISS 向量库。"""
+    insert_vector_by_id(
+        item_id=item.id,
+        question=(item.question or "").strip(),
+        answer=(item.answer or "").strip(),
+        category=(item.category or "").strip(),
+    )
+
+
+def _update_qa_to_faiss(item: QaKnowledge) -> None:
+    """将已存在 QaKnowledge 条目更新到远程 FAISS 向量库。"""
+    update_vector_by_id(
+        item_id=item.id,
+        question=(item.question or "").strip(),
+        answer=(item.answer or "").strip(),
+        category=(item.category or "").strip(),
+    )
+
+
+def _remove_qa_from_faiss(item_id: int) -> None:
+    """从远程 FAISS 向量库删除条目；不存在时仅记录日志。"""
+    try:
+        delete_vector_by_id(item_id)
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            logger.warning("FAISS 中不存在 id=%s，跳过删除", item_id)
+            return
+        raise
+    except RuntimeError as e:
+        if "不存在" in str(e) or "404" in str(e):
+            logger.warning("FAISS 中不存在 id=%s，跳过删除", item_id)
+            return
+        raise
 
 
 @bp.route("/items", methods=["GET"])
@@ -144,6 +186,8 @@ def add_item():
             )
 
             session.add(item)
+            session.flush()
+            _insert_qa_to_faiss(item)
             session.commit()
             session.refresh(item)
 

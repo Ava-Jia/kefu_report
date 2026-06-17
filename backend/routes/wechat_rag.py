@@ -147,9 +147,12 @@ def add_item():
             session.commit()
             session.refresh(item)
 
+            data = QaKnowledgeItem.model_validate(item).model_dump()
+
             return jsonify({
                 "code": 200,
-                "message": "增加成功"
+                "message": "增加成功",
+                "data": data,
             })
     except Exception as e:
         logger.exception("增加失败")
@@ -177,8 +180,11 @@ def delete_item(item_id):
                 }), 404
             
             # 如果有，就删除
+            item_id = item.id
             session.delete(item)
             session.commit()
+
+        _remove_qa_from_faiss(item_id)
         return jsonify({
             "code": 200,
             "message": "删除成功"
@@ -226,6 +232,8 @@ def update_item(item_id):
 
             # 更新状态
             item.status = "updated"
+            session.flush()
+            _update_qa_to_faiss(item)
             session.commit()
             session.refresh(item)
 
@@ -439,6 +447,11 @@ def write_todo_to_qa(todo_id):
                 todo.qa_id = item.id
 
             todo.is_write = 1
+            session.flush()
+            if todo.action_type == "update":
+                _update_qa_to_faiss(item)
+            else:
+                _insert_qa_to_faiss(item)
             session.commit()
             session.refresh(item)
 

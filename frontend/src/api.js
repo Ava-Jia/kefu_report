@@ -106,6 +106,11 @@ export async function fetchWechatBotTodos(params = {}) {
   return data;
 }
 
+export async function searchWechatBotTodos(params = {}) {
+  const { data } = await client.get("/todos/search", { params });
+  return data;
+}
+
 export async function updateWechatBotTodo(id, body) {
   const { data } = await client.put(`/todos/${encodeURIComponent(id)}`, body);
   return data;

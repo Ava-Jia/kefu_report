@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from sqlalchemy import select, func, distinct
+from sqlalchemy import select, func, distinct, or_
 from sqlalchemy.orm import Session
 from db.database import engine
 from models import QaKnowledge, Todo
@@ -25,6 +25,13 @@ logger = logging.getLogger(__name__)
 def serialize_todos(rows: list[Todo]) -> list[dict]:
     """序列化 todo 列表。"""
     return [TodoItem.model_validate(row).model_dump() for row in rows]
+
+
+def _split_query_values(value: str | None) -> list[str]:
+    """解析逗号分隔的查询参数，过滤空值。"""
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def _insert_qa_to_faiss(item: QaKnowledge) -> None:
@@ -354,6 +361,85 @@ def get_todos():
         })
     except Exception as e:
         logger.exception("查询 todo 失败")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
+@bp.route("/todos/search", methods=["GET"])
+def search_todos():
+    """按关键词模糊搜索 todo 问题，支持 action_type/status/category 与分页过滤。"""
+    keyword = (request.args.get("keyword") or request.args.get("q") or "").strip()
+    action_type = (
+        request.args.get("action_type")
+        or request.args.get("action-type")
+        or request.args.get("type")
+    )
+    category = request.args.get("category", default=None, type=str)
+    page = max(1, request.args.get("page", default=1, type=int))
+    page_size = max(1, request.args.get("page_size", default=10, type=int))
+    offset = (page - 1) * page_size
+
+    statuses = request.args.getlist("status")
+    statuses.extend(request.args.getlist("statuses"))
+    if not statuses:
+        statuses = _split_query_values(request.args.get("status") or request.args.get("statuses"))
+    else:
+        statuses = [
+            value
+            for raw in statuses
+            for value in _split_query_values(raw)
+        ]
+
+    if not keyword:
+        return jsonify({"code": 400, "message": "keyword 不能为空"}), 400
+
+    if action_type is not None:
+        action_type = action_type.strip()
+        if action_type not in ("insert", "update"):
+            return jsonify({"code": 400, "message": "action_type 必须是 insert 或 update"}), 400
+
+    try:
+        with Session(engine) as session:
+            filters = [
+                or_(
+                    Todo.question.ilike(f"%{keyword}%"),
+                    Todo.similar_question.ilike(f"%{keyword}%"),
+                )
+            ]
+
+            if action_type:
+                filters.append(Todo.action_type == action_type)
+            if statuses:
+                filters.append(Todo.status.in_(statuses))
+            if category:
+                filters.append(Todo.category == category)
+
+            stmt = (
+                select(Todo)
+                .where(*filters)
+                .order_by(Todo.id.desc())
+                .offset(offset)
+                .limit(page_size)
+            )
+            count_stmt = select(func.count()).select_from(Todo).where(*filters)
+
+            rows = session.execute(stmt).scalars().all()
+            total = int(session.execute(count_stmt).scalar() or 0)
+
+        return jsonify({
+            "code": 200,
+            "message": "查询成功",
+            "data": {
+                "list": serialize_todos(rows),
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total": total,
+                    "total_pages": (total + page_size - 1) // page_size,
+                },
+            },
+        })
+    except Exception as e:
+        logger.exception("搜索 todo 失败")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
    

@@ -34,13 +34,14 @@ import {
   fetchTodoCategories,
   fetchWechatBotKnowledge,
   fetchWechatBotTodos,
+  searchWechatBotTodos,
   updateWechatBotKnowledgeItem,
   updateWechatBotTodo,
   writeWechatBotTodoToQa,
 } from "../api";
 
 const { Paragraph, Text, Title } = Typography;
-const { TextArea } = Input;
+const { Search, TextArea } = Input;
 
 function TextPreview({ value, empty }) {
   if (!value) {
@@ -117,6 +118,8 @@ function useTodoTable(actionType) {
   const [total, setTotal] = useState(0);
   const [category, setCategory] = useState("");
   const [categoryInput, setCategoryInput] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [keywordInput, setKeywordInput] = useState("");
   const [categoryOptions, setCategoryOptions] = useState([
     { label: "全部分类", value: "" },
   ]);
@@ -137,15 +140,23 @@ function useTodoTable(actionType) {
   }, [refreshCategories]);
 
   const loadItems = useCallback(
-    async (nextPage = 1, nextPageSize = pageSize, nextCategory = category) => {
+    async (
+      nextPage = 1,
+      nextPageSize = pageSize,
+      nextCategory = category,
+      nextKeyword = keyword
+    ) => {
       setLoading(true);
       try {
-        const res = await fetchWechatBotTodos({
+        const params = {
           action_type: actionType,
           page: nextPage,
           page_size: nextPageSize,
           ...(nextCategory ? { category: nextCategory } : {}),
-        });
+        };
+        const res = nextKeyword
+          ? await searchWechatBotTodos({ ...params, keyword: nextKeyword })
+          : await fetchWechatBotTodos(params);
 
         if (res?.code !== 200) {
           throw new Error(res?.message || "加载待处理事项失败");
@@ -166,12 +177,12 @@ function useTodoTable(actionType) {
         setLoading(false);
       }
     },
-    [actionType, pageSize, category]
+    [actionType, pageSize, category, keyword]
   );
 
   useEffect(() => {
-    loadItems(1, pageSize, category);
-  }, [loadItems, pageSize, category]);
+    loadItems(1, pageSize, category, keyword);
+  }, [loadItems, pageSize, category, keyword]);
 
   const baseColumns = useMemo(
     () => [
@@ -235,6 +246,10 @@ function useTodoTable(actionType) {
     categoryInput,
     setCategoryInput,
     setCategory,
+    keyword,
+    keywordInput,
+    setKeyword,
+    setKeywordInput,
     categoryOptions,
     loadItems,
     baseColumns,
@@ -726,20 +741,42 @@ export default function WechatBotKnowledge() {
       children: (
         <>
           <div className="wechat-bot-toolbar">
-            <Select
-              value={insertTodos.categoryInput}
-              onChange={(val) => {
-                const nextCategory = val ?? "";
-                insertTodos.setCategoryInput(nextCategory);
-                insertTodos.setCategory(nextCategory);
-              }}
-              options={insertTodos.categoryOptions}
-              style={{ width: 240 }}
-              placeholder="选择分类"
-              showSearch
-              allowClear
-              optionFilterProp="label"
-            />
+            <Space wrap>
+              <Select
+                value={insertTodos.categoryInput}
+                onChange={(val) => {
+                  const nextCategory = val ?? "";
+                  insertTodos.setCategoryInput(nextCategory);
+                  insertTodos.setCategory(nextCategory);
+                }}
+                options={insertTodos.categoryOptions}
+                style={{ width: 240 }}
+                placeholder="选择分类"
+                showSearch
+                allowClear
+                optionFilterProp="label"
+              />
+              <Search
+                value={insertTodos.keywordInput}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  insertTodos.setKeywordInput(nextValue);
+                  if (!nextValue && insertTodos.keyword) {
+                    insertTodos.setKeyword("");
+                    insertTodos.loadItems(1, insertTodos.pageSize, insertTodos.category, "");
+                  }
+                }}
+                onSearch={(value) => {
+                  const nextKeyword = value.trim();
+                  insertTodos.setKeyword(nextKeyword);
+                  insertTodos.loadItems(1, insertTodos.pageSize, insertTodos.category, nextKeyword);
+                }}
+                placeholder="搜索问题关键词"
+                allowClear
+                enterButton="搜索"
+                style={{ width: 280 }}
+              />
+            </Space>
           </div>
           <Table
             rowKey="id"
@@ -781,20 +818,42 @@ export default function WechatBotKnowledge() {
       children: (
         <>
           <div className="wechat-bot-toolbar">
-            <Select
-              value={updateTodos.categoryInput}
-              onChange={(val) => {
-                const nextCategory = val ?? "";
-                updateTodos.setCategoryInput(nextCategory);
-                updateTodos.setCategory(nextCategory);
-              }}
-              options={updateTodos.categoryOptions}
-              style={{ width: 240 }}
-              placeholder="选择分类"
-              showSearch
-              allowClear
-              optionFilterProp="label"
-            />
+            <Space wrap>
+              <Select
+                value={updateTodos.categoryInput}
+                onChange={(val) => {
+                  const nextCategory = val ?? "";
+                  updateTodos.setCategoryInput(nextCategory);
+                  updateTodos.setCategory(nextCategory);
+                }}
+                options={updateTodos.categoryOptions}
+                style={{ width: 240 }}
+                placeholder="选择分类"
+                showSearch
+                allowClear
+                optionFilterProp="label"
+              />
+              <Search
+                value={updateTodos.keywordInput}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  updateTodos.setKeywordInput(nextValue);
+                  if (!nextValue && updateTodos.keyword) {
+                    updateTodos.setKeyword("");
+                    updateTodos.loadItems(1, updateTodos.pageSize, updateTodos.category, "");
+                  }
+                }}
+                onSearch={(value) => {
+                  const nextKeyword = value.trim();
+                  updateTodos.setKeyword(nextKeyword);
+                  updateTodos.loadItems(1, updateTodos.pageSize, updateTodos.category, nextKeyword);
+                }}
+                placeholder="搜索问题关键词"
+                allowClear
+                enterButton="搜索"
+                style={{ width: 280 }}
+              />
+            </Space>
           </div>
           <Table
             rowKey="id"

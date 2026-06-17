@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from sqlalchemy import select, func, distinct
 from sqlalchemy.orm import Session
-from data.database import engine
+from db.database import engine
 from models import QaKnowledge, Todo
 from models.wechat_rag_todo import (
     fetch_todos_grouped_by_action_type,

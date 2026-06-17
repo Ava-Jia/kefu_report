@@ -4,7 +4,7 @@ from typing import Literal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from data.database import engine
+from db.database import engine
 from models.wechat_rag import Todo
 
 logger = logging.getLogger(__name__)

@@ -2,7 +2,7 @@ from typing import Literal
 
 from sqlalchemy import String, Text, Integer, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column
-from data.database import Base
+from db.database import Base
 import datetime
 
 QaKnowledgeStatus = Literal["new", "updated", "unchanged"]

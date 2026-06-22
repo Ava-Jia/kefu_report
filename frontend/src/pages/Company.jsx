@@ -5,7 +5,7 @@ import {
 } from "antd";
 import {
   SearchOutlined, DownloadOutlined,
-  UnorderedListOutlined, ReloadOutlined,
+  UnorderedListOutlined, ReloadOutlined, RedoOutlined,
   PlusOutlined, DeleteOutlined, ClearOutlined
 } from "@ant-design/icons";
 import {
@@ -13,9 +13,11 @@ import {
   checkCompanyResult,
   fetchCompanyTasks,
   downloadCompanyXlsx,
+  retryCompanyTask,
 } from "../api.js";
 
 const DEFAULT_INPUT_ROW_COUNT = 5;
+const RETRY_TASK_PASSWORD = "Zhuyq";
 
 // 固定检索人候选项：在这里改成你需要的名字
 const SEARCHER_OPTIONS = ["luna", "IRIS", "H", "TEST"];
@@ -99,6 +101,10 @@ export default function CompanySearch() {
   const [searchNameModalOpen, setSearchNameModalOpen] = useState(false);
   const [searchNameInput, setSearchNameInput] = useState("");
   const [pendingCompanyNames, setPendingCompanyNames] = useState([]);
+  const [retryModalOpen, setRetryModalOpen] = useState(false);
+  const [retryPasswordInput, setRetryPasswordInput] = useState("");
+  const [retryTargetTask, setRetryTargetTask] = useState(null);
+  const [retrying, setRetrying] = useState(false);
   const [taskPage, setTaskPage] = useState(1);
   const [taskPageSize, setTaskPageSize] = useState(10);
   const [tasks, setTasks] = useState(() => {
@@ -571,6 +577,71 @@ export default function CompanySearch() {
     }
   };
 
+  const openRetryModal = (task) => {
+    setRetryTargetTask(task);
+    setRetryPasswordInput("");
+    setRetryModalOpen(true);
+  };
+
+  const handleConfirmRetry = async () => {
+    if (retryPasswordInput !== RETRY_TASK_PASSWORD) {
+      message.error("密码错误");
+      return;
+    }
+
+    if (!retryTargetTask?.taskId) {
+      message.warning("未找到要重试的任务");
+      return;
+    }
+
+    setRetrying(true);
+
+    try {
+      const res = await retryCompanyTask(retryTargetTask.taskId);
+
+      if (!res.success) {
+        throw new Error(res.error || res.message || "重试失败");
+      }
+
+      const newTaskId = res.task_id || res.taskId;
+      const sourceTaskId = retryTargetTask.taskId;
+
+      setTasks((prev) => {
+        const remaining = prev.filter((task) => task.taskId !== sourceTaskId);
+
+        if (!newTaskId) {
+          return remaining;
+        }
+
+        const submittedAt = new Date();
+
+        return [
+          {
+            taskId: newTaskId,
+            names: retryTargetTask.names,
+            searchName: retryTargetTask.searchName,
+            status: "pending",
+            createdAt: submittedAt.toLocaleTimeString(),
+            startTime: submittedAt.toLocaleString(),
+            endTime: "",
+            companyCount: retryTargetTask.companyCount,
+            averageTime: "",
+          },
+          ...remaining,
+        ];
+      });
+
+      setTaskPage(1);
+      setRetryModalOpen(false);
+      setRetryTargetTask(null);
+      message.success(res.message || "任务已重新提交");
+    } catch (e) {
+      message.error(e.message || "重试失败");
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   const pendingCount = tasks.filter((t) => ["pending", "running"].includes(t.status)).length;
   const searchCount = getCompanyNames().length;
 
@@ -740,6 +811,15 @@ export default function CompanySearch() {
               <List.Item
                 key={task.taskId}
                 actions={[
+                  ["pending", "running"].includes(task.status) ? (
+                    <Button
+                      type="link"
+                      icon={<RedoOutlined />}
+                      onClick={() => openRetryModal(task)}
+                    >
+                      重试
+                    </Button>
+                  ) : null,
                   task.status === "done" ? (
                     <Button
                       type="link"
@@ -863,6 +943,37 @@ export default function CompanySearch() {
 
         <div style={{ color: "#999", fontSize: 12, marginTop: 8 }}>
           本次将提交 {pendingCompanyNames.length} 家公司
+        </div>
+      </Modal>
+
+      <Modal
+        title="重试任务"
+        open={retryModalOpen}
+        okText="确认重试"
+        cancelText="取消"
+        confirmLoading={retrying}
+        okButtonProps={{ disabled: !retryPasswordInput }}
+        onOk={handleConfirmRetry}
+        onCancel={() => {
+          if (retrying) return;
+          setRetryModalOpen(false);
+          setRetryTargetTask(null);
+        }}
+      >
+        <div style={{ marginBottom: 12, color: "#666" }}>
+          任务 ID：{retryTargetTask?.taskId || "-"}
+        </div>
+
+        <Input.Password
+          value={retryPasswordInput}
+          placeholder="请输入密码"
+          autoFocus
+          onChange={(event) => setRetryPasswordInput(event.target.value)}
+          onPressEnter={handleConfirmRetry}
+        />
+
+        <div style={{ color: "#999", fontSize: 12, marginTop: 8 }}>
+          用于卡住或长时间未完成的等待中/运行中任务，重试后将删除原任务并创建新任务
         </div>
       </Modal>
     </div>

@@ -152,19 +152,77 @@ def get_open_corporates_task(task_id: str) -> dict:
 
 def retry_open_corporates_task(task_id: str) -> dict:
     """
-    Retry an OpenCorporates task in System A.
+    重试 OpenCorporates 任务：读取原任务参数后重新提交，并删除原任务。
 
-    Calls System A:
-    POST /openCorporates/task/{task_id}/retry
+    系统A未提供专用 retry 接口，因此等价于：
+    GET /openCorporates/task/{task_id}
+    POST /openCorporates/search/async
+    DELETE /tasks/open-corporates/{task_id}
     """
     base_url = _get_system_a_base_url()
 
-    response = requests.post(
-        f"{base_url}/openCorporates/task/{task_id}/retry",
+    response = requests.get(
+        f"{base_url}/openCorporates/task/{task_id}",
         timeout=REQUEST_TIMEOUT,
     )
     response.raise_for_status()
-    return response.json()
+    task = response.json()
+
+    input_data = task.get("input_data") or {}
+    company_name_list = normalize_company_name_list(input_data.get("company_name_list"))
+    search_name = str(
+        input_data.get("search_name") or task.get("search_name") or ""
+    ).strip()
+
+    if not company_name_list:
+        raise ValueError("原任务缺少 company_name_list，无法重试")
+
+    if not search_name:
+        raise ValueError("原任务缺少 search_name，无法重试")
+
+    result = submit_open_corporates_task(company_name_list, search_name)
+    result["source_task_id"] = task_id
+
+    try:
+        delete_open_corporates_task(task_id)
+        result["source_task_deleted"] = True
+    except requests.HTTPError as e:
+        status_code = e.response.status_code if e.response is not None else None
+        if status_code == 404:
+            result["source_task_deleted"] = True
+        else:
+            result["source_task_deleted"] = False
+            result["source_task_delete_error"] = str(e)
+    except requests.Timeout:
+        result["source_task_deleted"] = False
+        result["source_task_delete_error"] = "删除原任务超时"
+
+    return result
+
+
+def delete_open_corporates_task(task_id: str) -> dict:
+    """
+    删除系统A中的 OpenCorporates 任务。
+
+    调用系统A:
+    DELETE /tasks/open-corporates/{task_id}
+    """
+    base_url = _get_system_a_base_url()
+
+    response = requests.delete(
+        f"{base_url}/tasks/open-corporates/{task_id}",
+        headers={"accept": "application/json"},
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+
+    if response.content:
+        try:
+            return response.json()
+        except ValueError:
+            return {"message": response.text or "删除成功"}
+
+    return {"message": "删除成功"}
 
 
 def list_open_corporates_tasks(limit: int = 100, offset: int = 0) -> dict:

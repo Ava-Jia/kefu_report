@@ -7,6 +7,7 @@ from utils.company_utils import (
     submit_open_corporates_task,
     get_open_corporates_task,
     retry_open_corporates_task,
+    delete_open_corporates_task,
     list_open_corporates_tasks,
     create_xlsx_from_open_corporates_task,
 )
@@ -137,9 +138,12 @@ def get_company_task(task_id):
 def retry_company_task(task_id):
     """
     Retry an OpenCorporates task in System A.
+    Re-submits the original task input, then deletes the source task.
 
     Proxies:
-    POST /openCorporates/task/{task_id}/retry
+    GET /openCorporates/task/{task_id}
+    POST /openCorporates/search/async
+    DELETE /tasks/open-corporates/{task_id}
     """
     try:
         result = retry_open_corporates_task(task_id)
@@ -188,6 +192,60 @@ def retry_company_task(task_id):
             "error": "请求系统A超时"
         }), 504
 
+    except ValueError as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "task_id": task_id,
+        }), 400
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@bp.route("/companys/task/<task_id>", methods=["DELETE"])
+def delete_company_task(task_id):
+    """
+    删除系统A中的 OpenCorporates 任务。
+
+    代理:
+    DELETE /tasks/open-corporates/{task_id}
+    """
+    try:
+        result = delete_open_corporates_task(task_id)
+
+        return jsonify({
+            **result,
+            "success": result.get("success", True),
+            "task_id": task_id,
+        })
+
+    except requests.HTTPError as e:
+        status_code = e.response.status_code if e.response is not None else 502
+
+        if status_code == 404:
+            return jsonify({
+                "success": False,
+                "error": "OpenCorporates任务不存在",
+                "task_id": task_id,
+            }), 404
+
+        return jsonify({
+            "success": False,
+            "error": "删除系统A OpenCorporates任务失败",
+            "detail": str(e),
+            "task_id": task_id,
+        }), 502
+
+    except requests.Timeout:
+        return jsonify({
+            "success": False,
+            "error": "请求系统A超时"
+        }), 504
+
     except Exception as e:
         return jsonify({
             "success": False,
@@ -202,10 +260,10 @@ def get_company_tasks():
     数据直接来自系统A。
 
     示例:
-    GET /api/companys/tasks?limit=100&offset=0
+    GET /api/companys/tasks?limit=50&offset=0
     """
     try:
-        limit = int(request.args.get("limit", 100))
+        limit = min(int(request.args.get("limit", 50)), 50)
         offset = int(request.args.get("offset", 0))
 
         data = list_open_corporates_tasks(

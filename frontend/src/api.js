@@ -174,7 +174,7 @@ export const retryCompanyTask = async (taskId) => {
 };
 
 /** 查询全部公司检索任务 */
-export const fetchCompanyTasks = async (limit = 200, offset = 0) => {
+export const fetchCompanyTasks = async (limit = 50, offset = 0) => {
   try {
     const { data } = await client.get("/companys/tasks", {
       params: { limit, offset },

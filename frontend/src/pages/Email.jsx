@@ -31,22 +31,22 @@ const INTENT_COLOR = {
 };
 
 const INTENT_LABEL = {
-  CANCEL_IT: '取消 IT',
-  REEXPORT_RETURN: '重新出口/退运',
-  RELEASE: '放货/放行',
+  CANCEL_IT: 'CANCEL_IT',
+  REEXPORT_RETURN: '退运',
+  RELEASE: '放行',
   ARRIVAL_PICKUP_LFD: '到港/提货/LFD',
   CUSTOMS_EXAM_CLEARANCE: '海关查验/清关',
-  TRANSPORT_STATUS: '运输状态',
-  EMPTY_RETURN_EQUIPMENT: '还空/设备',
-  PAYMENT_FINANCE: '付款/财务',
-  DOCUMENT_BL: '文件/提单',
+  TRANSPORT_STATUS: '铁路运输',
+  EMPTY_RETURN_EQUIPMENT: '空箱归还',
+  PAYMENT_FINANCE: '费用相关',
+  DOCUMENT_BL: '提单业务',
   SHIPPING_COMPANY_REPLY: '船公司回复',
-  EXCHANGE_OF_PORT: '换港',
+  EXCHANGE_OF_PORT: '换单',
   OTHER: '其他',
 };
 
 const INTENT_OPTIONS = Object.keys(INTENT_COLOR).map((value) => ({
-  label: value,
+  label: INTENT_LABEL[value] ?? value,
   value,
 }));
 
@@ -84,18 +84,18 @@ const MultiMbl = ({ value }) => {
 const MultiIntent = ({ value }) => {
   const items = splitValues(value);
   if (!items.length) return '-';
-  if (items.length === 1) return <Tag color={INTENT_COLOR[items[0]] ?? 'blue'}>{items[0]}</Tag>;
+  if (items.length === 1) return <Tag color={INTENT_COLOR[items[0]] ?? 'blue'}>{INTENT_LABEL[items[0]] ?? items[0]}</Tag>;
   return (
     <Popover
       trigger="click"
       content={
         <Space wrap size={4}>
-          {items.map((v) => <Tag key={v} color={INTENT_COLOR[v] ?? 'blue'}>{v}</Tag>)}
+          {items.map((v) => <Tag key={v} color={INTENT_COLOR[v] ?? 'blue'}>{INTENT_LABEL[v] ?? v}</Tag>)}
         </Space>
       }
     >
       <span style={{ cursor: 'pointer' }}>
-        <Tag color={INTENT_COLOR[items[0]] ?? 'blue'}>{items[0]}</Tag>
+        <Tag color={INTENT_COLOR[items[0]] ?? 'blue'}>{INTENT_LABEL[items[0]] ?? items[0]}</Tag>
         <Tag>+{items.length - 1}</Tag>
       </span>
     </Popover>
@@ -141,6 +141,14 @@ const buildTableColumns = (onPreview) => [
     width: 220,
     ellipsis: true,
     render: (v) => v ? parseEmail(v) : '-',
+  },
+  {
+    title: '邮件主题',
+    dataIndex: 'subject',
+    key: 'subject',
+    width: 180,
+    render: (v) => v || '-',
+
   },
   {
     title: '一级意图',

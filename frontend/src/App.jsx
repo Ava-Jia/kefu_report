@@ -68,10 +68,6 @@ function SideMenu() {
         <div className="app-sider-brand-icon">
           <RobotOutlined />
         </div>
-        <div className="app-sider-brand-text">
-          <span className="app-sider-title">客服日报</span>
-          <span className="app-sider-sub">AI 工作台</span>
-        </div>
       </div>
       <Menu
         theme="dark"
@@ -99,8 +95,10 @@ export default function App() {
       <Sider
         className="app-sider"
         width={232}
+        collapsible
+        defaultCollapsed
         breakpoint="lg"
-        collapsedWidth={0}
+        collapsedWidth={64}
         theme="dark"
       >
         <SideMenu />

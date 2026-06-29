@@ -184,6 +184,16 @@ export const fetchCompanyTasks = async (limit = 50, offset = 0) => {
     return unwrapCompanyError(error);
   }
 };
+/** 获取邮件 HTML 内容（从 Redis） */
+export const fetchEmailHtml = async (email_id) => {
+  try {
+    const { data } = await client.get(`/email/${encodeURIComponent(email_id)}/html`);
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
 /** 查询email解析结果 */
 export const checkEmailParserResult = async (email_task_id) => {
   try {

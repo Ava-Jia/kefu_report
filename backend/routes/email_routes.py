@@ -37,6 +37,7 @@ def list_email_ids():
         logger.exception("list_email_ids error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
+
 @bp.route("/email/create", methods=["POST"])
 def create_email():
     """手动写入一条邮件解析记录。id 不传则自动生成。"""

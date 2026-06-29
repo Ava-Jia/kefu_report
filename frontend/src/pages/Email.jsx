@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import { SearchOutlined, LinkOutlined, EyeOutlined, SyncOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { checkEmailParserResult, fetchEmailList } from '../api';
+import { checkEmailParserResult, fetchEmailHtml, fetchEmailList } from '../api';
 
 const { Text, Paragraph } = Typography;
 
@@ -102,6 +102,30 @@ const MultiIntent = ({ value }) => {
   );
 };
 
+const PreviewButton = ({ row, onPreview }) => {
+  const [loading, setLoading] = useState(false);
+  const handleClick = async () => {
+    setLoading(true);
+    try {
+      const res = await fetchEmailHtml(row.id);
+      if (res?.code === 200) {
+        onPreview({ ...row, html_content: res.data.html_content });
+      } else {
+        message.error(res?.message || '获取 HTML 失败');
+      }
+    } catch (e) {
+      message.error(e.message || '获取 HTML 失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <Button size="small" icon={<EyeOutlined />} loading={loading} onClick={handleClick}>
+      预览
+    </Button>
+  );
+};
+
 const buildTableColumns = (onPreview) => [
   {
     title: 'MBL 号',
@@ -128,16 +152,8 @@ const buildTableColumns = (onPreview) => [
   {
     title: '操作',
     key: 'action',
-    width: 120,
-    render: (_, row) => (
-      <Space>
-        {row.html_content && (
-          <Button size="small" icon={<EyeOutlined />} onClick={() => onPreview(row)}>
-            预览
-          </Button>
-        )}
-      </Space>
-    ),
+    width: 80,
+    render: (_, row) => <PreviewButton row={row} onPreview={onPreview} />,
   },
   {
     title: '日期',

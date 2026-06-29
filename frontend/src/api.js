@@ -184,6 +184,15 @@ export const fetchCompanyTasks = async (limit = 50, offset = 0) => {
     return unwrapCompanyError(error);
   }
 };
+/** 查询email解析结果 */
+export const checkEmailParserResult = async (email_task_id) => {
+  try {
+    const { data } = await client.get(`/email/${encodeURIComponent(email_task_id)}`);
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error); 
+  }
+}
 
 /** 下载公司检索结果为 XLSX */
 export const downloadCompanyXlsx = async (taskId) => {

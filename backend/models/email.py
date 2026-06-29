@@ -24,6 +24,7 @@ class Email(_Base):
     email_summary: Mapped[str | None] = mapped_column(Text)
     html_content: Mapped[str | None] = mapped_column(Text)
     email_url: Mapped[str | None] = mapped_column(Text)
+    ordering_id: Mapped[str | None] = mapped_column(String(100))
     is_done: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -118,6 +119,8 @@ def upsert_emails(records: list[dict]) -> int:
                 email_summary=r.get("email_summary"),
                 html_content=html[0] if isinstance(html, list) and html else html if isinstance(html, str) else None,
                 email_url=r.get("email_url"),
+                ordering_id=r.get("ordering_id") or None,
+
             ))
         session.commit()
         return len(records)

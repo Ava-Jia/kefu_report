@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from services.email_parser import get_email_id, get_html_content, _json_get, _get_redis
+from services.email_parser import get_email_id, get_html_content, _json_get, _get_redis, get_order_result
 from models.email import upsert_emails, get_local_emails
 import logging
 import uuid
@@ -83,3 +83,18 @@ def get_email_html(email_id):
     except Exception as e:
         logger.exception("get_email_html error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+    
+
+# 获取指定的result
+@bp.route("/email/<ordering_id>/result", methods=["GET"])
+def get_order(ordering_id):
+    try:
+        result = get_order_result(ordering_id)
+        if result is None:
+            return jsonify({"code": 404, "message": "未找到对解析结果"}), 404
+        return jsonify({"code": 200, "message": "查询成功", "data": {"result": result}})
+    except Exception as e:
+        logger.exception("get_order_result error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+            
+

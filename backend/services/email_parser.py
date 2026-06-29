@@ -55,3 +55,6 @@ def get_html_content(email_id: str) -> str | None:
     html = result.get("html_content")
     return html[0] if isinstance(html, list) and html else html if isinstance(html, str) else None
     
+def get_order_result(ordering_id: str) -> dict | None:
+    r = _get_redis()
+    return _json_get(r, f"ordering_id:{ordering_id}")

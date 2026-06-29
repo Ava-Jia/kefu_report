@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import {
   Button, Card, Descriptions, Empty, Input, Space,
-  Spin, Tag, Typography, message,
+  Spin, Tag, Typography, message, Modal,
 } from 'antd';
-import { SearchOutlined, LinkOutlined } from '@ant-design/icons';
+import { SearchOutlined, LinkOutlined, EyeOutlined} from '@ant-design/icons';
 import { checkEmailParserResult } from '../api';
-
 const { Text, Paragraph } = Typography;
 
 const INTENT_COLOR = {
@@ -19,6 +18,7 @@ export default function Email() {
   const [taskId, setTaskId] = useState('');
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [htmlVisible, setHtmlVisible] = useState(false);
 
   const handleSearch = async () => {
     const trimmed = taskId.trim();
@@ -131,6 +131,18 @@ export default function Email() {
                 <Paragraph style={{ margin: 0 }}>{r.email_summary}</Paragraph>
               </Card>
             )}
+            {/* HTML内容预览 */}
+            {r.html_content && (
+              <Card size="small" title="邮件原始内容">
+                <Button
+                type="primary"
+                icon={<EyeOutlined />}
+                onClick={() => setHtmlVisible(true)}
+                >
+                  查看 HTML 网页
+                </Button>
+              </Card>
+            )}
 
             {/* 附件 */}
             {r.attachments?.length > 0 && (
@@ -161,6 +173,25 @@ export default function Email() {
           </Card>
         )}
       </Spin>
+      <Modal
+       title="HTML 邮件预览"
+       open={htmlVisible}
+       onCancel={() => setHtmlVisible(false)}
+       footer={null}
+       width="80%"
+       destroyOnClose
+      >
+        <iframe title="html-content-preview"
+          srcDoc={r.html_content || ''}
+          style={{
+            width: '100%',
+            height: '70vh',
+            border: '1px solid #eee',
+            borderRadius: 4,
+          }}
+          sandbox=""
+        />
+      </Modal>
     </div>
   );
 }

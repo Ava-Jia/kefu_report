@@ -1,50 +1,48 @@
 """
-远程邮箱解析任务接口，
+Redis 邮件解析数据访问层。
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 
-import requests
+import redis
 from dotenv import load_dotenv
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-
-def _base_url() -> str:
-    url = os.getenv("EMAIL_PARSER_BASE_URL", "").strip().rstrip("/")
-    if not url:
-        raise ValueError("未配置 EMAIL_PARSER_BASE_URL，请在 backend/.env 中设置")
-    return url
+_redis_client: redis.Redis | None = None
 
 
-def _timeout() -> int:
-    return int(os.getenv("EMAIL_API_TIMEOUT", "30"))
+def _get_redis() -> redis.Redis:
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = redis.Redis(
+            host=os.getenv("REDIS_HOST", "r-uf6zx1088q5hrpxkbcpd.redis.rds.aliyuncs.com"),
+            port=int(os.getenv("REDIS_PORT", "6379")),
+            username=os.getenv("REDIS_USERNAME", "pilot"),
+            password=os.getenv("REDIS_PASSWORD", "3hE07_U^_3##jBeo1-%5"),
+            db=int(os.getenv("REDIS_DB", "30")),
+            decode_responses=True,
+        )
+    return _redis_client
 
 
-def _post(path: str, payload: dict) -> dict:
-    url = f"{_base_url()}{path}"
-    resp = requests.post(url, json=payload, timeout=_timeout())
-    resp.raise_for_status()
-    body = resp.json()
-    data = body.get("data")
-    return data if isinstance(data, dict) else {"data": data}
+def _json_get(r: redis.Redis, key: str) -> dict | None:
+    raw = r.get(key)
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("key %s 的值不是合法 JSON", key)
+        return None
 
-def _get(path: str) -> dict:
-    url = f"{_base_url()}{path}"
-    resp = requests.get(url, timeout=_timeout())
-    resp.raise_for_status()
-    body = resp.json()
-    # data = body.get("result")
-    return body if isinstance(body, dict) else {"data": body}
 
-def get_email_parser(task_id):
-    data = _get(f"/task/{task_id}")
-    if isinstance(data, list):
-        return data, []
-    # results = data.get("result") if isinstance(data.get("result"), list) else []
-    return data, []
-
+def get_email_id() -> list[str]:
+    """返回 Redis 中所有 email_id 的 UUID 列表。"""
+    r = _get_redis()
+    return [key.split(":", 1)[1] for key in r.scan_iter("email_id:*", count=200)]

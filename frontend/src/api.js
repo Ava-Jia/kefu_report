@@ -194,6 +194,16 @@ export const checkEmailParserResult = async (email_task_id) => {
   }
 }
 
+/** 获取本地邮件列表 */
+export const fetchEmailList = async (page = 1, page_size = 50) => {
+  try {
+    const { data } = await client.get('/email/list', { params: { page, page_size } });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
 /** 下载公司检索结果为 XLSX */
 export const downloadCompanyXlsx = async (taskId) => {
   const response = await fetch(`/api/companys/task/${encodeURIComponent(taskId)}/export-xlsx`);

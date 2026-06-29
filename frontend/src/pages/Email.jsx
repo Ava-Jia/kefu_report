@@ -1,11 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Button, Card, Descriptions, Empty, Input, Space,
-  Spin, Tag, Typography, message, Modal,
+  Spin, Tag, Typography, message, Modal, Table,
 } from 'antd';
-import { SearchOutlined, LinkOutlined, EyeOutlined} from '@ant-design/icons';
-import { checkEmailParserResult } from '../api';
+import { SearchOutlined, LinkOutlined, EyeOutlined, SyncOutlined } from '@ant-design/icons';
+import { checkEmailParserResult, fetchEmailList } from '../api';
+
 const { Text, Paragraph } = Typography;
+
+const parseEmail = (raw) => {
+  if (!raw) return '-';
+  const m = raw.match(/<([^>]+)>/);
+  return m ? m[1] : raw.trim();
+};
 
 const INTENT_COLOR = {
   ARRIVAL_PICKUP_LFD: 'orange',
@@ -14,11 +21,110 @@ const INTENT_COLOR = {
   OTHER: 'default',
 };
 
+const buildTableColumns = (onPreview) => [
+  {
+    title: 'MBL 号',
+    dataIndex: 'mbl_number',
+    key: 'mbl_number',
+    width: 180,
+    render: (v) => v ? <Text copyable>{v}</Text> : '-',
+  },
+  {
+    title: '主题',
+    dataIndex: 'subject',
+    key: 'subject',
+    ellipsis: true,
+  },
+  {
+    title: '发件人',
+    dataIndex: 'from',
+    key: 'from',
+    width: 220,
+    ellipsis: true,
+    render: (v) => v ? parseEmail(v) : '-',
+  },
+  {
+    title: '意图类型1',
+    dataIndex: 'intent_type1',
+    key: 'intent_type1',
+    width: 180,
+    render: (v) => v ? <Tag color={INTENT_COLOR[v] ?? 'blue'}>{v}</Tag> : '-',
+  },
+  {
+    title: '意图类型2',
+    dataIndex: 'intent_type2',
+    key: 'intent_type2',
+    width: 140,
+    render: (v) => (v && v !== '{}') ? <Tag color="purple">{v}</Tag> : '-',
+  },
+  {
+    title: '摘要',
+    dataIndex: 'email_summary',
+    key: 'email_summary',
+    ellipsis: true,
+    render: (v) => v || '-',
+  },
+  {
+    title: '日期',
+    dataIndex: 'date',
+    key: 'date',
+    width: 200,
+    render: (v) => v || '-',
+  },
+  {
+    title: '操作',
+    key: 'action',
+    width: 120,
+    render: (_, row) => (
+      <Space>
+        {row.html_content && (
+          <Button size="small" icon={<EyeOutlined />} onClick={() => onPreview(row.html_content)}>
+            预览
+          </Button>
+        )}
+        {row.email_url && (
+          <a href={row.email_url} target="_blank" rel="noreferrer">
+            <LinkOutlined />
+          </a>
+        )}
+      </Space>
+    ),
+  },
+];
+
 export default function Email() {
   const [taskId, setTaskId] = useState('');
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [htmlVisible, setHtmlVisible] = useState(false);
+  const [tableHtmlContent, setTableHtmlContent] = useState('');
+  const [tableHtmlVisible, setTableHtmlVisible] = useState(false);
+
+  const [tableData, setTableData] = useState([]);
+  const [tableLoading, setTableLoading] = useState(false);
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 50, total: 0 });
+
+  const handleTablePreview = (html) => { setTableHtmlContent(html); setTableHtmlVisible(true); };
+  const tableColumns = buildTableColumns(handleTablePreview);
+
+  const loadTable = async (page = 1, pageSize = 50) => {
+    setTableLoading(true);
+    try {
+      const res = await fetchEmailList(page, pageSize);
+      if (res?.code === 200) {
+        setTableData(res.data.items);
+        setPagination((p) => ({ ...p, current: page, pageSize, total: res.data.total }));
+      } else {
+        message.error(res?.message || '加载失败');
+      }
+    } catch (e) {
+      message.error(e.message || '加载失败');
+    } finally {
+      setTableLoading(false);
+    }
+  };
+
+  useEffect(() => { loadTable(); }, []);
 
   const handleSearch = async () => {
     const trimmed = taskId.trim();
@@ -41,134 +147,68 @@ export default function Email() {
   };
 
   const r = result?.result ?? {};
-  const taskInfo = result ? {
-    created_at: result.created_at,
-    completed_at: result.completed_at,
-    error: result.error,
-  } : null;
 
   return (
     <div style={{ padding: '0 4px' }}>
-      <h2 style={{ marginBottom: 16 }}>Email 解析结果查询</h2>
+      <h2 style={{ marginBottom: 16 }}>Email 解析结果</h2>
 
-      <Space style={{ marginBottom: 20 }}>
-        <Input
-          placeholder="请输入 email_task_id"
-          value={taskId}
-          onChange={(e) => setTaskId(e.target.value)}
-          onPressEnter={handleSearch}
-          style={{ width: 360 }}
-          allowClear
-        />
-        <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={loading}>
-          查询
-        </Button>
-      </Space>
-
-      <Spin spinning={loading}>
-        {result ? (
-          <Space direction="vertical" style={{ width: '100%' }} size={16}>
-            {/* 主单号 */}
-            <Card size="small" title="MBL号">
-               {r.mbl_number ? <Text copyable>{r.mbl_number}</Text> : '-'}
-            </Card>
-
-            {/* 意图解析 */}
-            <Card size="small" title="意图解析">
-              <Descriptions column={3} size="small" bordered>
-                <Descriptions.Item label="意图类型1">
-                  {r.intent_type1
-                    ? <Tag color={INTENT_COLOR[r.intent_type1] ?? 'blue'}>{r.intent_type1}</Tag>
-                    : '-'}
-                </Descriptions.Item>
-                <Descriptions.Item label="意图类型2">
-                  {r.intent_type2 && typeof r.intent_type2 === 'string' && r.intent_type2 !== '{}'
-                    ? <Tag color="purple">{r.intent_type2}</Tag>
-                    : '-'}
-                </Descriptions.Item>
-              </Descriptions>
-            </Card>
-
-            {/* 摘要 */}
-            {r.email_summary && (
-              <Card size="small" title="邮件摘要">
-                <Paragraph style={{ margin: 0 }}>{r.email_summary}</Paragraph>
-              </Card>
-            )}
-            {/* HTML内容预览 */}
-            {r.html_content && (
-              <Card size="small" title="邮件原始内容">
-                <Button
-                type="primary"
-                icon={<EyeOutlined />}
-                onClick={() => setHtmlVisible(true)}
-                >
-                  查看 HTML 网页
-                </Button>
-              </Card>
-            )}
-
-            {/* 邮件基本信息 */}
-            <Card size="small" title="邮件信息">
-              <Descriptions column={2} size="small" bordered>
-                <Descriptions.Item label="发件人" span={2}>
-                  <Text copyable>{r.from ?? '-'}</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="收件人" span={2}>
-                  <Text>{r.to ?? '-'}</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="主题" span={2}>
-                  <Text strong>{r.subject ?? '-'}</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="日期">{r.date ?? '-'}</Descriptions.Item>
-              </Descriptions>
-            </Card>
-
-            {/* 附件 */}
-            {r.attachments?.length > 0 && (
-              <Card size="small" title={`附件（${r.attachments.length}）`}>
-                <Space wrap>
-                  {r.attachments.map((att, i) => (
-                    <Tag key={i} color="geekblue">
-                      {att.filename}（{(att.size / 1024).toFixed(1)} KB）
-                    </Tag>
-                  ))}
-                </Space>
-              </Card>
-            )}
-
-            {/* 原始邮件链接 */}
-            {r.email_url && (
-              <Card size="small" title="原始邮件">
-                <a href={r.email_url} target="_blank" rel="noreferrer">
-                  <LinkOutlined /> {r.email_url}
-                </a>
-              </Card>
-            )}
-
-          </Space>
-        ) : (
-          <Card>
-            <Empty description="请输入 task_id 查询解析结果" />
-          </Card>
-        )}
-      </Spin>
-      <Modal
-       title="HTML 邮件预览"
-       open={htmlVisible}
-       onCancel={() => setHtmlVisible(false)}
-       footer={null}
-       width="80%"
-       destroyOnClose
+      {/* 邮件列表表格 */}
+      <Card
+        size="small"
+        title={`邮件列表（共 ${pagination.total} 条）`}
+        style={{ marginBottom: 24 }}
+        extra={
+          <Button icon={<SyncOutlined />} size="small" onClick={() => loadTable(1, pagination.pageSize)}>
+            刷新
+          </Button>
+        }
       >
-        <iframe title="html-content-preview"
-          srcDoc={r.html_content || ''}
-          style={{
-            width: '100%',
-            height: '70vh',
-            border: '1px solid #eee',
-            borderRadius: 4,
+        <Table
+          rowKey="id"
+          columns={tableColumns}
+          dataSource={tableData}
+          loading={tableLoading}
+          size="small"
+          pagination={{
+            current: pagination.current,
+            pageSize: pagination.pageSize,
+            total: pagination.total,
+            showSizeChanger: true,
+            pageSizeOptions: ['20', '50', '100'],
+            showTotal: (total) => `共 ${total} 条`,
+            onChange: (page, pageSize) => loadTable(page, pageSize),
           }}
+          scroll={{ x: 1000 }}
+        />
+      </Card>
+      <Modal
+        title="HTML 邮件预览"
+        open={htmlVisible}
+        onCancel={() => setHtmlVisible(false)}
+        footer={null}
+        width="80%"
+        destroyOnClose
+      >
+        <iframe
+          title="html-content-preview"
+          srcDoc={r.html_content || ''}
+          style={{ width: '100%', height: '70vh', border: '1px solid #eee', borderRadius: 4 }}
+          sandbox=""
+        />
+      </Modal>
+
+      <Modal
+        title="HTML 邮件预览"
+        open={tableHtmlVisible}
+        onCancel={() => setTableHtmlVisible(false)}
+        footer={null}
+        width="80%"
+        destroyOnClose
+      >
+        <iframe
+          title="table-html-content-preview"
+          srcDoc={tableHtmlContent}
+          style={{ width: '100%', height: '70vh', border: '1px solid #eee', borderRadius: 4 }}
           sandbox=""
         />
       </Modal>

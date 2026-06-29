@@ -144,6 +144,7 @@ def get_todo_categories():
                 select(distinct(Todo.category))
                 .where(Todo.action_type == action_type)
                 .where(Todo.category.isnot(None))
+                .where(Todo.is_write != 1)
                 .order_by(Todo.category)
             )
             categories = session.execute(stmt).scalars().all()
@@ -317,7 +318,7 @@ def get_todos():
     page_size = request.args.get("page_size", default=None, type=int)
 
     try:
-        if action_type in ("insert", "update") and (page is not None or page_size is not None):
+        if (page is not None or page_size is not None) and not grouped:
             page = max(1, page or 1)
             page_size = max(1, page_size or 10)
             rows, total = list_todos_paginated(
@@ -412,6 +413,7 @@ def search_todos():
                 filters.append(Todo.status.in_(statuses))
             if category:
                 filters.append(Todo.category == category)
+            filters.append(Todo.is_write != 1)
 
             stmt = (
                 select(Todo)
@@ -508,6 +510,8 @@ def update_todo(todo_id):
                 todo.similar_question = body["similar_question"]
             if "similar_answer" in body:
                 todo.similar_answer = body["similar_answer"]
+            if "status" in body:
+                todo.status = body["status"]
 
             session.commit()
             session.refresh(todo)

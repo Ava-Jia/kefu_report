@@ -16,6 +16,7 @@ def _build_todo_filters(
     action_type: str | None = None,
     status: str | None = None,
     category: str | None = None,
+    exclude_written: bool = True,
 ):
     filters = []
     if action_type is not None:
@@ -24,6 +25,8 @@ def _build_todo_filters(
         filters.append(Todo.status == status)
     if category is not None:
         filters.append(Todo.category == category)
+    if exclude_written:
+        filters.append(Todo.is_write != 1)
     return filters
 
 
@@ -113,7 +116,7 @@ def list_todos(
 
 
 def list_todos_paginated(
-    action_type: ActionType,
+    action_type: ActionType | None,
     page: int = 1,
     page_size: int = 10,
     status: str | None = None,

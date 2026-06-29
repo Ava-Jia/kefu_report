@@ -46,3 +46,12 @@ def get_email_id() -> list[str]:
     """返回 Redis 中所有 email_id 的 UUID 列表。"""
     r = _get_redis()
     return [key.split(":", 1)[1] for key in r.scan_iter("email_id:*", count=200)]
+
+def get_html_content(email_id: str) -> str | None:
+    r = _get_redis()
+    result = _json_get(r, f"email_id:{email_id}")
+    if result is None:
+        return None
+    html = result.get("html_content")
+    return html[0] if isinstance(html, list) and html else html if isinstance(html, str) else None
+    

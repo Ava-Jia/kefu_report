@@ -195,9 +195,13 @@ export const checkEmailParserResult = async (email_task_id) => {
 }
 
 /** 获取本地邮件列表 */
-export const fetchEmailList = async (page = 1, page_size = 50) => {
+export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = '', date_from = '', date_to = '' } = {}) => {
   try {
-    const { data } = await client.get('/email/list', { params: { page, page_size } });
+    const params = { page, page_size };
+    if (intent_type1) params.intent_type1 = intent_type1;
+    if (date_from) params.date_from = date_from;
+    if (date_to) params.date_to = date_to;
+    const { data } = await client.get('/email/list', { params });
     return data;
   } catch (error) {
     return unwrapCompanyError(error);

@@ -58,7 +58,7 @@ function SideMenu() {
     {
       key: "/email",
       icon: <BookOutlined />,
-      label: <Link to="/email">email解析结果</Link>,
+      label: <Link to="/email">email管理</Link>,
     }
   ];
 

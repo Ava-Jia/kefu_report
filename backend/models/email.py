@@ -1,7 +1,7 @@
 import datetime
 import email.utils
 
-from sqlalchemy import String, Text, DateTime, func, create_engine
+from sqlalchemy import String, Text, DateTime, func, create_engine, Boolean
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
 _engine = create_engine("sqlite:///./email.db", connect_args={"check_same_thread": False})
@@ -24,6 +24,12 @@ class Email(_Base):
     email_summary: Mapped[str | None] = mapped_column(Text)
     html_content: Mapped[str | None] = mapped_column(Text)
     email_url: Mapped[str | None] = mapped_column(Text)
+    is_done: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -34,11 +40,25 @@ def get_session() -> Session:
     return Session(_engine)
 
 
-def get_local_emails(page: int = 1, page_size: int = 50) -> dict:
+def get_local_emails(
+    page: int = 1,
+    page_size: int = 50,
+    intent_type1: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict:
     with get_session() as session:
-        total = session.query(Email).count()
+        query = session.query(Email)
+        if intent_type1:
+            query = query.filter(Email.intent_type1.contains(intent_type1))
+        if date_from:
+            query = query.filter(Email.date >= date_from)
+        if date_to:
+            query = query.filter(Email.date <= date_to + " 23:59:59")
+
+        total = query.count()
         items = (
-            session.query(Email)
+            query
             .order_by(Email.date.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)

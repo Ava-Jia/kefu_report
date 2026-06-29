@@ -68,37 +68,9 @@ export default function Email() {
       <Spin spinning={loading}>
         {result ? (
           <Space direction="vertical" style={{ width: '100%' }} size={16}>
-
-            {/* 任务状态 */}
-            <Card size="small" title="任务信息">
-              <Descriptions column={3} size="small">
-                <Descriptions.Item label="创建时间">{taskInfo.created_at ?? '-'}</Descriptions.Item>
-                <Descriptions.Item label="完成时间">{taskInfo.completed_at ?? '-'}</Descriptions.Item>
-                <Descriptions.Item label="状态">
-                  {taskInfo.error
-                    ? <Tag color="red">失败：{taskInfo.error}</Tag>
-                    : <Tag color="green">成功</Tag>}
-                </Descriptions.Item>
-              </Descriptions>
-            </Card>
-
-            {/* 邮件基本信息 */}
-            <Card size="small" title="邮件信息">
-              <Descriptions column={2} size="small" bordered>
-                <Descriptions.Item label="发件人" span={2}>
-                  <Text copyable>{r.from ?? '-'}</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="收件人" span={2}>
-                  <Text>{r.to ?? '-'}</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="主题" span={2}>
-                  <Text strong>{r.subject ?? '-'}</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="日期">{r.date ?? '-'}</Descriptions.Item>
-                <Descriptions.Item label="MBL 号">
-                  {r.mbl_number ? <Text copyable>{r.mbl_number}</Text> : '-'}
-                </Descriptions.Item>
-              </Descriptions>
+            {/* 主单号 */}
+            <Card size="small" title="MBL号">
+               {r.mbl_number ? <Text copyable>{r.mbl_number}</Text> : '-'}
             </Card>
 
             {/* 意图解析 */}
@@ -114,14 +86,6 @@ export default function Email() {
                     ? <Tag color="purple">{r.intent_type2}</Tag>
                     : '-'}
                 </Descriptions.Item>
-                <Descriptions.Item label="处理结果">
-                  {r.intent_result
-                    ? <Tag color={r.intent_result === 'OTHER' ? 'default' : 'cyan'}>{r.intent_result}</Tag>
-                    : '-'}
-                </Descriptions.Item>
-                {r.intent_reason && (
-                  <Descriptions.Item label="原因" span={3}>{r.intent_reason}</Descriptions.Item>
-                )}
               </Descriptions>
             </Card>
 
@@ -143,6 +107,22 @@ export default function Email() {
                 </Button>
               </Card>
             )}
+
+            {/* 邮件基本信息 */}
+            <Card size="small" title="邮件信息">
+              <Descriptions column={2} size="small" bordered>
+                <Descriptions.Item label="发件人" span={2}>
+                  <Text copyable>{r.from ?? '-'}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="收件人" span={2}>
+                  <Text>{r.to ?? '-'}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="主题" span={2}>
+                  <Text strong>{r.subject ?? '-'}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="日期">{r.date ?? '-'}</Descriptions.Item>
+              </Descriptions>
+            </Card>
 
             {/* 附件 */}
             {r.attachments?.length > 0 && (

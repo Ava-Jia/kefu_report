@@ -144,6 +144,7 @@ def get_todo_categories():
                 select(distinct(Todo.category))
                 .where(Todo.action_type == action_type)
                 .where(Todo.category.isnot(None))
+                .where(Todo.is_write != 1)
                 .order_by(Todo.category)
             )
             categories = session.execute(stmt).scalars().all()
@@ -412,6 +413,7 @@ def search_todos():
                 filters.append(Todo.status.in_(statuses))
             if category:
                 filters.append(Todo.category == category)
+            filters.append(Todo.is_write != 1)
 
             stmt = (
                 select(Todo)

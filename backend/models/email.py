@@ -15,15 +15,12 @@ class Email(_Base):
     __tablename__ = "email"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    subject: Mapped[str | None] = mapped_column(Text)
     date: Mapped[str | None] = mapped_column(String(100))
     from_addr: Mapped[str | None] = mapped_column(Text)
     mbl_number: Mapped[str | None] = mapped_column(String(100))
     intent_type1: Mapped[str | None] = mapped_column(String(100))
+    subject: Mapped[str | None] = mapped_column(Text)
     intent_type2: Mapped[str | None] = mapped_column(Text)
-    email_summary: Mapped[str | None] = mapped_column(Text)
-    html_content: Mapped[str | None] = mapped_column(Text)
-    email_url: Mapped[str | None] = mapped_column(Text)
     ordering_id: Mapped[str | None] = mapped_column(String(100))
     is_done: Mapped[bool] = mapped_column(
         Boolean,
@@ -72,15 +69,14 @@ def get_local_emails(
             "items": [
                 {
                     "id": e.id,
-                    "subject": e.subject,
                     "date": e.date,
                     "from": e.from_addr,
                     "mbl_number": e.mbl_number,
                     "intent_type1": e.intent_type1,
+                    "is_done": e.is_done,
+                    "subject": e.subject,
                     "intent_type2": e.intent_type2,
-                    "email_summary": e.email_summary,
-                    "html_content": e.html_content,
-                    "email_url": e.email_url,
+                    "ordering_id": e.ordering_id,
                 }
                 for e in items
             ],
@@ -107,20 +103,15 @@ def upsert_emails(records: list[dict]) -> int:
         for r in records:
             if not r.get("id"):
                 continue
-            html = r.get("html_content")
             session.merge(Email(
                 id=r["id"],
-                subject=r.get("subject"),
                 date=_to_bjt(r.get("date")),
                 from_addr=r.get("from"),
                 mbl_number=r.get("mbl_number"),
                 intent_type1=r.get("intent_type1"),
+                subject=r.get("subject"),
                 intent_type2=str(r.get("intent_type2")) if r.get("intent_type2") else None,
-                email_summary=r.get("email_summary"),
-                html_content=html[0] if isinstance(html, list) and html else html if isinstance(html, str) else None,
-                email_url=r.get("email_url"),
                 ordering_id=r.get("ordering_id") or None,
-
             ))
         session.commit()
         return len(records)

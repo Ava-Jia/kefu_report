@@ -116,7 +116,7 @@ def list_todos(
 
 
 def list_todos_paginated(
-    action_type: ActionType,
+    action_type: ActionType | None,
     page: int = 1,
     page_size: int = 10,
     status: str | None = None,

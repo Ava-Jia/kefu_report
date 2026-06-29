@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BookOutlined,
+  ClockCircleOutlined,
   DeleteOutlined,
   EditOutlined,
   PlusCircleOutlined,
@@ -57,8 +58,9 @@ function TextPreview({ value, empty }) {
   );
 }
 
-function TodoActionCell({ record, onWrite, onEdit, onDelete }) {
+function TodoActionCell({ record, onWrite, onEdit, onDelete, onMarkTodo }) {
   const written = record.is_write === 1;
+  const isTodo = record.status === "todo";
 
   return (
     <div className="wechat-bot-todo-actions">
@@ -80,6 +82,16 @@ function TodoActionCell({ record, onWrite, onEdit, onDelete }) {
         </Button>
       </Popconfirm>
       <div className="wechat-bot-todo-action-secondary">
+        {!isTodo && (
+          <Button
+            type="link"
+            size="small"
+            icon={<ClockCircleOutlined />}
+            onClick={() => onMarkTodo(record)}
+          >
+            待做
+          </Button>
+        )}
         <Button
           type="link"
           size="small"
@@ -110,7 +122,7 @@ const TODO_TABLE_PAGINATION_OPTIONS = {
   showTotal: (value) => `共 ${value} 条`,
 };
 
-function useTodoTable(actionType) {
+function useTodoTable(actionType, status = "pending") {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
@@ -125,6 +137,7 @@ function useTodoTable(actionType) {
   ]);
 
   const refreshCategories = useCallback(() => {
+    if (!actionType) return;
     fetchTodoCategories(actionType).then((res) => {
       if (res?.code === 200) {
         setCategoryOptions([
@@ -149,9 +162,10 @@ function useTodoTable(actionType) {
       setLoading(true);
       try {
         const params = {
-          action_type: actionType,
+          ...(actionType ? { action_type: actionType } : {}),
           page: nextPage,
           page_size: nextPageSize,
+          status,
           ...(nextCategory ? { category: nextCategory } : {}),
         };
         const res = nextKeyword
@@ -177,7 +191,7 @@ function useTodoTable(actionType) {
         setLoading(false);
       }
     },
-    [actionType, pageSize, category, keyword]
+    [actionType, status, pageSize, category, keyword]
   );
 
   useEffect(() => {
@@ -382,6 +396,7 @@ export default function WechatBotKnowledge() {
   const knowledge = useKnowledgeTable();
   const insertTodos = useTodoTable("insert");
   const updateTodos = useTodoTable("update");
+  const pendingTodos = useTodoTable(null, "todo");
 
   const reloadActiveTodoTable = useCallback(() => {
     if (activeTab === "insert") {
@@ -390,6 +405,10 @@ export default function WechatBotKnowledge() {
     }
     if (activeTab === "update") {
       updateTodos.loadItems(updateTodos.page, updateTodos.pageSize, updateTodos.category);
+      return;
+    }
+    if (activeTab === "pending") {
+      pendingTodos.loadItems(pendingTodos.page, pendingTodos.pageSize, pendingTodos.category);
     }
   }, [
     activeTab,
@@ -401,6 +420,10 @@ export default function WechatBotKnowledge() {
     updateTodos.page,
     updateTodos.pageSize,
     updateTodos.category,
+    pendingTodos.loadItems,
+    pendingTodos.page,
+    pendingTodos.pageSize,
+    pendingTodos.category,
   ]);
 
   useEffect(() => {
@@ -408,6 +431,8 @@ export default function WechatBotKnowledge() {
       insertTodos.loadItems(insertTodos.page, insertTodos.pageSize, insertTodos.category);
     } else if (activeTab === "update") {
       updateTodos.loadItems(updateTodos.page, updateTodos.pageSize, updateTodos.category);
+    } else if (activeTab === "pending") {
+      pendingTodos.loadItems(pendingTodos.page, pendingTodos.pageSize, pendingTodos.category);
     }
     // 仅在切换 Tab 时加载，翻页由 Table pagination.onChange 触发
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -570,6 +595,23 @@ export default function WechatBotKnowledge() {
     [reloadActiveTodoTable]
   );
 
+  const onMarkTodoStatus = useCallback(
+    async (record) => {
+      try {
+        const res = await updateWechatBotTodo(record.id, { status: "todo" });
+        if (res?.code !== 200) {
+          message.error(res?.message || "标记失败");
+          return;
+        }
+        message.success("已标记为待做");
+        reloadActiveTodoTable();
+      } catch (error) {
+        message.error(error?.response?.data?.message || error.message || "标记失败");
+      }
+    },
+    [reloadActiveTodoTable]
+  );
+
   const knowledgeActionColumn = useMemo(
     () => ({
       title: "操作",
@@ -617,10 +659,11 @@ export default function WechatBotKnowledge() {
           onWrite={onWriteTodoToQa}
           onEdit={openEditTodo}
           onDelete={onDeleteTodo}
+          onMarkTodo={onMarkTodoStatus}
         />
       ),
     }),
-    [onWriteTodoToQa, openEditTodo, onDeleteTodo]
+    [onWriteTodoToQa, openEditTodo, onDeleteTodo, onMarkTodoStatus]
   );
 
   const knowledgeColumns = useMemo(
@@ -636,6 +679,11 @@ export default function WechatBotKnowledge() {
   const updateColumns = useMemo(
     () => [...updateTodos.baseColumns, ...updateTodos.updateExtraColumns, todoActionColumn],
     [updateTodos.baseColumns, updateTodos.updateExtraColumns, todoActionColumn]
+  );
+
+  const pendingColumns = useMemo(
+    () => [...pendingTodos.baseColumns, ...pendingTodos.updateExtraColumns, todoActionColumn],
+    [pendingTodos.baseColumns, pendingTodos.updateExtraColumns, todoActionColumn]
   );
 
   const handleRefresh = () => {
@@ -884,6 +932,69 @@ export default function WechatBotKnowledge() {
         </>
       ),
     },
+    {
+      key: "pending",
+      label: (
+        <span>
+          <ClockCircleOutlined style={{ marginRight: 6 }} />
+          待定
+        </span>
+      ),
+      children: (
+        <>
+          <div className="wechat-bot-toolbar">
+            <Space wrap>
+              <Search
+                value={pendingTodos.keywordInput}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  pendingTodos.setKeywordInput(nextValue);
+                  if (!nextValue && pendingTodos.keyword) {
+                    pendingTodos.setKeyword("");
+                    pendingTodos.loadItems(1, pendingTodos.pageSize, pendingTodos.category, "");
+                  }
+                }}
+                onSearch={(value) => {
+                  const nextKeyword = value.trim();
+                  pendingTodos.setKeyword(nextKeyword);
+                  pendingTodos.loadItems(1, pendingTodos.pageSize, pendingTodos.category, nextKeyword);
+                }}
+                placeholder="搜索问题关键词"
+                allowClear
+                enterButton="搜索"
+                style={{ width: 280 }}
+              />
+            </Space>
+          </div>
+          <Table
+            rowKey="id"
+            size="small"
+            className="report-list-table wechat-bot-todo-table"
+            tableLayout="fixed"
+            loading={pendingTodos.loading}
+            columns={pendingColumns}
+            dataSource={pendingTodos.items}
+            pagination={{
+              current: pendingTodos.page,
+              pageSize: pendingTodos.pageSize,
+              total: pendingTodos.total,
+              ...TODO_TABLE_PAGINATION_OPTIONS,
+              onChange: (nextPage, nextPageSize) => {
+                pendingTodos.loadItems(nextPage, nextPageSize, pendingTodos.category);
+              },
+            }}
+            locale={{
+              emptyText: (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="暂无待定数据"
+                />
+              ),
+            }}
+          />
+        </>
+      ),
+    },
   ];
 
   const pageLoading =
@@ -891,7 +1002,9 @@ export default function WechatBotKnowledge() {
       ? knowledge.loading
       : activeTab === "insert"
         ? insertTodos.loading
-        : updateTodos.loading;
+        : activeTab === "update"
+          ? updateTodos.loading
+          : pendingTodos.loading;
 
   return (
     <div className="page-shell wechat-bot-page">

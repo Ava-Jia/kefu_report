@@ -184,6 +184,39 @@ export const fetchCompanyTasks = async (limit = 50, offset = 0) => {
     return unwrapCompanyError(error);
   }
 };
+/** 获取邮件 HTML 内容（从 Redis） */
+export const fetchEmailHtml = async (email_id) => {
+  try {
+    const { data } = await client.get(`/email/${encodeURIComponent(email_id)}/html`);
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
+/** 查询email解析结果 */
+export const checkEmailParserResult = async (email_task_id) => {
+  try {
+    const { data } = await client.get(`/email/${encodeURIComponent(email_task_id)}`);
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error); 
+  }
+}
+
+/** 获取本地邮件列表 */
+export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = '', date_from = '', date_to = '' } = {}) => {
+  try {
+    const params = { page, page_size };
+    if (intent_type1) params.intent_type1 = intent_type1;
+    if (date_from) params.date_from = date_from;
+    if (date_to) params.date_to = date_to;
+    const { data } = await client.get('/email/list', { params });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
 
 /** 下载公司检索结果为 XLSX */
 export const downloadCompanyXlsx = async (taskId) => {

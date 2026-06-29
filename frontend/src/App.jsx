@@ -11,6 +11,7 @@ import Analysis from "./pages/Analysis.jsx";
 import Knowledge from "./pages/Knowledge.jsx";
 import CompanySearch from "./pages/Company.jsx";
 import WechatBotKnowledge from "./pages/WechatBotKnowledge.jsx";
+import Email from "./pages/Email.jsx";
 
 const { Sider, Content } = Layout;
 
@@ -24,6 +25,8 @@ function SideMenu() {
         ? ["/wechat-bot-knowledge"]
         : location.pathname.startsWith("/company-search")
           ? ["/company-search"]
+          : location.pathname.startsWith("/email")
+          ? ["/email"]
           : ["/"];
 
   const menuItems = [
@@ -52,6 +55,11 @@ function SideMenu() {
       icon: <BookOutlined />,
       label: <Link to="/wechat-bot-knowledge">Wechat Bot 知识库</Link>,
     },
+    {
+      key: "/email",
+      icon: <BookOutlined />,
+      label: <Link to="/email">email管理</Link>,
+    }
   ];
 
   return (
@@ -105,6 +113,7 @@ export default function App() {
             <Route path="/knowledge" element={<Knowledge />} />
             <Route path="/company-search" element={<CompanySearch />} />
             <Route path="/wechat-bot-knowledge" element={<WechatBotKnowledge />} />
+            <Route path="/email" element={<Email />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Content>

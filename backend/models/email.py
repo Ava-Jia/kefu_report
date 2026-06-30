@@ -1,7 +1,7 @@
 import datetime
 import email.utils
 
-from sqlalchemy import String, Text, DateTime, Integer, func, create_engine, Boolean
+from sqlalchemy import String, Text, DateTime, Integer, func, create_engine, Boolean, event, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
 _engine = create_engine("sqlite:///./email.db", connect_args={"check_same_thread": False})
@@ -36,9 +36,27 @@ class Email(_Base):
         default=0,
         server_default="0",
     )
+    data_id: Mapped[int | None] = mapped_column(Integer, nullable=True, unique=True)
+
+
+@event.listens_for(Email, 'before_insert')
+def _assign_data_id(mapper, connection, target):
+    if target.data_id is None:
+        result = connection.execute(text("SELECT COALESCE(MAX(data_id), 0) + 1 FROM email"))
+        target.data_id = result.scalar()
+
+
+def _migrate():
+    with _engine.connect() as conn:
+        cols = [row[1] for row in conn.execute(text("PRAGMA table_info(email)")).fetchall()]
+        if 'data_id' not in cols:
+            conn.execute(text("ALTER TABLE email ADD COLUMN data_id INTEGER"))
+            conn.execute(text("UPDATE email SET data_id = rowid"))
+            conn.commit()
 
 
 _Base.metadata.create_all(_engine)
+_migrate()
 
 
 def get_session() -> Session:
@@ -86,6 +104,7 @@ def get_local_emails(
                     "intent_type2": e.intent_type2,
                     "ordering_id": e.ordering_id,
                     "is_check": e.is_check,
+                    "data_id": e.data_id,
                 }
                 for e in items
             ],

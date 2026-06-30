@@ -135,18 +135,17 @@ const MultiIntent = ({ value }) => {
 };
 
 const CHECK_OPTIONS = [
-  { value: 0, label: '未处理', color: 'default' },
+  { value: 0, label: 'Todo', color: 'default' },
   { value: 1, label: '已处理', color: 'success' },
   { value: 2, label: '待定',   color: 'warning' },
 ];
 
 const CheckButton = ({ id, value, onChange }) => {
   const [loading, setLoading] = useState(false);
-  const current = CHECK_OPTIONS.find((o) => o.value === value) ?? CHECK_OPTIONS[0];
+  const done = value === 1;
 
-  const handleSelect = async ({ key }) => {
-    const next = Number(key);
-    if (next === value) return;
+  const handleClick = async () => {
+    const next = done ? 0 : 1;
     setLoading(true);
     try {
       const res = await updateEmailCheck(id, next);
@@ -160,17 +159,25 @@ const CheckButton = ({ id, value, onChange }) => {
   };
 
   return (
-    <Dropdown
-      menu={{
-        items: CHECK_OPTIONS.map((o) => ({ key: o.value, label: <Tag color={o.color}>{o.label}</Tag> })),
-        onClick: handleSelect,
+    <div
+      onClick={loading ? undefined : handleClick}
+      title={done ? '已处理，点击撤销' : '点击标记完成'}
+      style={{
+        width: 20,
+        height: 20,
+        borderRadius: '50%',
+        border: `2px solid ${done ? '#52c41a' : '#d9d9d9'}`,
+        background: done ? '#52c41a' : 'transparent',
+        cursor: loading ? 'not-allowed' : 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transition: 'all 0.2s',
+        opacity: loading ? 0.5 : 1,
       }}
-      trigger={['click']}
     >
-      <Button size="small" loading={loading} style={{ minWidth: 64 }}>
-        <Tag color={current.color} style={{ margin: 0 }}>{current.label}</Tag>
-      </Button>
-    </Dropdown>
+      {done && <span style={{ color: '#fff', fontSize: 12, lineHeight: 1 }}>✓</span>}
+    </div>
   );
 };
 
@@ -260,7 +267,7 @@ const buildTableColumns = (onCheckChange) => [
     key: 'is_check',
     width: 70,
     render: (v, record) => (
-      <div style={{ overflow: 'hidden', maxHeight: 28 }}>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
         <CheckButton id={record.id} value={v ?? 0} onChange={(next) => onCheckChange(record.id, next)} />
       </div>
     ),

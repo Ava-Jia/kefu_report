@@ -301,12 +301,12 @@ body {
   padding: 10px 12px;
 }
 
-/* Email 表格列线黑色 */
+/* Email 表格列线薄荷绿 */
 .email-table.ant-table-wrapper .ant-table-bordered .ant-table-container,
 .email-table.ant-table-wrapper .ant-table-bordered .ant-table-container table,
 .email-table.ant-table-wrapper .ant-table-bordered .ant-table-container .ant-table-thead > tr > th,
 .email-table.ant-table-wrapper .ant-table-bordered .ant-table-container .ant-table-tbody > tr > td {
-  border-color: #000 !important;
+  border-color: #3eb489 !important;
 }
 
 .wechat-bot-page .ant-tag {

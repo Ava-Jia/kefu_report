@@ -236,7 +236,7 @@ const buildTableColumns = (onCheckChange) => [
     title: 'MBL 号',
     dataIndex: 'mbl_number',
     key: 'mbl_number',
-    width: 120,
+    width: 125,
     render: (v) => <MultiMbl value={v} />,
   },
   {

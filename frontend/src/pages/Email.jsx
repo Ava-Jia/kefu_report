@@ -312,6 +312,7 @@ export default function Email() {
 
   const [tableData, setTableData] = useState([]);
   const [tableLoading, setTableLoading] = useState(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
   const [total, setTotal] = useState(0);
 
   const category = initCategory;
@@ -322,6 +323,25 @@ export default function Email() {
 
   const handleCheckChange = (id, next) => {
     setTableData((prev) => prev.map((row) => row.id === id ? { ...row, is_check: next } : row));
+  };
+
+  const [batchLoading, setBatchLoading] = useState(false);
+
+  const handleBatchCheck = async (next) => {
+    if (!selectedRowKeys.length) return;
+    setBatchLoading(true);
+    try {
+      await Promise.all(selectedRowKeys.map((id) => updateEmailCheck(id, next)));
+      setTableData((prev) => prev.map((row) =>
+        selectedRowKeys.includes(row.id) ? { ...row, is_check: next } : row
+      ));
+      message.success(`已将 ${selectedRowKeys.length} 条更新为「${CHECK_OPTIONS.find(o => o.value === next)?.label}」`);
+      setSelectedRowKeys([]);
+    } catch {
+      message.error('批量更新失败');
+    } finally {
+      setBatchLoading(false);
+    }
   };
 
   const tableColumns = buildTableColumns(handleCheckChange);
@@ -408,10 +428,9 @@ export default function Email() {
       <h2 style={{ marginBottom: 16 }}>Email 管理</h2>
 
       <Card
-        size="small"
-        title={`邮件列表（共 ${total} 条）`}
+        title={<span style={{ fontSize: 16, fontWeight: 600 }}>{`邮件列表（共 ${total} 条）`}</span>}
         extra={
-          <Button icon={<SyncOutlined />} size="small" onClick={() => loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo)}>
+          <Button icon={<SyncOutlined />} onClick={() => loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo)}>
             刷新
           </Button>
         }
@@ -419,14 +438,16 @@ export default function Email() {
         <Space style={{ marginBottom: 12 }} wrap>
           <Select
             allowClear
+            size="large"
             value={initCategory || undefined}
             placeholder="全部类别"
             options={INTENT_OPTIONS}
-            style={{ width: 180 }}
+            style={{ width: 200 }}
             onChange={(value) => handleCategoryChange(value || '')}
           />
-          <Button onClick={() => handleQuickDate(3)}>近3天</Button>
+          <Button size="large" onClick={() => handleQuickDate(3)}>近3天</Button>
           <Button
+            size="large"
             onClick={handleTodayOrder}
             style={isTodayOrderActive ? { background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' } : {}}
           >今日预报/换单</Button>
@@ -439,13 +460,31 @@ export default function Email() {
             disabledDate={(d) => d && d > dayjs().endOf('day')}
             style={{ width: 0, padding: 0, border: 'none', overflow: 'hidden', position: 'absolute' }}
           />
-          <Button type={hasDateFilter ? 'primary' : 'default'} onClick={() => setCustomPickerOpen(true)}>
+          <Button size="large" type={hasDateFilter ? 'primary' : 'default'} onClick={() => setCustomPickerOpen(true)}>
             {hasDateFilter ? `${initDateFrom} ~ ${initDateTo}` : '自定义日期'}
           </Button>
           {hasDateFilter && (
-            <Button onClick={() => pushParams(1, initPageSize, initCategory, '', '')}>清除</Button>
+            <Button size="large" onClick={() => pushParams(1, initPageSize, initCategory, '', '')}>清除</Button>
           )}
         </Space>
+        {selectedRowKeys.length > 0 && (
+          <Space style={{ marginBottom: 8 }}>
+            <span style={{ fontSize: 15, color: 'rgba(0,0,0,0.85)', fontWeight: 500 }}>
+              已选 {selectedRowKeys.length} 条，批量标记为：
+            </span>
+            {CHECK_OPTIONS.map((o) => (
+              <Button
+                key={o.value}
+                size="small"
+                loading={batchLoading}
+                onClick={() => handleBatchCheck(o.value)}
+              >
+                <Tag color={o.color} style={{ margin: 0 }}>{o.label}</Tag>
+              </Button>
+            ))}
+            <Button size="small" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+          </Space>
+        )}
         <Table
           rowKey="id"
           columns={tableColumns}
@@ -454,6 +493,7 @@ export default function Email() {
           size="small"
           bordered
           className="email-table"
+          rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
           pagination={{
             current: initPage,
             pageSize: initPageSize,

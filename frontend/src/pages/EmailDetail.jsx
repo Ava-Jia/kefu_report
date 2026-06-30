@@ -1,10 +1,40 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
-import { Button, Spin, Typography } from 'antd';
+import { Button, Spin } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { fetchEmailHtml, fetchEmailResult } from '../api';
 
-const { Text } = Typography;
+function EditableText({ value, onChange, style }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const ref = useRef(null);
+
+  useEffect(() => { if (editing) ref.current?.focus(); }, [editing]);
+
+  const commit = () => {
+    setEditing(false);
+    if (draft !== value) onChange(draft);
+  };
+
+  if (editing) {
+    return (
+      <textarea
+        ref={ref}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Escape') { setDraft(value); setEditing(false); } }}
+        style={{ ...style, width: '100%', resize: 'vertical', border: '1px solid #1677ff', borderRadius: 4, padding: '2px 6px', outline: 'none', fontFamily: 'inherit' }}
+      />
+    );
+  }
+
+  return (
+    <span onDoubleClick={() => { setDraft(value); setEditing(true); }} style={{ ...style, cursor: 'text', display: 'block' }}>
+      {value}
+    </span>
+  );
+}
 
 const FIELD_LABEL = {
   agentEmail: '代理邮箱', agentName: '代理名称',
@@ -67,7 +97,7 @@ const makeHtmlReadable = (raw) => raw
   .replace(/font-size\s*:\s*(\d+(?:\.\d+)?)\s*px/gi, (m, n) => parseFloat(n) < 24 ? 'font-size:24px' : m)
   .replace(/font-size\s*:\s*(\d+(?:\.\d+)?)\s*pt/gi, (m, n) => parseFloat(n) < 18 ? 'font-size:18pt' : m);
 
-function ResultField({ label, value }) {
+function ResultField({ label, value, onChange }) {
   const display = value === null || value === undefined || value === '' ? null
     : typeof value === 'object' ? value
     : String(value);
@@ -104,11 +134,10 @@ function ResultField({ label, value }) {
           style={{ fontSize: 15, wordBreak: 'break-all', display: 'flex', alignItems: 'flex-start', gap: 3 }}>
           <span>查看链接</span>
         </a>
+      ) : onChange ? (
+        <EditableText value={display} onChange={onChange} style={{ fontSize: 15, wordBreak: 'break-all', whiteSpace: 'pre-wrap', flex: 1 }} />
       ) : (
-        <Text copyable={{ text: display }}
-          style={{ fontSize: 15, wordBreak: 'break-all', whiteSpace: 'pre-wrap', flex: 1 }}>
-          {display}
-        </Text>
+        <span style={{ fontSize: 15, wordBreak: 'break-all', whiteSpace: 'pre-wrap', flex: 1 }}>{display}</span>
       )}
     </div>
   );
@@ -154,6 +183,13 @@ export default function EmailDetail() {
   };
   const [resultLoading, setResultLoading] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
+
+  const onFieldChange = (key, val) => {
+    setResult((prev) => {
+      if (Array.isArray(prev)) return [{ ...(prev[0] ?? {}), [key]: val }, ...prev.slice(1)];
+      return { ...prev, [key]: val };
+    });
+  };
 
   useEffect(() => {
     fetchEmailHtml(id)
@@ -290,7 +326,11 @@ export default function EmailDetail() {
         {resultLoading ? (
           <Spin size="small" />
         ) : result ? (
-          sortedEntries(Array.isArray(result) ? result[0] ?? {} : result).map(([k, v]) => <ResultField key={k} label={k} value={v} />)
+          sortedEntries(Array.isArray(result) ? result[0] ?? {} : result).map(([k, v]) => (
+            <ResultField key={k} label={k} value={v}
+              onChange={typeof v !== 'object' && !isUrl(String(v ?? '')) ? (val) => onFieldChange(k, val) : undefined}
+            />
+          ))
         ) : (
           <div style={{ color: '#aaa', fontSize: 12 }}>
             {orderingId ? '暂无解析结果' : '无 ordering_id'}

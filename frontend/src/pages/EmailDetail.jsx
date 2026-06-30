@@ -23,6 +23,8 @@ const FIELD_LABEL = {
   shipperAddress: '发货人地址', shipperEmail: '发货人邮箱',
   shipperName: '发货人', shipperTel: '发货人电话',
   summary: '备注', volume: '体积(CBM)',
+  expenseAmount: '费用金额',
+  expenseName: '费用名称', handlingFee: '操作费',
 };
 
 const FIELD_ORDER = [
@@ -31,14 +33,28 @@ const FIELD_ORDER = [
   'notifyName', 'notifyAddress',
   'shipperName', 'shipperAddress',
   'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume',
-  'expenseName', 'expenseAmount',
+  'expenseItem', 'expenseAmount', 'expenseName', 'handlingFee',
 ];
+
+const flattenValue = (val) => {
+  if (Array.isArray(val)) {
+    return val.flatMap((item) =>
+      item && typeof item === 'object' ? Object.entries(item) : []
+    );
+  }
+  if (val && typeof val === 'object') {
+    return Object.entries(val);
+  }
+  return [];
+};
 
 const sortedEntries = (obj) => {
   const entries = Object.entries(obj);
   const ordered = FIELD_ORDER.flatMap((k) => {
     const found = entries.find(([key]) => key === k);
-    return found ? [found] : [];
+    if (!found) return [];
+    if (k === 'expenseItem') return flattenValue(found[1]);
+    return [found];
   });
   const rest = entries.filter(([k]) => !FIELD_ORDER.includes(k));
   return [...ordered, ...rest];
@@ -48,8 +64,8 @@ const isUrl = (v) => typeof v === 'string' && /^https?:\/\//i.test(v);
 const isImageUrl = (v) => typeof v === 'string' && /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(v);
 
 const makeHtmlReadable = (raw) => raw
-  .replace(/font-size\s*:\s*(\d+(?:\.\d+)?)\s*px/gi, (m, n) => parseFloat(n) < 18 ? 'font-size:18px' : m)
-  .replace(/font-size\s*:\s*(\d+(?:\.\d+)?)\s*pt/gi, (m, n) => parseFloat(n) < 13 ? 'font-size:13pt' : m);
+  .replace(/font-size\s*:\s*(\d+(?:\.\d+)?)\s*px/gi, (m, n) => parseFloat(n) < 24 ? 'font-size:24px' : m)
+  .replace(/font-size\s*:\s*(\d+(?:\.\d+)?)\s*pt/gi, (m, n) => parseFloat(n) < 18 ? 'font-size:18pt' : m);
 
 function ResultField({ label, value }) {
   const display = value === null || value === undefined || value === '' ? null
@@ -111,7 +127,18 @@ export default function EmailDetail() {
   const [htmlLoading, setHtmlLoading] = useState(true);
   const [result, setResult] = useState(null);
   const [attachments, setAttachments] = useState([]);
+  const [visible, setVisible] = useState(false);
   const iframeRef = useRef(null);
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const handleBack = () => {
+    setVisible(false);
+    setTimeout(() => navigate(backTo), 300);
+  };
 
   const handleEmailLoad = () => {
     const iframe = iframeRef.current;
@@ -164,9 +191,9 @@ export default function EmailDetail() {
   }, [id, orderingId]);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff', zIndex: 100 }}>
+    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff', zIndex: 100, transform: visible ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 0.3s ease' }}>
       <div style={{ padding: '8px 16px', borderBottom: '2px solid #d0d0d0', flexShrink: 0 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(backTo)}>返回</Button>
+        <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>返回</Button>
       </div>
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
       {/* 第一列：附件列表（直接内嵌展示内容） */}
@@ -245,7 +272,7 @@ export default function EmailDetail() {
               title="email-html-preview"
               srcDoc={`<style>
                 ::-webkit-scrollbar{display:none}
-                html,body{scrollbar-width:none;-ms-overflow-style:none;font-size:18px;line-height:1.6;font-family:Arial,Helvetica,sans-serif;word-break:break-word}
+                html,body{scrollbar-width:none;-ms-overflow-style:none;font-size:24px;line-height:1.6;font-family:Arial,Helvetica,sans-serif;word-break:break-word}
                 img{max-width:100%;height:auto}
                 table{max-width:100%}
               </style>${html || '<p style="color:#aaa;padding:24px">无 HTML 内容</p>'}`}

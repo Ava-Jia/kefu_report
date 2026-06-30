@@ -301,6 +301,14 @@ body {
   padding: 10px 12px;
 }
 
+/* Email 表格列线黑色 */
+.email-table.ant-table-wrapper .ant-table-bordered .ant-table-container,
+.email-table.ant-table-wrapper .ant-table-bordered .ant-table-container table,
+.email-table.ant-table-wrapper .ant-table-bordered .ant-table-container .ant-table-thead > tr > th,
+.email-table.ant-table-wrapper .ant-table-bordered .ant-table-container .ant-table-tbody > tr > td {
+  border-color: #000 !important;
+}
+
 .wechat-bot-page .ant-tag {
   font-size: 11px;
   line-height: 18px;

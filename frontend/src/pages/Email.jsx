@@ -411,6 +411,8 @@ export default function Email() {
           dataSource={tableData}
           loading={tableLoading}
           size="small"
+          bordered
+          className="email-table"
           pagination={{
             current: initPage,
             pageSize: initPageSize,

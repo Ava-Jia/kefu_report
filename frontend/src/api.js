@@ -200,7 +200,17 @@ export const checkEmailParserResult = async (email_task_id) => {
     const { data } = await client.get(`/email/${encodeURIComponent(email_task_id)}`);
     return data;
   } catch (error) {
-    return unwrapCompanyError(error); 
+    return unwrapCompanyError(error);
+  }
+}
+
+/** 通过 ordering_id 获取邮件解析结果 */
+export const fetchEmailResult = async (ordering_id) => {
+  try {
+    const { data } = await client.get(`/email/${encodeURIComponent(ordering_id)}/result`);
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
   }
 }
 

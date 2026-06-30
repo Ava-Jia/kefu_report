@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import { SearchOutlined, LinkOutlined, EyeOutlined, SyncOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { checkEmailParserResult, fetchEmailHtml, fetchEmailList} from '../api';
+import { checkEmailParserResult, fetchEmailHtml, fetchEmailList, fetchEmailResult } from '../api';
 
 const { Text, Paragraph } = Typography;
 
@@ -240,6 +240,8 @@ export default function Email() {
   const [loading, setLoading] = useState(false);
   const [htmlVisible, setHtmlVisible] = useState(false);
   const [previewRow, setPreviewRow] = useState(null);
+  const [previewResult, setPreviewResult] = useState(null);
+  const [previewResultLoading, setPreviewResultLoading] = useState(false);
   const [category, setCategory] = useState('');
 
   const [tableData, setTableData] = useState([]);
@@ -247,7 +249,21 @@ export default function Email() {
   const [pagination, setPagination] = useState({ current: 1, pageSize: 50, total: 0 });
   const [dateRange, setDateRange] = useState([null, null]);
 
-  const handleTablePreview = (row) => setPreviewRow(row);
+  const handleTablePreview = async (row) => {
+    setPreviewRow(row);
+    setPreviewResult(null);
+    if (row.ordering_id) {
+      setPreviewResultLoading(true);
+      try {
+        const res = await fetchEmailResult(row.ordering_id);
+        if (res?.code === 200) setPreviewResult(res.data.result);
+      } catch (_) {
+        // 拉取失败不影响预览
+      } finally {
+        setPreviewResultLoading(false);
+      }
+    }
+  };
   const tableColumns = buildTableColumns(handleTablePreview);
 
   const loadTable = async (page = 1, pageSize = 50, nextCategory = category, nextDateRange = dateRange) => {
@@ -401,7 +417,24 @@ export default function Email() {
           {/* 第三列：解析信息 */}
           <div style={{ width: 280, flexShrink: 0, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: 12 }}>
             <div style={{ fontWeight: 600, marginBottom: 8 }}>解析信息</div>
-            
+            {previewResultLoading ? (
+              <Spin size="small" />
+            ) : previewResult ? (
+              <div style={{ fontSize: 13 }}>
+                {Object.entries(previewResult).map(([k, v]) => (
+                  <div key={k} style={{ marginBottom: 8 }}>
+                    <div style={{ color: '#888', fontSize: 12 }}>{k}</div>
+                    <div style={{ wordBreak: 'break-all' }}>
+                      {typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v ?? '-')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ color: '#aaa', fontSize: 12 }}>
+                {previewRow?.ordering_id ? '暂无解析结果' : '无 ordering_id'}
+              </div>
+            )}
           </div>
         </div>
       </Modal>

@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import { SearchOutlined, LinkOutlined, EyeOutlined, SyncOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { checkEmailParserResult, fetchEmailHtml, fetchEmailList } from '../api';
+import { checkEmailParserResult, fetchEmailHtml, fetchEmailList} from '../api';
 
 const { Text, Paragraph } = Typography;
 
@@ -44,6 +44,8 @@ const INTENT_LABEL = {
   EXCHANGE_OF_PORT: '换单',
   OTHER: '其他',
 };
+
+const EXCHANGE_OF_PORT = 'EXCHANGE_OF_PORT';
 
 const INTENT_OPTIONS = Object.keys(INTENT_COLOR).map((value) => ({
   label: INTENT_LABEL[value] ?? value,
@@ -131,7 +133,7 @@ const buildTableColumns = (onPreview) => [
     title: 'MBL 号',
     dataIndex: 'mbl_number',
     key: 'mbl_number',
-    width: 200,
+    width: 160,
     render: (v) => <MultiMbl value={v} />,
   },
   {
@@ -142,19 +144,58 @@ const buildTableColumns = (onPreview) => [
     ellipsis: true,
     render: (v) => v ? parseEmail(v) : '-',
   },
-  {
+    {
     title: '邮件主题',
     dataIndex: 'subject',
     key: 'subject',
     width: 180,
-    render: (v) => v || '-',
-
+    render: (v) => (
+      <div
+        style={{
+          width: 180,
+          maxHeight: 88,
+          overflow: 'hidden',
+          fontSize: 13,
+          lineHeight: '22px',
+          display: '-webkit-box',
+          WebkitLineClamp: 4,
+          WebkitBoxOrient: 'vertical',
+        }}
+        title={v || '-'}
+      >
+        {v || '-'}
+      </div>
+    ),
+  },
+  {
+    title: '邮件摘要',
+    dataIndex: 'email_summary',
+    key: 'email_summary',
+    width: 180,
+    
+    render: (v) => (
+      <div
+        style={{
+          width: 180,
+          maxHeight: 88,
+          overflow: 'hidden',
+          fontSize: 13,
+          lineHeight: '22px',
+          display: '-webkit-box',
+          WebkitLineClamp: 4,
+          WebkitBoxOrient: 'vertical',
+        }}
+        title={v || '-'}
+      >
+        {v || '-'}
+      </div>
+    ),
   },
   {
     title: '一级意图',
     dataIndex: 'intent_type1',
     key: 'intent_type1',
-    width: 180,
+    width: 120,
     render: (v) => <MultiIntent value={v} />,
   },
   {
@@ -168,8 +209,28 @@ const buildTableColumns = (onPreview) => [
     dataIndex: 'date',
     key: 'date',
     width: 200,
-    render: (v) => v || '-',
+    render: (v) => v ? v.split('T')[0].split(' ')[0] : '-',
   },
+  {
+    title: '是否下单',
+    dataIndex: 'is_done',
+    key: 'is_done',
+    width: 120,
+    render: (v, record) => {
+      // 不是换单意图，直接显示 -
+      if (record.intent_type1 !== EXCHANGE_OF_PORT) {
+        return '-';
+      }
+
+      // 没有值，显示 -
+      if (v === null || v === undefined || v === '') {
+        return '-';
+      }
+
+      // 字符串判断：'1' = 已下单，'0' = 未下单
+      return String(v) === '1' ? '已下单' : '未下单';
+    },
+  }
   
 ];
 

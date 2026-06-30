@@ -22,6 +22,7 @@ class Email(_Base):
     subject: Mapped[str | None] = mapped_column(Text)
     intent_type2: Mapped[str | None] = mapped_column(Text)
     ordering_id: Mapped[str | None] = mapped_column(String(100))
+    email_summary: Mapped[str | None] = mapped_column(Text)
     is_done: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -74,6 +75,7 @@ def get_local_emails(
                     "mbl_number": e.mbl_number,
                     "intent_type1": e.intent_type1,
                     "is_done": e.is_done,
+                    "email_summary": e.email_summary,
                     "subject": e.subject,
                     "intent_type2": e.intent_type2,
                     "ordering_id": e.ordering_id,
@@ -110,6 +112,7 @@ def upsert_emails(records: list[dict]) -> int:
                 mbl_number=r.get("mbl_number"),
                 intent_type1=r.get("intent_type1"),
                 subject=r.get("subject"),
+                email_summary=r.get("email_summary"),
                 intent_type2=str(r.get("intent_type2")) if r.get("intent_type2") else None,
                 ordering_id=r.get("ordering_id") or None,
             ))

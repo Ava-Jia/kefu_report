@@ -36,7 +36,7 @@ const INTENT_LABEL = {
   PAYMENT_FINANCE: '费用相关',
   DOCUMENT_BL: '提单业务',
   SHIPPING_COMPANY_REPLY: '船公司回复',
-  EXCHANGE_OF_PORT: '换单',
+  EXCHANGE_OF_PORT: '预报/换单',
   OTHER: '其他',
 };
 
@@ -326,11 +326,27 @@ export default function Email() {
     pushParams(1, initPageSize, value || '', initDateFrom, initDateTo);
   };
 
-  const handleDateChange = (dates) => {
-    const from = dates?.[0] ? dates[0].format('YYYY-MM-DD') : '';
-    const to = dates?.[1] ? dates[1].format('YYYY-MM-DD') : '';
+  const [customPickerOpen, setCustomPickerOpen] = useState(false);
+
+  const handleQuickDate = (days) => {
+    const to = dayjs().format('YYYY-MM-DD');
+    const from = dayjs().subtract(days - 1, 'day').format('YYYY-MM-DD');
     pushParams(1, initPageSize, initCategory, from, to);
   };
+
+  const handleCustomDateChange = (dates) => {
+    if (!dates) {
+      pushParams(1, initPageSize, initCategory, '', '');
+    } else {
+      pushParams(1, initPageSize, initCategory,
+        dates[0] ? dates[0].format('YYYY-MM-DD') : '',
+        dates[1] ? dates[1].format('YYYY-MM-DD') : '',
+      );
+    }
+    setCustomPickerOpen(false);
+  };
+
+  const hasDateFilter = !!(initDateFrom || initDateTo);
 
   const handlePageChange = (page, pageSize) => {
     pushParams(page, pageSize, initCategory, initDateFrom, initDateTo);
@@ -358,13 +374,22 @@ export default function Email() {
             style={{ width: 180 }}
             onChange={(value) => handleCategoryChange(value || '')}
           />
+          <Button onClick={() => handleQuickDate(3)}>近3天</Button>
           <DatePicker.RangePicker
-            value={dateRange}
-            onChange={handleDateChange}
+            open={customPickerOpen}
+            onOpenChange={setCustomPickerOpen}
+            value={hasDateFilter ? [dayjs(initDateFrom), dayjs(initDateTo)] : null}
+            onChange={handleCustomDateChange}
             allowClear
-            placeholder={['开始日期', '结束日期']}
             disabledDate={(d) => d && d > dayjs().endOf('day')}
+            style={{ width: 0, padding: 0, border: 'none', overflow: 'hidden', position: 'absolute' }}
           />
+          <Button type={hasDateFilter ? 'primary' : 'default'} onClick={() => setCustomPickerOpen(true)}>
+            {hasDateFilter ? `${initDateFrom} ~ ${initDateTo}` : '自定义日期'}
+          </Button>
+          {hasDateFilter && (
+            <Button onClick={() => pushParams(1, initPageSize, initCategory, '', '')}>清除</Button>
+          )}
         </Space>
         <Table
           rowKey="id"

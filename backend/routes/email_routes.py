@@ -91,7 +91,7 @@ def get_email_html(email_id):
 def get_order(ordering_id):
     try:
         results = get_order_result(ordering_id)
-        attachments = results.get("attachments")
+        attachments = results.get("input_payload")
         result = results.get("result")
 
         if result is None:

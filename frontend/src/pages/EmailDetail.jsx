@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { Button, Spin, Typography } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { fetchEmailHtml, fetchEmailResult } from '../api';
@@ -80,6 +80,8 @@ export default function EmailDetail() {
   const [searchParams] = useSearchParams();
   const orderingId = searchParams.get('ordering_id');
   const navigate = useNavigate();
+  const location = useLocation();
+  const backTo = location.state?.from ?? '/email';
 
   const [html, setHtml] = useState('');
   const [htmlLoading, setHtmlLoading] = useState(true);
@@ -109,7 +111,7 @@ export default function EmailDetail() {
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff', zIndex: 100 }}>
       <div style={{ padding: '8px 16px', borderBottom: '2px solid #d0d0d0', flexShrink: 0 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>返回</Button>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(backTo)}>返回</Button>
       </div>
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
       {/* 第一列：附件列表（直接内嵌展示内容） */}

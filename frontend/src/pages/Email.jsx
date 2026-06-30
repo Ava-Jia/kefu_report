@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
   Button, Card, DatePicker, Dropdown, Modal, Popover, Select, Space,
   Table, Tag, Typography, message,
@@ -183,9 +183,10 @@ const CheckButton = ({ id, value, onChange }) => {
 
 const PreviewButton = ({ row }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const handleClick = () => {
     const qs = row.ordering_id ? `?ordering_id=${encodeURIComponent(row.ordering_id)}` : '';
-    navigate(`/email/${row.id}${qs}`);
+    navigate(`/email/${row.id}${qs}`, { state: { from: location.pathname + location.search } });
   };
   return (
     <Button size="small" icon={<EyeOutlined />} onClick={handleClick}>

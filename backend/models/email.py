@@ -1,7 +1,7 @@
 import datetime
 import email.utils
 
-from sqlalchemy import String, Text, DateTime, func, create_engine, Boolean
+from sqlalchemy import String, Text, DateTime, Integer, func, create_engine, Boolean
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
 _engine = create_engine("sqlite:///./email.db", connect_args={"check_same_thread": False})
@@ -30,6 +30,12 @@ class Email(_Base):
         server_default="0",
     )
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+    is_check: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
 
 
 _Base.metadata.create_all(_engine)
@@ -79,6 +85,7 @@ def get_local_emails(
                     "subject": e.subject,
                     "intent_type2": e.intent_type2,
                     "ordering_id": e.ordering_id,
+                    "is_check": e.is_check,
                 }
                 for e in items
             ],
@@ -118,3 +125,15 @@ def upsert_emails(records: list[dict]) -> int:
             ))
         session.commit()
         return len(records)
+
+
+def update_email_check(email_id: str, is_check: int) -> bool:
+    if is_check not in (0, 1, 2):
+        return False
+    with get_session() as session:
+        row = session.get(Email, email_id)
+        if row is None:
+            return False
+        row.is_check = is_check
+        session.commit()
+        return True

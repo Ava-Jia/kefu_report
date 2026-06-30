@@ -12,10 +12,11 @@ import Knowledge from "./pages/Knowledge.jsx";
 import CompanySearch from "./pages/Company.jsx";
 import WechatBotKnowledge from "./pages/WechatBotKnowledge.jsx";
 import Email from "./pages/Email.jsx";
+import EmailDetail from "./pages/EmailDetail.jsx";
 
-const { Sider, Content } = Layout;
+const { Header, Content } = Layout;
 
-function SideMenu() {
+function TopMenu() {
   const location = useLocation();
   const selected = location.pathname.startsWith("/knowledge")
     ? ["/knowledge"]
@@ -26,57 +27,31 @@ function SideMenu() {
         : location.pathname.startsWith("/company-search")
           ? ["/company-search"]
           : location.pathname.startsWith("/email")
-          ? ["/email"]
-          : ["/"];
+            ? ["/email"]
+            : ["/"];
 
   const menuItems = [
-    {
-      key: "/",
-      icon: <FileTextOutlined />,
-      label: <Link to="/">日报管理</Link>,
-    },
-    {
-      key: "/analyze",
-      icon: <LineChartOutlined />,
-      label: <Link to="/analyze">问题总结</Link>,
-    },
-    {
-      key: "/knowledge",
-      icon: <BookOutlined />,
-      label: <Link to="/knowledge">知识库</Link>,
-    },
-    {
-      key: "/company-search",
-      icon: <BookOutlined />,
-      label: <Link to="/company-search">公司检索</Link>,
-    },
-    {
-      key: "/wechat-bot-knowledge",
-      icon: <BookOutlined />,
-      label: <Link to="/wechat-bot-knowledge">Wechat Bot 知识库</Link>,
-    },
-    {
-      key: "/email",
-      icon: <BookOutlined />,
-      label: <Link to="/email">email管理</Link>,
-    }
+    { key: "/", icon: <FileTextOutlined />, label: <Link to="/">日报管理</Link> },
+    { key: "/analyze", icon: <LineChartOutlined />, label: <Link to="/analyze">问题总结</Link> },
+    { key: "/knowledge", icon: <BookOutlined />, label: <Link to="/knowledge">知识库</Link> },
+    { key: "/company-search", icon: <BookOutlined />, label: <Link to="/company-search">公司检索</Link> },
+    { key: "/wechat-bot-knowledge", icon: <BookOutlined />, label: <Link to="/wechat-bot-knowledge">Wechat Bot 知识库</Link> },
+    { key: "/email", icon: <BookOutlined />, label: <Link to="/email">email管理</Link> },
   ];
 
   return (
-    <>
-      <div className="app-sider-brand">
-        <div className="app-sider-brand-icon">
-          <RobotOutlined />
-        </div>
+    <Header style={{ display: "flex", alignItems: "center", padding: "0 16px", height: 48 }}>
+      <div style={{ color: "#fff", fontSize: 20, marginRight: 24, flexShrink: 0 }}>
+        <RobotOutlined />
       </div>
       <Menu
         theme="dark"
-        mode="inline"
+        mode="horizontal"
         selectedKeys={selected}
-        style={{ borderInlineEnd: "none", marginTop: 8 }}
         items={menuItems}
+        style={{ flex: 1, minWidth: 0, lineHeight: "48px", borderBottom: "none" }}
       />
-    </>
+    </Header>
   );
 }
 
@@ -91,19 +66,9 @@ export default function App() {
       : "app-content";
 
   return (
-    <Layout className="app-root" style={{ minHeight: "100vh" }}>
-      <Sider
-        className="app-sider"
-        width={232}
-        collapsible
-        defaultCollapsed
-        breakpoint="lg"
-        collapsedWidth={64}
-        theme="dark"
-      >
-        <SideMenu />
-      </Sider>
-      <Layout className="app-main" style={{ background: token.colorBgLayout }}>
+    <Layout style={{ minHeight: "100vh" }}>
+      <TopMenu />
+      <Layout style={{ background: token.colorBgLayout }}>
         <Content className={contentClass}>
           <Routes>
             <Route path="/" element={<ReportForm />} />
@@ -112,6 +77,7 @@ export default function App() {
             <Route path="/company-search" element={<CompanySearch />} />
             <Route path="/wechat-bot-knowledge" element={<WechatBotKnowledge />} />
             <Route path="/email" element={<Email />} />
+            <Route path="/email/:id" element={<EmailDetail />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Content>

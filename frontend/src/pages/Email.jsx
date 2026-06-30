@@ -1,19 +1,14 @@
 import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Button, Card, DatePicker, Descriptions, Empty, Input, Popover, Space,
-  Spin, Tag, Typography, message, Modal, Table, Select,
+  Button, Card, DatePicker, Dropdown, Modal, Popover, Select, Space,
+  Table, Tag, Typography, message,
 } from 'antd';
-import { SearchOutlined, LinkOutlined, EyeOutlined, SyncOutlined } from '@ant-design/icons';
+import { EyeOutlined, SyncOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { checkEmailParserResult, fetchEmailHtml, fetchEmailList, fetchEmailResult } from '../api';
+import { fetchEmailList, updateEmailCheck } from '../api';
 
-const { Text, Paragraph } = Typography;
-
-const parseEmail = (raw) => {
-  if (!raw) return '-';
-  const m = raw.match(/<([^>]+)>/);
-  return m ? m[1] : raw.trim();
-};
+const { Text } = Typography;
 
 const INTENT_COLOR = {
   CANCEL_IT: 'red',
@@ -104,37 +99,66 @@ const MultiIntent = ({ value }) => {
   );
 };
 
-const PreviewButton = ({ row, onPreview }) => {
+const CHECK_OPTIONS = [
+  { value: 0, label: '未处理', color: 'default' },
+  { value: 1, label: '已处理', color: 'success' },
+  { value: 2, label: '待定',   color: 'warning' },
+];
+
+const CheckButton = ({ id, value, onChange }) => {
   const [loading, setLoading] = useState(false);
-  const handleClick = async () => {
+  const current = CHECK_OPTIONS.find((o) => o.value === value) ?? CHECK_OPTIONS[0];
+
+  const handleSelect = async ({ key }) => {
+    const next = Number(key);
+    if (next === value) return;
     setLoading(true);
     try {
-      const res = await fetchEmailHtml(row.id);
-      if (res?.code === 200) {
-        onPreview({ ...row, html_content: res.data.html_content });
-      } else {
-        message.error(res?.message || '获取 HTML 失败');
-      }
-    } catch (e) {
-      message.error(e.message || '获取 HTML 失败');
+      const res = await updateEmailCheck(id, next);
+      if (res?.code === 200) onChange(next);
+      else message.error(res?.message || '更新失败');
+    } catch {
+      message.error('更新失败');
     } finally {
       setLoading(false);
     }
   };
+
   return (
-    <Button size="small" icon={<EyeOutlined />} loading={loading} onClick={handleClick}>
+    <Dropdown
+      menu={{
+        items: CHECK_OPTIONS.map((o) => ({ key: o.value, label: <Tag color={o.color}>{o.label}</Tag> })),
+        onClick: handleSelect,
+      }}
+      trigger={['click']}
+    >
+      <Button size="small" loading={loading} style={{ minWidth: 64 }}>
+        <Tag color={current.color} style={{ margin: 0 }}>{current.label}</Tag>
+      </Button>
+    </Dropdown>
+  );
+};
+
+const PreviewButton = ({ row }) => {
+  const navigate = useNavigate();
+  const handleClick = () => {
+    const qs = row.ordering_id ? `?ordering_id=${encodeURIComponent(row.ordering_id)}` : '';
+    navigate(`/email/${row.id}${qs}`);
+  };
+  return (
+    <Button size="small" icon={<EyeOutlined />} onClick={handleClick}>
       预览
     </Button>
   );
 };
 
-const buildTableColumns = (onPreview) => [
+const buildTableColumns = (onCheckChange) => [
   {
-    title: 'MBL 号',
-    dataIndex: 'mbl_number',
-    key: 'mbl_number',
-    width: 160,
-    render: (v) => <MultiMbl value={v} />,
+    title: '日期',
+    dataIndex: 'date',
+    key: 'date',
+    width: 120,
+    render: (v) => v ? v : '-',
   },
   {
     title: '发件人',
@@ -142,9 +166,13 @@ const buildTableColumns = (onPreview) => [
     key: 'from',
     width: 220,
     ellipsis: true,
-    render: (v) => v ? parseEmail(v) : '-',
+    render: (v) => {
+      if (!v) return '-';
+      const m = v.match(/<([^>]+)>/);
+      return m ? m[1] : v.trim();
+    },
   },
-    {
+  {
     title: '邮件主题',
     dataIndex: 'subject',
     key: 'subject',
@@ -153,7 +181,7 @@ const buildTableColumns = (onPreview) => [
       <div
         style={{
           width: 180,
-          maxHeight: 88,
+          maxHeight: 22,
           overflow: 'hidden',
           fontSize: 13,
           lineHeight: '22px',
@@ -168,16 +196,31 @@ const buildTableColumns = (onPreview) => [
     ),
   },
   {
+    title: 'MBL 号',
+    dataIndex: 'mbl_number',
+    key: 'mbl_number',
+    width: 160,
+    render: (v) => <MultiMbl value={v} />,
+  },
+  {
+    title: 'Check',
+    dataIndex: 'is_check',
+    key: 'is_check',
+    width: 100,
+    render: (v, record) => (
+      <CheckButton id={record.id} value={v ?? 0} onChange={(next) => onCheckChange(record.id, next)} />
+    ),
+  },
+  {
     title: '邮件摘要',
     dataIndex: 'email_summary',
     key: 'email_summary',
     width: 180,
-    
     render: (v) => (
       <div
         style={{
           width: 180,
-          maxHeight: 88,
+          maxHeight: 22,
           overflow: 'hidden',
           fontSize: 13,
           lineHeight: '22px',
@@ -199,86 +242,72 @@ const buildTableColumns = (onPreview) => [
     render: (v) => <MultiIntent value={v} />,
   },
   {
-    title: '操作',
-    key: 'action',
-    width: 80,
-    render: (_, row) => <PreviewButton row={row} onPreview={onPreview} />,
-  },
-  {
-    title: '日期',
-    dataIndex: 'date',
-    key: 'date',
-    width: 200,
-    render: (v) => v ? v.split('T')[0].split(' ')[0] : '-',
-  },
-  {
     title: '是否下单',
     dataIndex: 'is_done',
     key: 'is_done',
-    width: 120,
+    width: 100,
     render: (v, record) => {
-      // 不是换单意图，直接显示 -
-      if (record.intent_type1 !== EXCHANGE_OF_PORT) {
-        return '-';
-      }
-
-      // 没有值，显示 -
-      if (v === null || v === undefined || v === '') {
-        return '-';
-      }
-
-      // 字符串判断：'1' = 已下单，'0' = 未下单
+      if (record.intent_type1 !== EXCHANGE_OF_PORT) return '-';
+      if (v === null || v === undefined || v === '') return '-';
       return String(v) === '1' ? '已下单' : '未下单';
     },
-  }
-  
+  },
+  {
+    title: '操作',
+    key: 'action',
+    width: 80,
+    render: (_, row) => <PreviewButton row={row} />,
+  },
 ];
 
 export default function Email() {
-  const [taskId, setTaskId] = useState('');
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [htmlVisible, setHtmlVisible] = useState(false);
-  const [previewRow, setPreviewRow] = useState(null);
-  const [previewResult, setPreviewResult] = useState(null);
-  const [previewResultLoading, setPreviewResultLoading] = useState(false);
-  const [category, setCategory] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const initPage = parseInt(searchParams.get('page') || '1', 10);
+  const initPageSize = parseInt(searchParams.get('pageSize') || '50', 10);
+  const initCategory = searchParams.get('category') || '';
+  const initDateFrom = searchParams.get('date_from') || '';
+  const initDateTo = searchParams.get('date_to') || '';
 
   const [tableData, setTableData] = useState([]);
   const [tableLoading, setTableLoading] = useState(false);
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 50, total: 0 });
-  const [dateRange, setDateRange] = useState([null, null]);
+  const [total, setTotal] = useState(0);
 
-  const handleTablePreview = async (row) => {
-    setPreviewRow(row);
-    setPreviewResult(null);
-    if (row.ordering_id) {
-      setPreviewResultLoading(true);
-      try {
-        const res = await fetchEmailResult(row.ordering_id);
-        if (res?.code === 200) setPreviewResult(res.data.result);
-      } catch (_) {
-        // 拉取失败不影响预览
-      } finally {
-        setPreviewResultLoading(false);
-      }
-    }
+  const category = initCategory;
+  const dateRange = [
+    initDateFrom ? dayjs(initDateFrom) : null,
+    initDateTo ? dayjs(initDateTo) : null,
+  ];
+
+  const handleCheckChange = (id, next) => {
+    setTableData((prev) => prev.map((row) => row.id === id ? { ...row, is_check: next } : row));
   };
-  const tableColumns = buildTableColumns(handleTablePreview);
 
-  const loadTable = async (page = 1, pageSize = 50, nextCategory = category, nextDateRange = dateRange) => {
+  const tableColumns = buildTableColumns(handleCheckChange);
+
+  const pushParams = (page, pageSize, cat, dateFrom, dateTo) => {
+    const p = {};
+    if (page !== 1) p.page = page;
+    if (pageSize !== 50) p.pageSize = pageSize;
+    if (cat) p.category = cat;
+    if (dateFrom) p.date_from = dateFrom;
+    if (dateTo) p.date_to = dateTo;
+    setSearchParams(p, { replace: false });
+  };
+
+  const loadTable = async (page, pageSize, cat, dateFrom, dateTo) => {
     setTableLoading(true);
     try {
       const res = await fetchEmailList({
         page,
         page_size: pageSize,
-        intent_type1: nextCategory,
-        date_from: nextDateRange?.[0] ? nextDateRange[0].format('YYYY-MM-DD') : '',
-        date_to: nextDateRange?.[1] ? nextDateRange[1].format('YYYY-MM-DD') : '',
+        intent_type1: cat,
+        date_from: dateFrom,
+        date_to: dateTo,
       });
       if (res?.code === 200) {
         setTableData(res.data.items);
-        setPagination((p) => ({ ...p, current: page, pageSize, total: res.data.total }));
+        setTotal(res.data.total);
       } else {
         message.error(res?.message || '加载失败');
       }
@@ -288,51 +317,34 @@ export default function Email() {
       setTableLoading(false);
     }
   };
-  useEffect(() => { loadTable(); }, []);
+
+  useEffect(() => {
+    loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo);
+  }, [searchParams.toString()]);
 
   const handleCategoryChange = (value) => {
-    setCategory(value);
-    loadTable(1, pagination.pageSize, value, dateRange);
+    pushParams(1, initPageSize, value || '', initDateFrom, initDateTo);
   };
 
   const handleDateChange = (dates) => {
-    setDateRange(dates ?? [null, null]);
-    loadTable(1, pagination.pageSize, category, dates ?? [null, null]);
+    const from = dates?.[0] ? dates[0].format('YYYY-MM-DD') : '';
+    const to = dates?.[1] ? dates[1].format('YYYY-MM-DD') : '';
+    pushParams(1, initPageSize, initCategory, from, to);
   };
 
-  const handleSearch = async () => {
-    const trimmed = taskId.trim();
-    if (!trimmed) { message.warning('请输入 email_task_id'); return; }
-    setLoading(true);
-    setResult(null);
-    try {
-      const res = await checkEmailParserResult(trimmed);
-      if (res?.code === 200) {
-        setResult(res.data);
-        message.success(res.message || '查询成功');
-      } else {
-        message.error(res?.message || '查询失败');
-      }
-    } catch (e) {
-      message.error(e?.response?.data?.message || e.message || '查询失败');
-    } finally {
-      setLoading(false);
-    }
+  const handlePageChange = (page, pageSize) => {
+    pushParams(page, pageSize, initCategory, initDateFrom, initDateTo);
   };
-
-  const r = result?.result ?? {};
 
   return (
     <div style={{ padding: '0 4px' }}>
       <h2 style={{ marginBottom: 16 }}>Email 管理</h2>
 
-      {/* 邮件列表表格 */}
       <Card
         size="small"
-        title={`邮件列表（共 ${pagination.total} 条）`}
-        style={{ marginBottom: 24 }}
+        title={`邮件列表（共 ${total} 条）`}
         extra={
-          <Button icon={<SyncOutlined />} size="small" onClick={() => loadTable(1, pagination.pageSize, category, dateRange)}>
+          <Button icon={<SyncOutlined />} size="small" onClick={() => loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo)}>
             刷新
           </Button>
         }
@@ -340,7 +352,7 @@ export default function Email() {
         <Space style={{ marginBottom: 12 }} wrap>
           <Select
             allowClear
-            value={category || undefined}
+            value={initCategory || undefined}
             placeholder="全部类别"
             options={INTENT_OPTIONS}
             style={{ width: 180 }}
@@ -361,83 +373,17 @@ export default function Email() {
           loading={tableLoading}
           size="small"
           pagination={{
-            current: pagination.current,
-            pageSize: pagination.pageSize,
-            total: pagination.total,
+            current: initPage,
+            pageSize: initPageSize,
+            total,
             showSizeChanger: true,
             pageSizeOptions: ['10', '50', '100'],
-            showTotal: (total) => `共 ${total} 条`,
-            onChange: (page, pageSize) => loadTable(page, pageSize, category),
+            showTotal: (t) => `共 ${t} 条`,
+            onChange: handlePageChange,
           }}
           scroll={{ x: 1000 }}
         />
       </Card>
-      <Modal
-        title="HTML 邮件预览"
-        open={htmlVisible}
-        onCancel={() => setHtmlVisible(false)}
-        footer={null}
-        width="80%"
-        destroyOnClose
-      >
-        <iframe
-          title="html-content-preview"
-          srcDoc={r.html_content || ''}
-          style={{ width: '100%', height: '70vh', border: '1px solid #eee', borderRadius: 4 }}
-          sandbox=""
-        />
-      </Modal>
-
-      <Modal
-        title="邮件详情"
-        open={!!previewRow}
-        onCancel={() => setPreviewRow(null)}
-        footer={null}
-        width="92vw"
-        style={{ top: 20 }}
-        destroyOnClose
-      >
-        <div style={{ display: 'flex', gap: 12, height: '78vh' }}>
-          {/* 第一列：附件 */}
-          <div style={{ width: 200, flexShrink: 0, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: 12 }}>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>附件</div>
-            <div style={{ color: '#aaa', fontSize: 12 }}>暂无附件信息</div>
-          </div>
-
-          {/* 第二列：HTML 预览 */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <iframe
-              title="table-html-content-preview"
-              srcDoc={previewRow?.html_content || ''}
-              style={{ width: '100%', height: '100%', border: '1px solid #f0f0f0', borderRadius: 6 }}
-              sandbox=""
-            />
-          </div>
-
-          {/* 第三列：解析信息 */}
-          <div style={{ width: 280, flexShrink: 0, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: 12 }}>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>解析信息</div>
-            {previewResultLoading ? (
-              <Spin size="small" />
-            ) : previewResult ? (
-              <div style={{ fontSize: 13 }}>
-                {Object.entries(previewResult).map(([k, v]) => (
-                  <div key={k} style={{ marginBottom: 8 }}>
-                    <div style={{ color: '#888', fontSize: 12 }}>{k}</div>
-                    <div style={{ wordBreak: 'break-all' }}>
-                      {typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v ?? '-')}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ color: '#aaa', fontSize: 12 }}>
-                {previewRow?.ordering_id ? '暂无解析结果' : '无 ordering_id'}
-              </div>
-            )}
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }

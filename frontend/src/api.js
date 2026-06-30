@@ -214,6 +214,16 @@ export const fetchEmailResult = async (ordering_id) => {
   }
 }
 
+/** 更新邮件 is_check 状态（0=未处理 1=已处理 2=待定） */
+export const updateEmailCheck = async (email_id, is_check) => {
+  try {
+    const { data } = await client.patch(`/email/${encodeURIComponent(email_id)}/check`, { is_check });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
 /** 获取本地邮件列表 */
 export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = '', date_from = '', date_to = '' } = {}) => {
   try {

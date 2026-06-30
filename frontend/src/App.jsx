@@ -36,7 +36,7 @@ function TopMenu() {
     { key: "/knowledge", icon: <BookOutlined />, label: <Link to="/knowledge">知识库</Link> },
     { key: "/company-search", icon: <BookOutlined />, label: <Link to="/company-search">公司检索</Link> },
     { key: "/wechat-bot-knowledge", icon: <BookOutlined />, label: <Link to="/wechat-bot-knowledge">Wechat Bot 知识库</Link> },
-    { key: "/email", icon: <BookOutlined />, label: <Link to="/email">email管理</Link> },
+    { key: "/email", icon: <BookOutlined />, label: <Link to="/email">Email管理</Link> },
   ];
 
   return (

@@ -301,6 +301,16 @@ body {
   padding: 10px 12px;
 }
 
+/* 隐藏滚动条但保留滚动功能 */
+.scrollbar-hidden {
+  overflow-y: auto;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
 /* Email 表格列线薄荷绿 */
 .email-table.ant-table-wrapper .ant-table-bordered .ant-table-container,
 .email-table.ant-table-wrapper .ant-table-bordered .ant-table-container table,

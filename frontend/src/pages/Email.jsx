@@ -50,6 +50,21 @@ const INTENT_OPTIONS = Object.keys(INTENT_COLOR).map((value) => ({
 const splitValues = (v) =>
   v ? v.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
+const copyText = (text) => {
+  if (!text) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => message.success('已复制'));
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    message.success('已复制');
+  }
+};
+
 const MultiMbl = ({ value }) => {
   const [open, setOpen] = useState(false);
   const items = splitValues(value);
@@ -60,20 +75,7 @@ const MultiMbl = ({ value }) => {
         <Button
           size="small"
           style={{ fontSize: 12, padding: '0 6px' }}
-          onClick={() => {
-            const text = items.join('\n');
-            if (navigator.clipboard) {
-              navigator.clipboard.writeText(text).then(() => message.success('已复制'));
-            } else {
-              const ta = document.createElement('textarea');
-              ta.value = text;
-              document.body.appendChild(ta);
-              ta.select();
-              document.execCommand('copy');
-              document.body.removeChild(ta);
-              message.success('已复制');
-            }
-          }}
+          onClick={() => copyText(items.join('\n'))}
         >
           {items[0]}
         </Button>
@@ -197,7 +199,12 @@ const buildTableColumns = (onCheckChange) => [
     render: (v) => {
       if (!v) return '-';
       const m = v.match(/<([^>]+)>/);
-      return m ? m[1] : v.trim();
+      const text = m ? m[1] : v.trim();
+      return (
+        <span style={{ cursor: 'pointer' }} title={text} onClick={() => copyText(text)}>
+          {text}
+        </span>
+      );
     },
   },
   {
@@ -216,8 +223,10 @@ const buildTableColumns = (onCheckChange) => [
           display: '-webkit-box',
           WebkitLineClamp: 4,
           WebkitBoxOrient: 'vertical',
+          cursor: v ? 'pointer' : 'default',
         }}
         title={v || '-'}
+        onClick={() => copyText(v)}
       >
         {v || '-'}
       </div>

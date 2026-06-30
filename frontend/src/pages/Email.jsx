@@ -334,6 +334,16 @@ export default function Email() {
     pushParams(1, initPageSize, initCategory, from, to);
   };
 
+  const handleTodayOrder = () => {
+    const today = dayjs().format('YYYY-MM-DD');
+    pushParams(1, initPageSize, EXCHANGE_OF_PORT, today, today);
+  };
+
+  const isTodayOrderActive =
+    initCategory === EXCHANGE_OF_PORT &&
+    initDateFrom === dayjs().format('YYYY-MM-DD') &&
+    initDateTo === dayjs().format('YYYY-MM-DD');
+
   const handleCustomDateChange = (dates) => {
     if (!dates) {
       pushParams(1, initPageSize, initCategory, '', '');
@@ -375,6 +385,10 @@ export default function Email() {
             onChange={(value) => handleCategoryChange(value || '')}
           />
           <Button onClick={() => handleQuickDate(3)}>近3天</Button>
+          <Button
+            onClick={handleTodayOrder}
+            style={isTodayOrderActive ? { background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' } : {}}
+          >今日预报/换单</Button>
           <DatePicker.RangePicker
             open={customPickerOpen}
             onOpenChange={setCustomPickerOpen}

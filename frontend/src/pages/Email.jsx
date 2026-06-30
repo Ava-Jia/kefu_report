@@ -275,18 +275,48 @@ const buildTableColumns = (onCheckChange) => [
     title: '一级意图',
     dataIndex: 'intent_type1',
     key: 'intent_type1',
-    width: 100,
-    render: (v) => (
-      <div style={{ maxHeight: 22, overflow: 'hidden' }}>
-        <MultiIntent value={v} />
-      </div>
-    ),
+    width: 120,
+    render: (v) => <MultiIntent value={v} />,
+  },
+  {
+    title: '二级意图',
+    dataIndex: 'intent_type2',
+    key: 'intent_type2',
+    width: 140,
+    render: (v) => {
+      if (!v) return '-';
+      const trimmed = v.trim();
+      let items = [];
+      if (trimmed.startsWith('[')) {
+        try {
+          items = JSON.parse(trimmed.replace(/'/g, '"'));
+        } catch {
+          items = trimmed.slice(1, -1).split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, ''));
+        }
+      } else {
+        items = splitValues(trimmed);
+      }
+      items = items.filter((s) => s && s.trim());
+      if (!items.length) return '-';
+      if (items.length === 1) return <Tag>{items[0]}</Tag>;
+      return (
+        <Popover
+          trigger="click"
+          content={<Space wrap size={4}>{items.map((s) => <Tag key={s}>{s}</Tag>)}</Space>}
+        >
+          <span style={{ cursor: 'pointer' }}>
+            <Tag>{items[0]}</Tag>
+            <Tag>+{items.length - 1}</Tag>
+          </span>
+        </Popover>
+      );
+    },
   },
   {
     title: '是否下单',
     dataIndex: 'is_done',
     key: 'is_done',
-    width: 100,
+    width: 60,
     render: (v, record) => {
       if (record.intent_type1 !== EXCHANGE_OF_PORT) return '-';
       if (v === null || v === undefined || v === '') return '-';

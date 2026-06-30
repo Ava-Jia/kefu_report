@@ -54,26 +54,50 @@ const MultiMbl = ({ value }) => {
   const [open, setOpen] = useState(false);
   const items = splitValues(value);
   if (!items.length) return '-';
-  if (items.length === 1) return <Text copyable>{items[0]}</Text>;
   return (
     <>
-      <span style={{ cursor: 'pointer' }} onClick={() => setOpen(true)}>
-        <Text copyable={{ text: items[0] }}>{items[0]}</Text>
-        <Tag style={{ marginLeft: 4 }}>+{items.length - 1}</Tag>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <Button
+          size="small"
+          style={{ fontSize: 12, padding: '0 6px' }}
+          onClick={() => {
+            const text = items.join('\n');
+            if (navigator.clipboard) {
+              navigator.clipboard.writeText(text).then(() => message.success('已复制'));
+            } else {
+              const ta = document.createElement('textarea');
+              ta.value = text;
+              document.body.appendChild(ta);
+              ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+              message.success('已复制');
+            }
+          }}
+        >
+          {items[0]}
+        </Button>
+        {items.length > 1 && (
+          <Tag style={{ margin: 0, cursor: 'pointer' }} onClick={() => setOpen(true)}>
+            +{items.length - 1}
+          </Tag>
+        )}
       </span>
-      <Modal
-        title={`全部 MBL（${items.length}）`}
-        open={open}
-        onCancel={() => setOpen(false)}
-        footer={null}
-        width={400}
-      >
-        <div style={{ maxHeight: 360, overflowY: 'auto' }}>
-          <Space direction="vertical" size={6} style={{ width: '100%' }}>
-            {items.map((m) => <Text key={m} copyable>{m}</Text>)}
-          </Space>
-        </div>
-      </Modal>
+      {items.length > 1 && (
+        <Modal
+          title={`全部 MBL（${items.length}）`}
+          open={open}
+          onCancel={() => setOpen(false)}
+          footer={null}
+          width={400}
+        >
+          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+            <Space direction="vertical" size={6} style={{ width: '100%' }}>
+              {items.map((m) => <Text key={m} copyable>{m}</Text>)}
+            </Space>
+          </div>
+        </Modal>
+      )}
     </>
   );
 };
@@ -157,14 +181,18 @@ const buildTableColumns = (onCheckChange) => [
     title: '日期',
     dataIndex: 'date',
     key: 'date',
-    width: 120,
-    render: (v) => v ? v : '-',
+    width: 100,
+    fixed: 'left',
+    render: (v) => {
+      if (!v) return '-';
+      return v.length > 16 ? v.slice(0, 16) : v;
+    },
   },
   {
     title: '发件人',
     dataIndex: 'from',
     key: 'from',
-    width: 220,
+    width: 100,
     ellipsis: true,
     render: (v) => {
       if (!v) return '-';
@@ -176,7 +204,7 @@ const buildTableColumns = (onCheckChange) => [
     title: '邮件主题',
     dataIndex: 'subject',
     key: 'subject',
-    width: 180,
+    width: 150,
     render: (v) => (
       <div
         style={{
@@ -199,14 +227,14 @@ const buildTableColumns = (onCheckChange) => [
     title: 'MBL 号',
     dataIndex: 'mbl_number',
     key: 'mbl_number',
-    width: 160,
+    width: 120,
     render: (v) => <MultiMbl value={v} />,
   },
   {
     title: 'Check',
     dataIndex: 'is_check',
     key: 'is_check',
-    width: 100,
+    width: 70,
     render: (v, record) => (
       <CheckButton id={record.id} value={v ?? 0} onChange={(next) => onCheckChange(record.id, next)} />
     ),
@@ -238,8 +266,12 @@ const buildTableColumns = (onCheckChange) => [
     title: '一级意图',
     dataIndex: 'intent_type1',
     key: 'intent_type1',
-    width: 120,
-    render: (v) => <MultiIntent value={v} />,
+    width: 100,
+    render: (v) => (
+      <div style={{ maxHeight: 22, overflow: 'hidden' }}>
+        <MultiIntent value={v} />
+      </div>
+    ),
   },
   {
     title: '是否下单',

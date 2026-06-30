@@ -4,7 +4,7 @@ import {
   Button, Card, DatePicker, Dropdown, Modal, Popover, Select, Space,
   Table, Tag, Typography, message,
 } from 'antd';
-import { EyeOutlined, SyncOutlined } from '@ant-design/icons';
+import { EyeOutlined, LinkOutlined, SyncOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { fetchEmailList, updateEmailCheck } from '../api';
 
@@ -186,7 +186,7 @@ const PreviewButton = ({ row }) => {
   const location = useLocation();
   const handleClick = () => {
     const qs = row.ordering_id ? `?ordering_id=${encodeURIComponent(row.ordering_id)}` : '';
-    navigate(`/email/${row.id}${qs}`, { state: { from: location.pathname + location.search } });
+    navigate(`/email/${row.id}${qs}`, { state: { from: location.pathname + location.search, subject: row.subject } });
   };
   return (
     <Button size="small" icon={<EyeOutlined />} onClick={handleClick}>
@@ -340,6 +340,16 @@ const buildTableColumns = (onCheckChange) => [
         </div>
       );
     },
+  },
+  {
+    title: 'email_url',
+    dataIndex: 'email_url',
+    key: 'email_url',
+    width: 60,
+    ellipsis: true,
+    render: (v) => v ? (
+      <a href={v} target="_blank" rel="noreferrer"><LinkOutlined /></a>
+    ) : '-',
   },
   {
     title: '是否下单',

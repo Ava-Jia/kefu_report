@@ -37,6 +37,7 @@ class Email(_Base):
         server_default="0",
     )
     data_id: Mapped[int | None] = mapped_column(Integer, nullable=True, unique=True)
+    email_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 @event.listens_for(Email, 'before_insert')
@@ -52,6 +53,9 @@ def _migrate():
         if 'data_id' not in cols:
             conn.execute(text("ALTER TABLE email ADD COLUMN data_id INTEGER"))
             conn.execute(text("UPDATE email SET data_id = rowid"))
+            conn.commit()
+        if 'email_url' not in cols:
+            conn.execute(text("ALTER TABLE email ADD COLUMN email_url TEXT"))
             conn.commit()
 
 
@@ -105,6 +109,7 @@ def get_local_emails(
                     "ordering_id": e.ordering_id,
                     "is_check": e.is_check,
                     "data_id": e.data_id,
+                    "email_url": e.email_url,
                 }
                 for e in items
             ],
@@ -141,6 +146,7 @@ def upsert_emails(records: list[dict]) -> int:
                 email_summary=r.get("email_summary"),
                 intent_type2=str(r.get("intent_type2")) if r.get("intent_type2") else None,
                 ordering_id=r.get("ordering_id") or None,
+                email_url=r.get("email_url") or None,
             ))
         session.commit()
         return len(records)

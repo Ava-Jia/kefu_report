@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { Button, Spin, Typography } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
@@ -25,8 +25,31 @@ const FIELD_LABEL = {
   summary: '备注', volume: '体积(CBM)',
 };
 
+const FIELD_ORDER = [
+  'masterBillNo', 'houseBillNo',
+  'consigneeEmail', 'consigneeName', 'consigneeAddress',
+  'notifyName', 'notifyAddress',
+  'shipperName', 'shipperAddress',
+  'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume',
+  'expenseName', 'expenseAmount',
+];
+
+const sortedEntries = (obj) => {
+  const entries = Object.entries(obj);
+  const ordered = FIELD_ORDER.flatMap((k) => {
+    const found = entries.find(([key]) => key === k);
+    return found ? [found] : [];
+  });
+  const rest = entries.filter(([k]) => !FIELD_ORDER.includes(k));
+  return [...ordered, ...rest];
+};
+
 const isUrl = (v) => typeof v === 'string' && /^https?:\/\//i.test(v);
 const isImageUrl = (v) => typeof v === 'string' && /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(v);
+
+const makeHtmlReadable = (raw) => raw
+  .replace(/font-size\s*:\s*(\d+(?:\.\d+)?)\s*px/gi, (m, n) => parseFloat(n) < 18 ? 'font-size:18px' : m)
+  .replace(/font-size\s*:\s*(\d+(?:\.\d+)?)\s*pt/gi, (m, n) => parseFloat(n) < 13 ? 'font-size:13pt' : m);
 
 function ResultField({ label, value }) {
   const display = value === null || value === undefined || value === '' ? null
@@ -82,17 +105,49 @@ export default function EmailDetail() {
   const navigate = useNavigate();
   const location = useLocation();
   const backTo = location.state?.from ?? '/email';
+  const subject = location.state?.subject ?? '';
 
   const [html, setHtml] = useState('');
   const [htmlLoading, setHtmlLoading] = useState(true);
   const [result, setResult] = useState(null);
   const [attachments, setAttachments] = useState([]);
+  const iframeRef = useRef(null);
+
+  const handleEmailLoad = () => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const doc = iframe.contentDocument;
+    if (!doc || !doc.body) return;
+    doc.body.style.zoom = '';
+    const contentWidth = doc.body.scrollWidth;
+    const containerWidth = iframe.offsetWidth;
+    if (contentWidth > 0 && containerWidth > 0) {
+      doc.body.style.zoom = Math.min(containerWidth / contentWidth, 1.3);
+    }
+  };
   const [resultLoading, setResultLoading] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
 
   useEffect(() => {
     fetchEmailHtml(id)
-      .then((res) => { if (res?.code === 200) setHtml(res.data.html_content || ''); })
+      .then((res) => {
+        if (res?.code === 200) {
+          const htmlContent = res.data.html_content;
+          if (Array.isArray(htmlContent)) {
+            let htmlStr = htmlContent[0] || '';
+            const inlineImages = htmlContent[1] || [];
+            inlineImages.forEach((att) => {
+              if (att.content_id && att.oss_url) {
+                const cid = att.content_id.replace(/^<|>$/g, '');
+                htmlStr = htmlStr.split(`cid:${cid}`).join(att.oss_url);
+              }
+            });
+            setHtml(makeHtmlReadable(htmlStr));
+          } else {
+            setHtml(makeHtmlReadable(htmlContent || ''));
+          }
+        }
+      })
       .finally(() => setHtmlLoading(false));
 
     if (orderingId) {
@@ -167,19 +222,39 @@ export default function EmailDetail() {
       </div>
 
       {/* 第二列：邮件预览 */}
-      <div style={{ width: '20%', flexShrink: 0, position: 'relative', borderRight: '2px solid #d0d0d0' }}>
-        {htmlLoading ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-            <Spin />
-          </div>
-        ) : (
-          <iframe
-            title="email-html-preview"
-            srcDoc={`<style>::-webkit-scrollbar{display:none}html,body{scrollbar-width:none;-ms-overflow-style:none}</style>${html || '<p style="color:#aaa;padding:24px">无 HTML 内容</p>'}`}
-            style={{ width: '100%', height: '100%', border: 'none' }}
-            sandbox=""
-          />
-        )}
+      <div style={{ width: '20%', flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '2px solid #d0d0d0' }}>
+        <div style={{ padding: '12px 14px', flexShrink: 0, borderBottom: '1px solid #e8e8e8', background: '#fafafa' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>邮件主题</div>
+          {subject ? (
+            <div style={{ fontSize: 13, color: '#1a1a1a', lineHeight: 1.6, wordBreak: 'break-all', fontWeight: 500 }}>{subject}</div>
+          ) : (
+            <div style={{ fontSize: 13, color: '#ccc' }}>—</div>
+          )}
+        </div>
+        <div style={{ padding: '8px 14px 4px', flexShrink: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', letterSpacing: '0.06em', textTransform: 'uppercase' }}>邮件内容</div>
+        </div>
+        <div style={{ flex: 1, minHeight: 0 }}>
+          {htmlLoading ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+              <Spin />
+            </div>
+          ) : (
+            <iframe
+              ref={iframeRef}
+              title="email-html-preview"
+              srcDoc={`<style>
+                ::-webkit-scrollbar{display:none}
+                html,body{scrollbar-width:none;-ms-overflow-style:none;font-size:18px;line-height:1.6;font-family:Arial,Helvetica,sans-serif;word-break:break-word}
+                img{max-width:100%;height:auto}
+                table{max-width:100%}
+              </style>${html || '<p style="color:#aaa;padding:24px">无 HTML 内容</p>'}`}
+              style={{ width: '100%', height: '100%', border: 'none' }}
+              sandbox="allow-same-origin"
+              onLoad={handleEmailLoad}
+            />
+          )}
+        </div>
       </div>
 
       {/* 第三列：解析信息 */}
@@ -188,7 +263,7 @@ export default function EmailDetail() {
         {resultLoading ? (
           <Spin size="small" />
         ) : result ? (
-          Object.entries(Array.isArray(result) ? result[0] ?? {} : result).map(([k, v]) => <ResultField key={k} label={k} value={v} />)
+          sortedEntries(Array.isArray(result) ? result[0] ?? {} : result).map(([k, v]) => <ResultField key={k} label={k} value={v} />)
         ) : (
           <div style={{ color: '#aaa', fontSize: 12 }}>
             {orderingId ? '暂无解析结果' : '无 ordering_id'}

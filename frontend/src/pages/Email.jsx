@@ -105,23 +105,32 @@ const MultiMbl = ({ value }) => {
 };
 
 const MultiIntent = ({ value }) => {
+  const [open, setOpen] = useState(false);
   const items = splitValues(value);
   if (!items.length) return '-';
-  if (items.length === 1) return <Tag color={INTENT_COLOR[items[0]] ?? 'blue'}>{INTENT_LABEL[items[0]] ?? items[0]}</Tag>;
   return (
-    <Popover
-      trigger="click"
-      content={
-        <Space wrap size={4}>
-          {items.map((v) => <Tag key={v} color={INTENT_COLOR[v] ?? 'blue'}>{INTENT_LABEL[v] ?? v}</Tag>)}
-        </Space>
-      }
-    >
-      <span style={{ cursor: 'pointer' }}>
+    <>
+      <span style={{ cursor: 'pointer' }} onClick={() => setOpen(true)}>
         <Tag color={INTENT_COLOR[items[0]] ?? 'blue'}>{INTENT_LABEL[items[0]] ?? items[0]}</Tag>
-        <Tag>+{items.length - 1}</Tag>
+        {items.length > 1 && <Tag>+{items.length - 1}</Tag>}
       </span>
-    </Popover>
+      <Modal
+        title="一级意图"
+        open={open}
+        onCancel={() => setOpen(false)}
+        footer={null}
+        width={400}
+        centered
+      >
+        <Space wrap size={8}>
+          {items.map((v) => (
+            <Tag key={v} color={INTENT_COLOR[v] ?? 'blue'} style={{ fontSize: 14, padding: '4px 10px' }}>
+              {INTENT_LABEL[v] ?? v}
+            </Tag>
+          ))}
+        </Space>
+      </Modal>
+    </>
   );
 };
 
@@ -185,6 +194,7 @@ const buildTableColumns = (onCheckChange) => [
     key: 'date',
     width: 100,
     fixed: 'left',
+    ellipsis: true,
     render: (v) => {
       if (!v) return '-';
       return v.length > 16 ? v.slice(0, 16) : v;
@@ -215,14 +225,12 @@ const buildTableColumns = (onCheckChange) => [
     render: (v) => (
       <div
         style={{
-          width: 180,
           maxHeight: 22,
           overflow: 'hidden',
           fontSize: 13,
           lineHeight: '22px',
-          display: '-webkit-box',
-          WebkitLineClamp: 4,
-          WebkitBoxOrient: 'vertical',
+          whiteSpace: 'nowrap',
+          textOverflow: 'ellipsis',
           cursor: v ? 'pointer' : 'default',
         }}
         title={v || '-'}
@@ -236,8 +244,15 @@ const buildTableColumns = (onCheckChange) => [
     title: 'MBL 号',
     dataIndex: 'mbl_number',
     key: 'mbl_number',
-    width: 125,
-    render: (v) => <MultiMbl value={v} />,
+    width: 128,
+    render: (v) => {
+      const preview = v ? splitValues(v).join('\n') : '';
+      return (
+        <div style={{ overflow: 'hidden', maxHeight: 28 }} title={preview || '-'}>
+          <MultiMbl value={v} />
+        </div>
+      );
+    },
   },
   {
     title: 'Check',
@@ -245,7 +260,9 @@ const buildTableColumns = (onCheckChange) => [
     key: 'is_check',
     width: 70,
     render: (v, record) => (
-      <CheckButton id={record.id} value={v ?? 0} onChange={(next) => onCheckChange(record.id, next)} />
+      <div style={{ overflow: 'hidden', maxHeight: 28 }}>
+        <CheckButton id={record.id} value={v ?? 0} onChange={(next) => onCheckChange(record.id, next)} />
+      </div>
     ),
   },
   {
@@ -256,14 +273,12 @@ const buildTableColumns = (onCheckChange) => [
     render: (v) => (
       <div
         style={{
-          width: 180,
           maxHeight: 22,
           overflow: 'hidden',
           fontSize: 13,
           lineHeight: '22px',
-          display: '-webkit-box',
-          WebkitLineClamp: 4,
-          WebkitBoxOrient: 'vertical',
+          whiteSpace: 'nowrap',
+          textOverflow: 'ellipsis',
         }}
         title={v || '-'}
       >
@@ -276,7 +291,11 @@ const buildTableColumns = (onCheckChange) => [
     dataIndex: 'intent_type1',
     key: 'intent_type1',
     width: 120,
-    render: (v) => <MultiIntent value={v} />,
+    render: (v) => (
+      <div style={{ overflow: 'hidden', maxHeight: 28 }}>
+        <MultiIntent value={v} />
+      </div>
+    ),
   },
   {
     title: '二级意图',
@@ -298,17 +317,19 @@ const buildTableColumns = (onCheckChange) => [
       }
       items = items.filter((s) => s && s.trim());
       if (!items.length) return '-';
-      if (items.length === 1) return <Tag>{items[0]}</Tag>;
+      if (items.length === 1) return <div style={{ overflow: 'hidden', maxHeight: 28 }}><Tag>{items[0]}</Tag></div>;
       return (
-        <Popover
-          trigger="click"
-          content={<Space wrap size={4}>{items.map((s) => <Tag key={s}>{s}</Tag>)}</Space>}
-        >
-          <span style={{ cursor: 'pointer' }}>
-            <Tag>{items[0]}</Tag>
-            <Tag>+{items.length - 1}</Tag>
-          </span>
-        </Popover>
+        <div style={{ overflow: 'hidden', maxHeight: 28 }}>
+          <Popover
+            trigger="click"
+            content={<Space wrap size={4}>{items.map((s) => <Tag key={s}>{s}</Tag>)}</Space>}
+          >
+            <span style={{ cursor: 'pointer' }}>
+              <Tag>{items[0]}</Tag>
+              <Tag>+{items.length - 1}</Tag>
+            </span>
+          </Popover>
+        </div>
       );
     },
   },
@@ -317,6 +338,7 @@ const buildTableColumns = (onCheckChange) => [
     dataIndex: 'is_done',
     key: 'is_done',
     width: 60,
+    ellipsis: true,
     render: (v, record) => {
       if (record.intent_type1 !== EXCHANGE_OF_PORT) return '-';
       if (v === null || v === undefined || v === '') return '-';
@@ -533,7 +555,8 @@ export default function Email() {
             showTotal: (t) => `共 ${t} 条`,
             onChange: handlePageChange,
           }}
-          scroll={{ x: 1000 }}
+          tableLayout="fixed"
+          scroll={{ x: 1170 }}
         />
       </Card>
     </div>

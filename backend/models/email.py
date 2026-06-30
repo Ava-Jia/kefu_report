@@ -137,3 +137,5 @@ def update_email_check(email_id: str, is_check: int) -> bool:
         row.is_check = is_check
         session.commit()
         return True
+
+# 修改

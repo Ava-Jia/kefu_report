@@ -113,12 +113,12 @@ export default function EmailDetail() {
       </div>
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
       {/* 第一列：附件列表（直接内嵌展示内容） */}
-      <div className="scrollbar-hidden" style={{ width: '50%', flexShrink: 0, borderRight: '2px solid #d0d0d0', padding: '16px 14px' }}>
-        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>附件列表</div>
+      <div style={{ width: '50%', flexShrink: 0, borderRight: '2px solid #d0d0d0', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '16px 14px' }}>
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12, flexShrink: 0 }}>附件列表</div>
         {attachments.length > 0 ? (
           <>
             {/* 切换按钮 */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, flexShrink: 0 }}>
               {attachments.map((a, i) => (
                 <div
                   key={i}
@@ -142,7 +142,7 @@ export default function EmailDetail() {
             </div>
             {/* 当前附件内容 */}
             {attachments[activeIdx] && (
-              <div>
+              <div style={{ flex: 1, overflow: 'hidden' }}>
                 {isImageUrl(attachments[activeIdx].attachmentTypeUrl) ? (
                   <img
                     src={attachments[activeIdx].attachmentTypeUrl}
@@ -153,7 +153,7 @@ export default function EmailDetail() {
                   <iframe
                     title={`attachment-${activeIdx}`}
                     src={`${attachments[activeIdx].attachmentTypeUrl}#view=FitH&toolbar=0`}
-                    style={{ width: '100%', height: 480, border: '1px solid #e8e8e8', borderRadius: 6 }}
+                    style={{ width: '100%', height: '100%', border: '1px solid #e8e8e8', borderRadius: 6 }}
                   />
                 )}
               </div>

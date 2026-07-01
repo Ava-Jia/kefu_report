@@ -24,7 +24,7 @@ load_dotenv()
 setup_logging()
 logger = logging.getLogger(__name__)
 
-_PUBLIC_PATHS = {"/api/auth/login", "/api/health"}
+_PUBLIC_PATHS = {"/api/auth/login", "/api/health", "/api/email/creat"}
 
 
 def create_app():

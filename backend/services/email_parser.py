@@ -60,7 +60,7 @@ def get_html_content(email_id: str) -> str | None:
 def get_order_result(ordering_id: str) -> dict | None:
     "获取指定 ordering_id 的解析结果。"
     r = _get_redis()
-    return _json_get(r, f"ordering_id:{ordering_id}")
+    return _json_get(r, ordering_id)
 
 
 def get_email_detail(email_id: str) -> dict | None:

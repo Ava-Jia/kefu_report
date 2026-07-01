@@ -364,6 +364,13 @@ const buildTableColumns = (onCheckChange) => [
     },
   },
   {
+    title: '解析状态',
+    dataIndex: 'status',
+    key: 'status',
+    width: 80,
+    render: (v) => { v === null || v === undefined || v === '' ? '-' : v; },   
+  },
+  {
     title: '操作',
     key: 'action',
     width: 80,

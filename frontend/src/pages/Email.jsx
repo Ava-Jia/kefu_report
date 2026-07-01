@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
-  Button, Card, DatePicker, Dropdown, Modal, Popover, Select, Space,
+  Button, Card, DatePicker, Dropdown, Input, Modal, Popover, Select, Space,
   Table, Tag, Typography, message,
 } from 'antd';
 import { EyeOutlined, LinkOutlined, SyncOutlined } from '@ant-design/icons';
@@ -200,7 +200,7 @@ const buildTableColumns = (onCheckChange) => [
     title: '日期',
     dataIndex: 'date',
     key: 'date',
-    width: 100,
+    width: 120,
     fixed: 'left',
     ellipsis: true,
     render: (v) => {
@@ -252,7 +252,7 @@ const buildTableColumns = (onCheckChange) => [
     title: 'MBL 号',
     dataIndex: 'mbl_number',
     key: 'mbl_number',
-    width: 128,
+    width: 150,
     render: (v) => {
       const preview = v ? splitValues(v).join('\n') : '';
       return (
@@ -298,7 +298,7 @@ const buildTableColumns = (onCheckChange) => [
     title: '一级意图',
     dataIndex: 'intent_type1',
     key: 'intent_type1',
-    width: 120,
+    width: 130,
     render: (v) => (
       <div style={{ overflow: 'hidden', maxHeight: 28 }}>
         <MultiIntent value={v} />
@@ -342,20 +342,10 @@ const buildTableColumns = (onCheckChange) => [
     },
   },
   {
-    title: 'email_url',
-    dataIndex: 'email_url',
-    key: 'email_url',
-    width: 60,
-    ellipsis: true,
-    render: (v) => v ? (
-      <a href={v} target="_blank" rel="noreferrer"><LinkOutlined /></a>
-    ) : '-',
-  },
-  {
     title: '是否下单',
     dataIndex: 'is_done',
     key: 'is_done',
-    width: 60,
+    width: 80,
     ellipsis: true,
     render: (v, record) => {
       if (record.intent_type1 !== EXCHANGE_OF_PORT) return '-';
@@ -364,10 +354,26 @@ const buildTableColumns = (onCheckChange) => [
     },
   },
   {
+    title: '解析状态',
+    dataIndex: 'status',
+    key: 'status',
+    width: 80,
+    render: (v) => { v === null || v === undefined || v === '' ? '-' : v; },   
+  },
+  {
     title: '操作',
     key: 'action',
-    width: 80,
-    render: (_, row) => <PreviewButton row={row} />,
+    width: 100,
+    render: (_, row) => (
+      <Space size={4}>
+        <PreviewButton row={row} />
+        {row.email_url && (
+          <a href={row.email_url} target="_blank" rel="noreferrer" title="原始邮件链接">
+            <LinkOutlined style={{ fontSize: 16, color: '#1677ff' }} />
+          </a>
+        )}
+      </Space>
+    ),
   },
 ];
 
@@ -379,11 +385,16 @@ export default function Email() {
   const initCategory = searchParams.get('category') || '';
   const initDateFrom = searchParams.get('date_from') || '';
   const initDateTo = searchParams.get('date_to') || '';
+  const initIsCheck = searchParams.get('is_check') !== null && searchParams.get('is_check') !== ''
+    ? parseInt(searchParams.get('is_check'), 10)
+    : null;
+  const initMblNumber = searchParams.get('mbl_number') || '';
 
   const [tableData, setTableData] = useState([]);
   const [tableLoading, setTableLoading] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState([]);
   const [total, setTotal] = useState(0);
+  const [fadingIds, setFadingIds] = useState(new Set());
 
   const category = initCategory;
   const dateRange = [
@@ -393,6 +404,13 @@ export default function Email() {
 
   const handleCheckChange = (id, next) => {
     setTableData((prev) => prev.map((row) => row.id === id ? { ...row, is_check: next } : row));
+    if (initIsCheck !== null && initIsCheck !== undefined && next !== initIsCheck) {
+      setFadingIds((prev) => new Set(prev).add(id));
+      setTimeout(() => {
+        setTableData((prev) => prev.filter((row) => row.id !== id));
+        setFadingIds((prev) => { const s = new Set(prev); s.delete(id); return s; });
+      }, 600);
+    }
   };
 
   const [batchLoading, setBatchLoading] = useState(false);
@@ -416,17 +434,19 @@ export default function Email() {
 
   const tableColumns = buildTableColumns(handleCheckChange);
 
-  const pushParams = (page, pageSize, cat, dateFrom, dateTo) => {
+  const pushParams = (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber) => {
     const p = {};
     if (page !== 1) p.page = page;
     if (pageSize !== 50) p.pageSize = pageSize;
     if (cat) p.category = cat;
     if (dateFrom) p.date_from = dateFrom;
     if (dateTo) p.date_to = dateTo;
+    if (isCheck !== null && isCheck !== undefined) p.is_check = isCheck;
+    if (mblNumber) p.mbl_number = mblNumber;
     setSearchParams(p, { replace: false });
   };
 
-  const loadTable = async (page, pageSize, cat, dateFrom, dateTo) => {
+  const loadTable = async (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber) => {
     setTableLoading(true);
     try {
       const res = await fetchEmailList({
@@ -435,6 +455,8 @@ export default function Email() {
         intent_type1: cat,
         date_from: dateFrom,
         date_to: dateTo,
+        is_check: isCheck,
+        mbl_number: mblNumber,
       });
       if (res?.code === 200) {
         setTableData(res.data.items);
@@ -450,24 +472,26 @@ export default function Email() {
   };
 
   useEffect(() => {
-    loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo);
+    loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber);
   }, [searchParams.toString()]);
 
   const handleCategoryChange = (value) => {
-    pushParams(1, initPageSize, value || '', initDateFrom, initDateTo);
+    pushParams(1, initPageSize, value || '', initDateFrom, initDateTo, initIsCheck, initMblNumber);
+  };
+
+  const handleIsCheckChange = (value) => {
+    pushParams(1, initPageSize, initCategory, initDateFrom, initDateTo, value ?? null, initMblNumber);
+  };
+
+  const handleMblSearch = (value) => {
+    pushParams(1, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, value.trim());
   };
 
   const [customPickerOpen, setCustomPickerOpen] = useState(false);
 
-  const handleQuickDate = (days) => {
-    const to = dayjs().format('YYYY-MM-DD');
-    const from = dayjs().subtract(days - 1, 'day').format('YYYY-MM-DD');
-    pushParams(1, initPageSize, initCategory, from, to);
-  };
-
   const handleTodayOrder = () => {
     const today = dayjs().format('YYYY-MM-DD');
-    pushParams(1, initPageSize, EXCHANGE_OF_PORT, today, today);
+    pushParams(1, initPageSize, EXCHANGE_OF_PORT, today, today, initIsCheck, initMblNumber);
   };
 
   const isTodayOrderActive =
@@ -477,11 +501,12 @@ export default function Email() {
 
   const handleCustomDateChange = (dates) => {
     if (!dates) {
-      pushParams(1, initPageSize, initCategory, '', '');
+      pushParams(1, initPageSize, initCategory, '', '', initIsCheck, initMblNumber);
     } else {
       pushParams(1, initPageSize, initCategory,
         dates[0] ? dates[0].format('YYYY-MM-DD') : '',
         dates[1] ? dates[1].format('YYYY-MM-DD') : '',
+        initIsCheck, initMblNumber,
       );
     }
     setCustomPickerOpen(false);
@@ -490,22 +515,20 @@ export default function Email() {
   const hasDateFilter = !!(initDateFrom || initDateTo);
 
   const handlePageChange = (page, pageSize) => {
-    pushParams(page, pageSize, initCategory, initDateFrom, initDateTo);
+    pushParams(page, pageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber);
   };
 
   return (
-    <div style={{ padding: '0 4px' }}>
-      <h2 style={{ marginBottom: 16 }}>Email 管理</h2>
-
-      <Card
-        title={<span style={{ fontSize: 16, fontWeight: 600 }}>{`邮件列表（共 ${total} 条）`}</span>}
-        extra={
-          <Button icon={<SyncOutlined />} onClick={() => loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo)}>
-            刷新
-          </Button>
-        }
-      >
+    <div>
         <Space style={{ marginBottom: 12 }} wrap>
+          <Input.Search
+            size="large"
+            placeholder="搜索 MBL 号"
+            defaultValue={initMblNumber}
+            allowClear
+            style={{ width: 200 }}
+            onSearch={handleMblSearch}
+          />
           <Select
             allowClear
             size="large"
@@ -515,7 +538,20 @@ export default function Email() {
             style={{ width: 200 }}
             onChange={(value) => handleCategoryChange(value || '')}
           />
-          <Button size="large" onClick={() => handleQuickDate(3)}>近3天</Button>
+          {[
+            { label: '全部', value: null },
+            { label: 'Todo', value: 0 },
+            { label: '已处理', value: 1 },
+          ].map(({ label, value }) => (
+            <Button
+              key={String(value)}
+              size="large"
+              type={initIsCheck === value ? 'primary' : 'default'}
+              onClick={() => handleIsCheckChange(value)}
+            >
+              {label}
+            </Button>
+          ))}
           <Button
             size="large"
             onClick={handleTodayOrder}
@@ -563,6 +599,7 @@ export default function Email() {
           size="small"
           bordered
           className="email-table"
+          rowClassName={(row) => fadingIds.has(row.id) ? 'row-fading' : ''}
           rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
           pagination={{
             current: initPage,
@@ -574,9 +611,8 @@ export default function Email() {
             onChange: handlePageChange,
           }}
           tableLayout="fixed"
-          scroll={{ x: 1170 }}
+          scroll={{ x: 1130, y: 'calc(100vh - 160px)' }}
         />
-      </Card>
     </div>
   );
 }

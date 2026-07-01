@@ -56,6 +56,15 @@ def get_html_content(email_id: str) -> str | None:
     attachments = result.get("attachments")
     return html[0] if isinstance(html, list) and html else html if isinstance(html, str) else None, attachments
     
+
 def get_order_result(ordering_id: str) -> dict | None:
+    "获取指定 ordering_id 的解析结果。"
     r = _get_redis()
     return _json_get(r, f"ordering_id:{ordering_id}")
+
+
+def get_email_detail(email_id: str) -> dict | None:
+    "获取指定 email_id 的邮件解析结果。"
+    r = _get_redis()
+    return _json_get(r, f"email_id:{email_id}")
+

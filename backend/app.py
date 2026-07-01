@@ -10,17 +10,22 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 
 from routes.analyze_routes import bp as analyze_bp
+from routes.auth_routes import bp as auth_bp
 from routes.email_routes import bp as email_bp
 from routes.knowledge_routes import bp as knowledge_bp
 from routes.report_routes import bp as report_bp
 from routes.search_routes import bp as company_bp
 from routes.wechat_rag import bp as rag_bp
+from utils.auth import verify_token
 
 
 load_dotenv()
 
 setup_logging()
 logger = logging.getLogger(__name__)
+
+_PUBLIC_PATHS = {"/api/auth/login", "/api/health"}
+
 
 def create_app():
     # origins = [
@@ -34,6 +39,17 @@ def create_app():
 
     logger.info("******************Starting app******************")
 
+    @app.before_request
+    def check_auth():
+        from flask import request
+        if request.method == "OPTIONS" or request.path in _PUBLIC_PATHS:
+            return
+        raw = request.headers.get("Authorization", "")
+        token = raw.removeprefix("Bearer ").strip()
+        if not token or verify_token(token) is None:
+            return jsonify({"success": False, "message": "未登录或登录已过期"}), 401
+
+    app.register_blueprint(auth_bp)
     app.register_blueprint(report_bp)
     app.register_blueprint(analyze_bp)
     app.register_blueprint(email_bp)

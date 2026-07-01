@@ -38,6 +38,7 @@ class Email(_Base):
     )
     data_id: Mapped[int | None] = mapped_column(Integer, nullable=True, unique=True)
     email_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)
 
 
 @event.listens_for(Email, 'before_insert')
@@ -57,6 +58,9 @@ def _migrate():
         if 'email_url' not in cols:
             conn.execute(text("ALTER TABLE email ADD COLUMN email_url TEXT"))
             conn.commit()
+        if 'status' not in cols:
+            conn.execute(text("ALTER TABLE email ADD COLUMN status TEXT"))
+            conn.commit()
 
 
 _Base.metadata.create_all(_engine)
@@ -73,6 +77,8 @@ def get_local_emails(
     intent_type1: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    is_check: int | None = None,
+    mbl_number: str | None = None,
 ) -> dict:
     with get_session() as session:
         query = session.query(Email)
@@ -82,6 +88,10 @@ def get_local_emails(
             query = query.filter(Email.date >= date_from)
         if date_to:
             query = query.filter(Email.date <= date_to + " 23:59:59")
+        if is_check is not None:
+            query = query.filter(Email.is_check == is_check)
+        if mbl_number:
+            query = query.filter(Email.mbl_number.contains(mbl_number))
 
         total = query.count()
         items = (
@@ -110,6 +120,7 @@ def get_local_emails(
                     "is_check": e.is_check,
                     "data_id": e.data_id,
                     "email_url": e.email_url,
+                    "status": e.status,
                 }
                 for e in items
             ],
@@ -163,4 +174,31 @@ def update_email_check(email_id: str, is_check: int) -> bool:
         session.commit()
         return True
 
-# 修改
+
+_VALID_STATUSES = {"PENDING_TRACK", "COMPLETED", "FAILED"}
+
+_UPDATABLE_FIELDS = {
+    "mbl_number", "intent_type1", "subject", "intent_type2",
+    "ordering_id", "email_summary", "is_done", "email_url", "status",
+}
+
+
+def update_email(email_id: str, fields: dict) -> bool:
+    updates = {k: v for k, v in fields.items() if k in _UPDATABLE_FIELDS}
+    if "status" in updates and updates["status"] and updates["status"] not in _VALID_STATUSES:
+        raise ValueError(f"status 必须为 {_VALID_STATUSES} 之一")
+    if not updates:
+        return False
+    with get_session() as session:
+        row = session.get(Email, email_id)
+        if row is None:
+            return False
+        for k, v in updates.items():
+            setattr(row, k, v)
+        session.commit()
+        return True
+    
+def get_email_id_by_ordering_id(ordering_id: str) -> str | None:
+    with get_session() as session:
+        row = session.query(Email).filter(Email.ordering_id == "ordering_id:" + ordering_id).first()
+        return row.id if row else None

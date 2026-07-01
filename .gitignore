@@ -24,6 +24,9 @@ backend/analyze_summary/**/*.md
 # 知识库持久化
 backend/knowledge/qa_store.json
 
+# SQLite 数据库
+backend/*.db
+
 # IDE
 .idea/
 .vscode/

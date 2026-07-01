@@ -1,8 +1,10 @@
-import { Layout, Menu, theme } from "antd";
+import { useState } from "react";
+import { Button, Layout, Menu, theme } from "antd";
 import {
   BookOutlined,
   FileTextOutlined,
   LineChartOutlined,
+  LogoutOutlined,
   RobotOutlined,
 } from "@ant-design/icons";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
@@ -13,10 +15,11 @@ import CompanySearch from "./pages/Company.jsx";
 import WechatBotKnowledge from "./pages/WechatBotKnowledge.jsx";
 import Email from "./pages/Email.jsx";
 import EmailDetail from "./pages/EmailDetail.jsx";
+import Login from "./pages/Login.jsx";
 
 const { Header, Content } = Layout;
 
-function TopMenu() {
+function TopMenu({ onLogout }) {
   const location = useLocation();
   const selected = location.pathname.startsWith("/knowledge")
     ? ["/knowledge"]
@@ -39,6 +42,8 @@ function TopMenu() {
     { key: "/email", icon: <BookOutlined />, label: <Link to="/email">Email管理</Link> },
   ];
 
+  const username = localStorage.getItem("username") || "";
+
   return (
     <Header style={{ display: "flex", alignItems: "center", padding: "0 16px", height: 48 }}>
       <div style={{ color: "#fff", fontSize: 20, marginRight: 24, flexShrink: 0 }}>
@@ -51,13 +56,37 @@ function TopMenu() {
         items={menuItems}
         style={{ flex: 1, minWidth: 0, lineHeight: "48px", borderBottom: "none" }}
       />
+      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ color: "rgba(255,255,255,0.65)", fontSize: 13 }}>{username}</span>
+        <Button
+          type="text"
+          icon={<LogoutOutlined />}
+          onClick={onLogout}
+          style={{ color: "rgba(255,255,255,0.65)" }}
+          size="small"
+        >
+          退出
+        </Button>
+      </div>
     </Header>
   );
 }
 
 export default function App() {
+  const [loggedIn, setLoggedIn] = useState(!!localStorage.getItem("token"));
   const { token } = theme.useToken();
   const location = useLocation();
+
+  if (!loggedIn) {
+    return <Login onLogin={() => setLoggedIn(true)} />;
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("token");
+    localStorage.removeItem("username");
+    setLoggedIn(false);
+  }
+
   const contentClass =
     location.pathname.startsWith("/analyze") ||
     location.pathname.startsWith("/knowledge") ||
@@ -69,7 +98,7 @@ export default function App() {
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <TopMenu />
+      <TopMenu onLogout={handleLogout} />
       <Layout style={{ background: token.colorBgLayout }}>
         <Content className={contentClass}>
           <Routes>

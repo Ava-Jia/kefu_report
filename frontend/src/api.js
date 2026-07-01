@@ -6,6 +6,26 @@ const client = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+client.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) {
+    config.headers["Authorization"] = `Bearer ${token}`;
+  }
+  return config;
+});
+
+client.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("username");
+      window.location.href = "/";
+    }
+    return Promise.reject(err);
+  }
+);
+
 export async function saveReport(payload) {
   const { data } = await client.post("/report/save", payload);
   return data;

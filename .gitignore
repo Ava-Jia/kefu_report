@@ -25,7 +25,7 @@ backend/analyze_summary/**/*.md
 backend/knowledge/qa_store.json
 
 # SQLite 数据库
-backend/*.db
+backend/data/
 
 # IDE
 .idea/

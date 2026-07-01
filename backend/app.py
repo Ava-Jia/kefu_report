@@ -25,6 +25,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 _PUBLIC_PATHS = {"/api/auth/login", "/api/health", "/api/email/create"}
+_PUBLIC_PATH_PREFIXES = ("/api/companys",)
 
 
 def create_app():
@@ -42,7 +43,11 @@ def create_app():
     @app.before_request
     def check_auth():
         from flask import request
-        if request.method == "OPTIONS" or request.path in _PUBLIC_PATHS:
+        if (
+            request.method == "OPTIONS"
+            or request.path in _PUBLIC_PATHS
+            or request.path.startswith(_PUBLIC_PATH_PREFIXES)
+        ):
             return
         raw = request.headers.get("Authorization", "")
         token = raw.removeprefix("Bearer ").strip()

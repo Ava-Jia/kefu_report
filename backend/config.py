@@ -4,9 +4,11 @@ from logging.handlers import TimedRotatingFileHandler
 
 def setup_logging():
 
-    log_dir = "/app/logs"
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
+    log_dir = os.environ.get(
+        "LOG_DIR",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"),
+    )
+    os.makedirs(log_dir, exist_ok=True)
 
     formatter = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s"

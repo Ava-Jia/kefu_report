@@ -24,7 +24,7 @@ load_dotenv()
 setup_logging()
 logger = logging.getLogger(__name__)
 
-_PUBLIC_PATHS = {"/api/auth/login", "/api/health", "/api/email/creat"}
+_PUBLIC_PATHS = {"/api/auth/login", "/api/health", "/api/email/create"}
 
 
 def create_app():
@@ -75,5 +75,5 @@ def create_app():
 app = create_app()
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "5000"))
+    port = int(os.getenv("PORT", "5008"))
     app.run(host="0.0.0.0", port=port, debug=False)

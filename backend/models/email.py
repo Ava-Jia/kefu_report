@@ -147,6 +147,7 @@ def upsert_emails(records: list[dict]) -> int:
         for r in records:
             if not r.get("id"):
                 continue
+            is_done = 1 if r.get("intent_type1") == "EXCHANGE_OF_PORT" else 0
             session.merge(Email(
                 id=r["id"],
                 date=_to_bjt(r.get("date")),
@@ -158,6 +159,7 @@ def upsert_emails(records: list[dict]) -> int:
                 intent_type2=str(r.get("intent_type2")) if r.get("intent_type2") else None,
                 ordering_id=r.get("ordering_id") or None,
                 email_url=r.get("email_url") or None,
+                is_done=is_done,
             ))
         session.commit()
         return len(records)

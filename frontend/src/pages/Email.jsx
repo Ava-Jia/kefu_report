@@ -350,7 +350,7 @@ const buildTableColumns = (onCheckChange) => [
     render: (v, record) => {
       if (record.intent_type1 !== EXCHANGE_OF_PORT) return '-';
       if (v === null || v === undefined || v === '') return '-';
-      return String(v) === '1' ? '已下单' : '未下单';
+      return v ? <Tag color="green">已下单</Tag> : <Tag color="red">取消</Tag>;
     },
   },
   {

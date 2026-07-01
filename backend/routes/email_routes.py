@@ -90,10 +90,15 @@ def list_emails():
         intent_type1 = (request.args.get("intent_type1") or "").strip() or None
         date_from = (request.args.get("date_from") or "").strip() or None
         date_to = (request.args.get("date_to") or "").strip() or None
+        is_check_raw = request.args.get("is_check")
+        is_check = int(is_check_raw) if is_check_raw is not None and is_check_raw != "" else None
+        mbl_number = (request.args.get("mbl_number") or "").strip() or None
         data = get_local_emails(
             page=page, page_size=page_size,
             intent_type1=intent_type1,
             date_from=date_from, date_to=date_to,
+            is_check=is_check,
+            mbl_number=mbl_number,
         )
         return jsonify({"code": 200, "message": "查询成功", "data": data})
     except Exception as e:

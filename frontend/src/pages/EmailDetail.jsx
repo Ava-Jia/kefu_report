@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { Button, Spin } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, LinkOutlined } from '@ant-design/icons';
 import { fetchEmailHtml, fetchEmailResult } from '../api';
 
 function EditableText({ value, onChange, style }) {
@@ -62,7 +62,7 @@ const FIELD_ORDER = [
   'consigneeEmail', 'consigneeName', 'consigneeAddress',
   'notifyName', 'notifyAddress',
   'shipperName', 'shipperAddress',
-  'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume',
+  'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume', 'containerType',
   'expenseItem', 'expenseAmount', 'expenseName', 'handlingFee',
 ];
 
@@ -97,7 +97,7 @@ const makeHtmlReadable = (raw) => raw
   .replace(/font-size\s*:\s*(\d+(?:\.\d+)?)\s*px/gi, (m, n) => parseFloat(n) < 24 ? 'font-size:24px' : m)
   .replace(/font-size\s*:\s*(\d+(?:\.\d+)?)\s*pt/gi, (m, n) => parseFloat(n) < 18 ? 'font-size:18pt' : m);
 
-function ResultField({ label, value, onChange }) {
+function ResultField({ label, value, onChange, linkUrl }) {
   const display = value === null || value === undefined || value === '' ? null
     : typeof value === 'object' ? value
     : String(value);
@@ -107,8 +107,8 @@ function ResultField({ label, value, onChange }) {
   if (display === null) {
     return (
       <div style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid #f5f5f5' }}>
-        <span style={{ width: 90, flexShrink: 0, color: '#bbb', fontSize: 15 }}>{friendlyLabel}</span>
-        <span style={{ color: '#ccc', fontSize: 15 }}>—</span>
+        <span style={{ width: 90, flexShrink: 0, fontWeight: 700, color: '#1a1a1a', fontSize: 13 }}>{friendlyLabel}</span>
+        <span style={{ color: '#ccc', fontSize: 13 }}>—</span>
       </div>
     );
   }
@@ -116,7 +116,7 @@ function ResultField({ label, value, onChange }) {
   if (typeof display === 'object') {
     return (
       <div style={{ padding: '6px 0', borderBottom: '1px solid #f5f5f5' }}>
-        <div style={{ color: '#bbb', fontSize: 12, marginBottom: 4 }}>{friendlyLabel}</div>
+        <div style={{ fontWeight: 700, color: '#1a1a1a', fontSize: 13, marginBottom: 4 }}>{friendlyLabel}</div>
         <div style={{ paddingLeft: 8, borderLeft: '2px solid #e8e8e8' }}>
           {Object.entries(display).map(([k, v]) => (
             <ResultField key={k} label={k} value={v} />
@@ -127,18 +127,24 @@ function ResultField({ label, value, onChange }) {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid #f5f5f5' }}>
-      <span style={{ width: 90, flexShrink: 0, color: '#888', fontSize: 15, paddingTop: 1 }}>{friendlyLabel}</span>
-      {isUrl(display) ? (
-        <a href={display} target="_blank" rel="noreferrer"
-          style={{ fontSize: 15, wordBreak: 'break-all', display: 'flex', alignItems: 'flex-start', gap: 3 }}>
-          <span>查看链接</span>
-        </a>
-      ) : onChange ? (
-        <EditableText value={display} onChange={onChange} style={{ fontSize: 15, wordBreak: 'break-all', whiteSpace: 'pre-wrap', flex: 1 }} />
-      ) : (
-        <span style={{ fontSize: 15, wordBreak: 'break-all', whiteSpace: 'pre-wrap', flex: 1 }}>{display}</span>
-      )}
+    <div style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid #f5f5f5', alignItems: 'flex-start' }}>
+      <span style={{ width: 90, flexShrink: 0, fontWeight: 700, color: '#1a1a1a', fontSize: 13, paddingTop: 1 }}>{friendlyLabel}</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
+        {isUrl(display) ? (
+          <a href={display} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: '#1677ff' }}>
+            <LinkOutlined /> 查看链接
+          </a>
+        ) : onChange ? (
+          <EditableText value={display} onChange={onChange} style={{ fontSize: 13, wordBreak: 'break-all', whiteSpace: 'pre-wrap', color: '#1677ff', flex: 1 }} />
+        ) : (
+          <span style={{ fontSize: 13, wordBreak: 'break-all', whiteSpace: 'pre-wrap', color: '#1677ff' }}>{display}</span>
+        )}
+        {linkUrl && (
+          <a href={linkUrl} target="_blank" rel="noreferrer" title="查看文件" style={{ color: '#1677ff', flexShrink: 0 }}>
+            <LinkOutlined />
+          </a>
+        )}
+      </span>
     </div>
   );
 }
@@ -190,6 +196,8 @@ export default function EmailDetail() {
       return { ...prev, [key]: val };
     });
   };
+
+  const resultObj = result ? (Array.isArray(result) ? result[0] ?? {} : result) : null;
 
   useEffect(() => {
     fetchEmailHtml(id)
@@ -325,10 +333,11 @@ export default function EmailDetail() {
         <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>解析信息</div>
         {resultLoading ? (
           <Spin size="small" />
-        ) : result ? (
-          sortedEntries(Array.isArray(result) ? result[0] ?? {} : result).map(([k, v]) => (
+        ) : resultObj ? (
+          sortedEntries(resultObj).map(([k, v]) => (
             <ResultField key={k} label={k} value={v}
               onChange={typeof v !== 'object' && !isUrl(String(v ?? '')) ? (val) => onFieldChange(k, val) : undefined}
+              linkUrl={k === 'houseBillNo' ? resultObj.hblUrl : k === 'masterBillNo' ? resultObj.mblUrl : undefined}
             />
           ))
         ) : (

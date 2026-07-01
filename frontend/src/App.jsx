@@ -63,7 +63,9 @@ export default function App() {
     location.pathname.startsWith("/knowledge") ||
     location.pathname.startsWith("/wechat-bot-knowledge")
       ? "app-content app-content--analyze-spread"
-      : "app-content";
+      : location.pathname.startsWith("/email")
+        ? "app-content app-content--email"
+        : "app-content";
 
   return (
     <Layout style={{ minHeight: "100vh" }}>

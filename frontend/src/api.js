@@ -225,12 +225,14 @@ export const updateEmailCheck = async (email_id, is_check) => {
 };
 
 /** 获取本地邮件列表 */
-export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = '', date_from = '', date_to = '' } = {}) => {
+export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = '', date_from = '', date_to = '', is_check = null, mbl_number = '' } = {}) => {
   try {
     const params = { page, page_size };
     if (intent_type1) params.intent_type1 = intent_type1;
     if (date_from) params.date_from = date_from;
     if (date_to) params.date_to = date_to;
+    if (is_check !== null && is_check !== undefined) params.is_check = is_check;
+    if (mbl_number) params.mbl_number = mbl_number;
     const { data } = await client.get('/email/list', { params });
     return data;
   } catch (error) {

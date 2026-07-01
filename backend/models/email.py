@@ -77,6 +77,8 @@ def get_local_emails(
     intent_type1: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    is_check: int | None = None,
+    mbl_number: str | None = None,
 ) -> dict:
     with get_session() as session:
         query = session.query(Email)
@@ -86,6 +88,10 @@ def get_local_emails(
             query = query.filter(Email.date >= date_from)
         if date_to:
             query = query.filter(Email.date <= date_to + " 23:59:59")
+        if is_check is not None:
+            query = query.filter(Email.is_check == is_check)
+        if mbl_number:
+            query = query.filter(Email.mbl_number.contains(mbl_number))
 
         total = query.count()
         items = (

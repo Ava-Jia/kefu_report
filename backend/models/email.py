@@ -4,7 +4,7 @@ import email.utils
 from sqlalchemy import String, Text, DateTime, Integer, func, create_engine, Boolean, event, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
-_engine = create_engine("sqlite:///./email.db", connect_args={"check_same_thread": False})
+_engine = create_engine("sqlite:///./data/email.db", connect_args={"check_same_thread": False})
 
 
 class _Base(DeclarativeBase):

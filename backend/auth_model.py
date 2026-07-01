@@ -2,7 +2,7 @@ from sqlalchemy import String, Boolean, DateTime, func, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 from werkzeug.security import generate_password_hash, check_password_hash
 
-_engine = create_engine("sqlite:///./email.db", connect_args={"check_same_thread": False})
+_engine = create_engine("sqlite:///./data/email.db", connect_args={"check_same_thread": False})
 
 
 class _Base(DeclarativeBase):

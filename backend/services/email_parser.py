@@ -53,7 +53,8 @@ def get_html_content(email_id: str) -> str | None:
     if result is None:
         return None
     html = result.get("html_content")
-    return html[0] if isinstance(html, list) and html else html if isinstance(html, str) else None
+    attachments = result.get("attachments")
+    return html[0] if isinstance(html, list) and html else html if isinstance(html, str) else None, attachments
     
 def get_order_result(ordering_id: str) -> dict | None:
     r = _get_redis()

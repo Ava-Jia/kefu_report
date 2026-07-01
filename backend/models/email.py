@@ -1,7 +1,7 @@
 import datetime
 import email.utils
 
-from sqlalchemy import String, Text, DateTime, func, create_engine, Boolean
+from sqlalchemy import String, Text, DateTime, Integer, func, create_engine, Boolean, event, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
 _engine = create_engine("sqlite:///./email.db", connect_args={"check_same_thread": False})
@@ -22,6 +22,7 @@ class Email(_Base):
     subject: Mapped[str | None] = mapped_column(Text)
     intent_type2: Mapped[str | None] = mapped_column(Text)
     ordering_id: Mapped[str | None] = mapped_column(String(100))
+    email_summary: Mapped[str | None] = mapped_column(Text)
     is_done: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -29,9 +30,37 @@ class Email(_Base):
         server_default="0",
     )
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+    is_check: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    data_id: Mapped[int | None] = mapped_column(Integer, nullable=True, unique=True)
+    email_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+@event.listens_for(Email, 'before_insert')
+def _assign_data_id(mapper, connection, target):
+    if target.data_id is None:
+        result = connection.execute(text("SELECT COALESCE(MAX(data_id), 0) + 1 FROM email"))
+        target.data_id = result.scalar()
+
+
+def _migrate():
+    with _engine.connect() as conn:
+        cols = [row[1] for row in conn.execute(text("PRAGMA table_info(email)")).fetchall()]
+        if 'data_id' not in cols:
+            conn.execute(text("ALTER TABLE email ADD COLUMN data_id INTEGER"))
+            conn.execute(text("UPDATE email SET data_id = rowid"))
+            conn.commit()
+        if 'email_url' not in cols:
+            conn.execute(text("ALTER TABLE email ADD COLUMN email_url TEXT"))
+            conn.commit()
 
 
 _Base.metadata.create_all(_engine)
+_migrate()
 
 
 def get_session() -> Session:
@@ -74,9 +103,13 @@ def get_local_emails(
                     "mbl_number": e.mbl_number,
                     "intent_type1": e.intent_type1,
                     "is_done": e.is_done,
+                    "email_summary": e.email_summary,
                     "subject": e.subject,
                     "intent_type2": e.intent_type2,
                     "ordering_id": e.ordering_id,
+                    "is_check": e.is_check,
+                    "data_id": e.data_id,
+                    "email_url": e.email_url,
                 }
                 for e in items
             ],
@@ -110,8 +143,24 @@ def upsert_emails(records: list[dict]) -> int:
                 mbl_number=r.get("mbl_number"),
                 intent_type1=r.get("intent_type1"),
                 subject=r.get("subject"),
+                email_summary=r.get("email_summary"),
                 intent_type2=str(r.get("intent_type2")) if r.get("intent_type2") else None,
                 ordering_id=r.get("ordering_id") or None,
+                email_url=r.get("email_url") or None,
             ))
         session.commit()
         return len(records)
+
+
+def update_email_check(email_id: str, is_check: int) -> bool:
+    if is_check not in (0, 1, 2):
+        return False
+    with get_session() as session:
+        row = session.get(Email, email_id)
+        if row is None:
+            return False
+        row.is_check = is_check
+        session.commit()
+        return True
+
+# 修改

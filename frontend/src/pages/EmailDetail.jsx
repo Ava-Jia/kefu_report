@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
-import { Button, Spin } from 'antd';
-import { ArrowLeftOutlined, LinkOutlined } from '@ant-design/icons';
+import { Button, Spin, Modal } from 'antd';
+import { ArrowLeftOutlined, LinkOutlined, ZoomInOutlined } from '@ant-design/icons';
 import { fetchEmailHtml, fetchEmailResult } from '../api';
 
 function EditableText({ value, onChange, style }) {
@@ -163,6 +163,7 @@ export default function EmailDetail() {
   const [result, setResult] = useState(null);
   const [attachments, setAttachments] = useState([]);
   const [visible, setVisible] = useState(false);
+  const [zoomOpen, setZoomOpen] = useState(false);
   const iframeRef = useRef(null);
 
   useEffect(() => {
@@ -234,13 +235,55 @@ export default function EmailDetail() {
     }
   }, [id, orderingId]);
 
+  const emailSrcDoc = `<style>
+    ::-webkit-scrollbar{display:none}
+    html,body{scrollbar-width:none;-ms-overflow-style:none;font-size:24px;line-height:1.6;font-family:Arial,Helvetica,sans-serif;word-break:break-word}
+    img{max-width:100%;height:auto}
+    table{max-width:100%}
+  </style>${html || '<p style="color:#aaa;padding:24px">无 HTML 内容</p>'}`;
+
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff', zIndex: 100, transform: visible ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 0.3s ease' }}>
       <div style={{ padding: '8px 16px', borderBottom: '2px solid #d0d0d0', flexShrink: 0 }}>
         <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>返回</Button>
       </div>
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-      {/* 第一列：附件列表（直接内嵌展示内容） */}
+      {/* 第一列：邮件预览 */}
+      <div style={{ width: '20%', flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '2px solid #d0d0d0' }}>
+        <div style={{ padding: '12px 14px', flexShrink: 0, borderBottom: '1px solid #e8e8e8', background: '#fafafa' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>邮件主题</div>
+          {subject ? (
+            <div style={{ fontSize: 13, color: '#1a1a1a', lineHeight: 1.6, wordBreak: 'break-all', fontWeight: 500 }}>{subject}</div>
+          ) : (
+            <div style={{ fontSize: 13, color: '#ccc' }}>—</div>
+          )}
+        </div>
+        <div style={{ padding: '8px 14px 4px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', letterSpacing: '0.06em', textTransform: 'uppercase' }}>邮件内容</div>
+          <ZoomInOutlined
+            onClick={() => setZoomOpen(true)}
+            style={{ fontSize: 14, color: '#999', cursor: 'pointer' }}
+          />
+        </div>
+        <div style={{ flex: 1, minHeight: 0 }}>
+          {htmlLoading ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+              <Spin />
+            </div>
+          ) : (
+            <iframe
+              ref={iframeRef}
+              title="email-html-preview"
+              srcDoc={emailSrcDoc}
+              style={{ width: '100%', height: '100%', border: 'none' }}
+              sandbox="allow-same-origin"
+              onLoad={handleEmailLoad}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* 第二列：附件列表（直接内嵌展示内容） */}
       <div style={{ width: '50%', flexShrink: 0, borderRight: '2px solid #d0d0d0', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '16px 14px' }}>
         <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12, flexShrink: 0 }}>附件列表</div>
         {attachments.length > 0 ? (
@@ -292,42 +335,6 @@ export default function EmailDetail() {
         )}
       </div>
 
-      {/* 第二列：邮件预览 */}
-      <div style={{ width: '20%', flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '2px solid #d0d0d0' }}>
-        <div style={{ padding: '12px 14px', flexShrink: 0, borderBottom: '1px solid #e8e8e8', background: '#fafafa' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>邮件主题</div>
-          {subject ? (
-            <div style={{ fontSize: 13, color: '#1a1a1a', lineHeight: 1.6, wordBreak: 'break-all', fontWeight: 500 }}>{subject}</div>
-          ) : (
-            <div style={{ fontSize: 13, color: '#ccc' }}>—</div>
-          )}
-        </div>
-        <div style={{ padding: '8px 14px 4px', flexShrink: 0 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', letterSpacing: '0.06em', textTransform: 'uppercase' }}>邮件内容</div>
-        </div>
-        <div style={{ flex: 1, minHeight: 0 }}>
-          {htmlLoading ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-              <Spin />
-            </div>
-          ) : (
-            <iframe
-              ref={iframeRef}
-              title="email-html-preview"
-              srcDoc={`<style>
-                ::-webkit-scrollbar{display:none}
-                html,body{scrollbar-width:none;-ms-overflow-style:none;font-size:24px;line-height:1.6;font-family:Arial,Helvetica,sans-serif;word-break:break-word}
-                img{max-width:100%;height:auto}
-                table{max-width:100%}
-              </style>${html || '<p style="color:#aaa;padding:24px">无 HTML 内容</p>'}`}
-              style={{ width: '100%', height: '100%', border: 'none' }}
-              sandbox="allow-same-origin"
-              onLoad={handleEmailLoad}
-            />
-          )}
-        </div>
-      </div>
-
       {/* 第三列：解析信息 */}
       <div className="scrollbar-hidden" style={{ width: '30%', flexShrink: 0, padding: '16px 14px' }}>
         <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>解析信息</div>
@@ -347,6 +354,21 @@ export default function EmailDetail() {
         )}
       </div>
       </div>
+      <Modal
+        open={zoomOpen}
+        onCancel={() => setZoomOpen(false)}
+        footer={null}
+        title="邮件内容"
+        width="80vw"
+        styles={{ body: { height: '80vh', padding: 0 } }}
+      >
+        <iframe
+          title="email-html-preview-zoom"
+          srcDoc={emailSrcDoc}
+          style={{ width: '100%', height: '100%', border: 'none' }}
+          sandbox="allow-same-origin"
+        />
+      </Modal>
     </div>
   );
 }

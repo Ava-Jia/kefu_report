@@ -262,7 +262,10 @@ export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = 
 
 /** 下载公司检索结果为 XLSX */
 export const downloadCompanyXlsx = async (taskId) => {
-  const response = await fetch(`/api/companys/task/${encodeURIComponent(taskId)}/export-xlsx`);
+  const token = localStorage.getItem("token");
+  const response = await fetch(`/api/companys/task/${encodeURIComponent(taskId)}/export-xlsx`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.error || err.message || "下载失败");

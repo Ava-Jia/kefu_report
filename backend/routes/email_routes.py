@@ -185,7 +185,9 @@ def update_check(email_id):
         is_check = body.get("is_check")
         if is_check is None or is_check not in (0, 1, 2):
             return jsonify({"code": 400, "message": "is_check 必须为 0、1 或 2"}), 400
-        ok = update_email_check(email_id, is_check)
+        operator = getattr(g, "user", None)
+        operator = operator.get("username") if operator else None
+        ok = update_email_check(email_id, is_check, operator=operator)
         if not ok:
             return jsonify({"code": 404, "message": "未找到该邮件"}), 404
         return jsonify({"code": 200, "message": "更新成功"})

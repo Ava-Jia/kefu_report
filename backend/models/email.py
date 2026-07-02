@@ -178,14 +178,17 @@ def upsert_emails(records: list[dict]) -> int:
         return len(records)
 
 
-def update_email_check(email_id: str, is_check: int) -> bool:
+def update_email_check(email_id: str, is_check: int, operator: str | None = None) -> bool:
     if is_check not in (0, 1, 2):
         return False
     with get_session() as session:
         row = session.get(Email, email_id)
         if row is None:
             return False
-        row.is_check = is_check
+        old_v = row.is_check
+        if old_v != is_check:
+            row.is_check = is_check
+            write_audit_logs(session, "email", email_id, [("is_check", old_v, is_check)], operator)
         session.commit()
         return True
 

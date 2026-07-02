@@ -36,6 +36,8 @@ def create_app():
     #     "http://101.132.22.43:5173"
     # ]
     app = Flask(__name__)
+    # Keep original key order in JSON responses (e.g. parser_result field order)
+    app.json.sort_keys = False
     CORS(app, resources={r"/api/*": {"origins": "*", "supports_credentials": True}})
 
     logger.info("******************Starting app******************")

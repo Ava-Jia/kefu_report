@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Button, Spin, Modal } from 'antd';
-import { ArrowLeftOutlined, LinkOutlined, ZoomInOutlined } from '@ant-design/icons';
-import { fetchEmailPreview } from '../api';
+import { Button, Spin, Modal, message } from 'antd';
+import { ArrowLeftOutlined, SaveOutlined, ZoomInOutlined } from '@ant-design/icons';
+import { fetchEmailPreview, updateEmail } from '../api';
 
 function EditableText({ value, onChange, style, renderValue }) {
   const [editing, setEditing] = useState(false);
@@ -37,6 +37,7 @@ function EditableText({ value, onChange, style, renderValue }) {
 }
 
 const NUMBERED_FIELDS = ['consigneeEmail'];
+const COL_WIDTHS_STORAGE_KEY = 'emailDetail.colWidths';
 
 const circledNumber = (n) => (n >= 1 && n <= 20 ? String.fromCodePoint(9311 + n) : `(${n})`);
 
@@ -216,7 +217,7 @@ function ResultField({ label, value, onChange, linkUrl }) {
       <span style={{ display: 'flex', alignItems: 'flex-end', gap: 4, flex: 1, minWidth: 0 }}>
         {isUrl(display) ? (
           <a href={display} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: '#1677ff' }}>
-            <LinkOutlined /> 查看链接
+            查看链接
           </a>
         ) : onChange ? (
           <EditableText
@@ -229,11 +230,6 @@ function ResultField({ label, value, onChange, linkUrl }) {
           <span style={{ fontSize: 13, wordBreak: 'break-all', whiteSpace: 'pre-wrap', color: '#1677ff' }}>
             {NUMBERED_FIELDS.includes(label) ? numberList(display) : display}
           </span>
-        )}
-        {linkUrl && (
-          <a href={linkUrl} target="_blank" rel="noreferrer" title="查看文件" style={{ color: '#1677ff', flexShrink: 0 }}>
-            <LinkOutlined />
-          </a>
         )}
       </span>
     </div>
@@ -250,10 +246,62 @@ export default function EmailDetail() {
   const [html, setHtml] = useState('');
   const [htmlLoading, setHtmlLoading] = useState(true);
   const [result, setResult] = useState(() => deepMerge(RESULT_TEMPLATE, null));
+  const [rawResult, setRawResult] = useState(null);
   const [attachments, setAttachments] = useState([]);
   const [visible, setVisible] = useState(false);
   const [zoomOpen, setZoomOpen] = useState(false);
   const iframeRef = useRef(null);
+  const rowRef = useRef(null);
+  const [colWidths, setColWidths] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(COL_WIDTHS_STORAGE_KEY));
+      if (Array.isArray(saved) && saved.length === 3 && saved.every((n) => typeof n === 'number')) return saved;
+    } catch {
+      // ignore invalid saved value
+    }
+    return [20, 50, 30];
+  });
+  const [dragging, setDragging] = useState(false);
+
+  const handleDividerMouseDown = (index) => (e) => {
+    e.preventDefault();
+    const container = rowRef.current;
+    if (!container) return;
+    const startX = e.clientX;
+    const startWidths = colWidths;
+    const containerWidth = container.offsetWidth;
+    const MIN = 10;
+
+    setDragging(true);
+    let finalWidths = startWidths;
+
+    const onMouseMove = (moveEvent) => {
+      const deltaPercent = ((moveEvent.clientX - startX) / containerWidth) * 100;
+      let left = startWidths[index] + deltaPercent;
+      let right = startWidths[index + 1] - deltaPercent;
+      if (left < MIN) { right -= (MIN - left); left = MIN; }
+      if (right < MIN) { left -= (MIN - right); right = MIN; }
+      const next = [...startWidths];
+      next[index] = left;
+      next[index + 1] = right;
+      finalWidths = next;
+      setColWidths(next);
+    };
+
+    const onMouseUp = () => {
+      setDragging(false);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      try {
+        localStorage.setItem(COL_WIDTHS_STORAGE_KEY, JSON.stringify(finalWidths));
+      } catch {
+        // ignore storage errors (e.g. quota, disabled)
+      }
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => setVisible(true));
@@ -278,19 +326,52 @@ export default function EmailDetail() {
     }
   };
   const [resultLoading, setResultLoading] = useState(false);
+  const [resultDirty, setResultDirty] = useState(false);
+  const [resultSaving, setResultSaving] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
+  const savedSnapshotRef = useRef({ result: null, rawResult: null });
 
   const onFieldChange = (path, val) => {
     setResult((prev) => {
       if (Array.isArray(prev)) return [setDeep(prev[0] ?? {}, path, val), ...prev.slice(1)];
       return setDeep(prev, path, val);
     });
+    setRawResult((prev) => {
+      if (Array.isArray(prev)) return [setDeep(prev[0] ?? {}, path, val), ...prev.slice(1)];
+      return setDeep(prev ?? {}, path, val);
+    });
+    setResultDirty(true);
+  };
+
+  const handleCancelEdit = () => {
+    setResult(savedSnapshotRef.current.result);
+    setRawResult(savedSnapshotRef.current.rawResult);
+    setResultDirty(false);
+  };
+
+  const handleSaveResult = async () => {
+    setResultSaving(true);
+    try {
+      const res = await updateEmail(id, { parser_result: JSON.stringify(rawResult) });
+      if (res?.code === 200) {
+        message.success('保存成功');
+        savedSnapshotRef.current = { result, rawResult };
+        setResultDirty(false);
+      } else {
+        message.error(res?.message || '保存失败');
+      }
+    } catch {
+      message.error('保存失败');
+    } finally {
+      setResultSaving(false);
+    }
   };
 
   const resultObj = result ? (Array.isArray(result) ? result[0] ?? {} : result) : null;
 
   useEffect(() => {
     setResultLoading(true);
+    setResultDirty(false);
     fetchEmailPreview(id)
       .then((res) => {
         if (res?.code === 200) {
@@ -313,14 +394,23 @@ export default function EmailDetail() {
             }));
           setAttachments(pdfList);
 
-          setResult(Array.isArray(raw)
+          const mergedResult = Array.isArray(raw)
             ? raw.map((item) => deepMerge(RESULT_TEMPLATE, item))
-            : deepMerge(RESULT_TEMPLATE, raw));
+            : deepMerge(RESULT_TEMPLATE, raw);
+          setRawResult(raw ?? null);
+          setResult(mergedResult);
+          savedSnapshotRef.current = { result: mergedResult, rawResult: raw ?? null };
         } else {
+          setRawResult(null);
           setResult(deepMerge(RESULT_TEMPLATE, null));
+          savedSnapshotRef.current = { result: deepMerge(RESULT_TEMPLATE, null), rawResult: null };
         }
       })
-      .catch(() => setResult(deepMerge(RESULT_TEMPLATE, null)))
+      .catch(() => {
+        setRawResult(null);
+        setResult(deepMerge(RESULT_TEMPLATE, null));
+        savedSnapshotRef.current = { result: deepMerge(RESULT_TEMPLATE, null), rawResult: null };
+      })
       .finally(() => {
         setHtmlLoading(false);
         setResultLoading(false);
@@ -335,13 +425,80 @@ export default function EmailDetail() {
   </style>${html || '<p style="color:#aaa;padding:24px">无 HTML 内容</p>'}`;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff', zIndex: 100, transform: visible ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 0.3s ease' }}>
-      <div style={{ padding: '8px 16px', borderBottom: '2px solid #d0d0d0', flexShrink: 0 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>返回</Button>
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        background: '#fff',
+        zIndex: 100,
+        transform: visible ? 'translateX(0)' : 'translateX(100%)',
+        transition: 'transform 0.3s ease',
+      }}
+    >
+      <div
+        style={{
+          padding: '8px 16px',
+          borderBottom: '2px solid #d0d0d0',
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
+        <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>
+          返回
+        </Button>
+
+        <div
+          style={{
+            marginLeft: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Button
+            size="large"
+            type="primary"
+          >
+            审核/提交
+          </Button>
+          <Button
+            size="large"
+            type="primary"
+            danger>
+            审核不通过
+          </Button>
+          
+          <Button
+            size="large"
+            disabled={!resultDirty || resultSaving}
+            danger
+            onClick={handleCancelEdit}
+          >
+            取消修改
+          </Button>
+
+          <Button
+            size="large"
+            type="primary"
+            disabled={!resultDirty}
+            loading={resultSaving}
+            onClick={handleSaveResult}
+          >
+            保存
+          </Button>
+        </div>
       </div>
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      {dragging && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, cursor: 'col-resize' }} />
+      )}
+      <div ref={rowRef} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
       {/* 第一列：邮件预览 */}
-      <div style={{ width: '20%', flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '2px solid #d0d0d0' }}>
+      <div style={{ width: `${colWidths[0]}%`, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '12px 14px', flexShrink: 0, borderBottom: '1px solid #e8e8e8', background: '#fafafa' }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>邮件主题</div>
           {subject ? (
@@ -375,8 +532,13 @@ export default function EmailDetail() {
         </div>
       </div>
 
+      <div
+        onMouseDown={handleDividerMouseDown(0)}
+        style={{ width: 6, flexShrink: 0, cursor: 'col-resize', background: '#d0d0d0' }}
+      />
+
       {/* 第二列：附件列表（直接内嵌展示内容） */}
-      <div style={{ width: '50%', flexShrink: 0, borderRight: '2px solid #d0d0d0', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '16px 14px' }}>
+      <div style={{ width: `${colWidths[1]}%`, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '16px 14px' }}>
         <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12, flexShrink: 0 }}>附件列表</div>
         {attachments.length > 0 ? (
           <>
@@ -427,8 +589,13 @@ export default function EmailDetail() {
         )}
       </div>
 
+      <div
+        onMouseDown={handleDividerMouseDown(1)}
+        style={{ width: 6, flexShrink: 0, cursor: 'col-resize', background: '#d0d0d0' }}
+      />
+
       {/* 第三列：解析信息 */}
-      <div className="scrollbar-hidden" style={{ width: '30%', flexShrink: 0, padding: '16px 14px' }}>
+      <div className="scrollbar-hidden" style={{ width: `${colWidths[2]}%`, flexShrink: 0, padding: '16px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: 15, marginBottom: 12 }}>
           解析信息
           {resultLoading && <Spin size="small" />}

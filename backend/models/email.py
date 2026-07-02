@@ -2,17 +2,13 @@ import datetime
 import email.utils
 import json
 from services.email_parser import get_email_id, get_html_content, _json_get, _get_redis, get_order_result, get_email_detail
-from sqlalchemy import String, Text, DateTime, Integer, func, create_engine, Boolean, event, text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
+from sqlalchemy import String, Text, DateTime, Integer, func, Boolean, event, text
+from sqlalchemy.orm import Mapped, mapped_column, Session
 
-_engine = create_engine("sqlite:///./data/email.db", connect_args={"check_same_thread": False})
-
-
-class _Base(DeclarativeBase):
-    pass
+from db.database import Base, engine
 
 
-class Email(_Base):
+class Email(Base):
     __tablename__ = "email"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -45,7 +41,7 @@ class Email(_Base):
     parser_result: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-class AuditLog(_Base):
+class AuditLog(Base):
     __tablename__ = "audit_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -65,36 +61,12 @@ def _assign_data_id(mapper, connection, target):
         target.data_id = result.scalar()
 
 
-def _migrate():
-    with _engine.connect() as conn:
-        cols = [row[1] for row in conn.execute(text("PRAGMA table_info(email)")).fetchall()]
-        if 'data_id' not in cols:
-            conn.execute(text("ALTER TABLE email ADD COLUMN data_id INTEGER"))
-            conn.execute(text("UPDATE email SET data_id = rowid"))
-            conn.commit()
-        if 'email_url' not in cols:
-            conn.execute(text("ALTER TABLE email ADD COLUMN email_url TEXT"))
-            conn.commit()
-        if 'status' not in cols:
-            conn.execute(text("ALTER TABLE email ADD COLUMN status TEXT"))
-            conn.commit()
-        if 'html_content' not in cols:
-            conn.execute(text("ALTER TABLE email ADD COLUMN html_content TEXT"))
-            conn.commit()
-        if 'attachments' not in cols:
-            conn.execute(text("ALTER TABLE email ADD COLUMN attachments TEXT"))
-            conn.commit()
-        if 'parser_result' not in cols:
-            conn.execute(text("ALTER TABLE email ADD COLUMN parser_result TEXT"))
-            conn.commit()
-
-
-_Base.metadata.create_all(_engine)
-_migrate()
+Email.__table__.create(bind=engine, checkfirst=True)
+AuditLog.__table__.create(bind=engine, checkfirst=True)
 
 
 def get_session() -> Session:
-    return Session(_engine)
+    return Session(engine)
 
 
 def get_local_emails(

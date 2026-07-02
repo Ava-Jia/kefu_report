@@ -135,6 +135,24 @@ def get_order(ordering_id):
         logger.exception("get_order_result error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
+# 获取Email的attachment
+@bp.route("/email/<email_id>/attachment", methods=["GET"])
+def get_email_attachment(email_id):
+    try:
+        r = _get_redis()
+        data = _json_get(r, f"email_id:{email_id}")
+        if not data:
+            return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
+        attachments = data.get("attachments", [])
+        # 只保留 PDF 附件
+        pdf_attachments = [
+            item for item in attachments
+            if (item.get("filename") or "").lower().endswith(".pdf")
+        ]
+        return jsonify({"code": 200, "message": "查询成功", "data": {"attachments": pdf_attachments}})
+    except Exception as e:
+        logger.exception("get_email_attachment error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
 @bp.route("/email/<email_id>", methods=["PUT"])
 def update_email_route(email_id):

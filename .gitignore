@@ -34,3 +34,4 @@ backend/data/
 backend/logs/
 frontend/vite-dev.err.log
 frontend/vite-dev.out.log
+.DS_Store

@@ -41,6 +41,19 @@ class Email(_Base):
     status: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)
 
 
+class AuditLog(_Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    table_name: Mapped[str] = mapped_column(String(50))
+    record_id: Mapped[str] = mapped_column(String(64))
+    field_name: Mapped[str] = mapped_column(String(100))
+    old_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    operator: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 @event.listens_for(Email, 'before_insert')
 def _assign_data_id(mapper, connection, target):
     if target.data_id is None:
@@ -185,7 +198,25 @@ _UPDATABLE_FIELDS = {
 }
 
 
-def update_email(email_id: str, fields: dict) -> bool:
+def write_audit_logs(
+    session: Session,
+    table_name: str,
+    record_id: str,
+    changes: list[tuple[str, object, object]],
+    operator: str | None = None,
+) -> None:
+    for field_name, old_v, new_v in changes:
+        session.add(AuditLog(
+            table_name=table_name,
+            record_id=record_id,
+            field_name=field_name,
+            old_value=None if old_v is None else str(old_v),
+            new_value=None if new_v is None else str(new_v),
+            operator=operator,
+        ))
+
+
+def update_email(email_id: str, fields: dict, operator: str | None = None, record_log: bool = True) -> bool:
     updates = {k: v for k, v in fields.items() if k in _UPDATABLE_FIELDS}
     if "status" in updates and updates["status"] and updates["status"] not in _VALID_STATUSES:
         raise ValueError(f"status 必须为 {_VALID_STATUSES} 之一")
@@ -195,11 +226,40 @@ def update_email(email_id: str, fields: dict) -> bool:
         row = session.get(Email, email_id)
         if row is None:
             return False
+        changes = []
         for k, v in updates.items():
+            old_v = getattr(row, k)
+            if old_v == v:
+                continue
+            changes.append((k, old_v, v))
             setattr(row, k, v)
+        if record_log:
+            write_audit_logs(session, "email", email_id, changes, operator)
         session.commit()
         return True
-    
+
+
+def get_audit_logs(record_id: str, table_name: str = "email") -> list[dict]:
+    with get_session() as session:
+        rows = (
+            session.query(AuditLog)
+            .filter(AuditLog.table_name == table_name, AuditLog.record_id == record_id)
+            .order_by(AuditLog.created_at.desc())
+            .all()
+        )
+        return [
+            {
+                "id": r.id,
+                "field_name": r.field_name,
+                "old_value": r.old_value,
+                "new_value": r.new_value,
+                "operator": r.operator,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+
+
 def get_email_id_by_ordering_id(ordering_id: str) -> str | None:
     with get_session() as session:
         row = session.query(Email).filter(Email.ordering_id == "ordering_id:" + ordering_id).first()

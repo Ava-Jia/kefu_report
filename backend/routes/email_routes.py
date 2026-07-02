@@ -1,6 +1,6 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, g
 from services.email_parser import get_email_id, get_html_content, _json_get, _get_redis, get_order_result, get_email_detail
-from models.email import upsert_emails, get_local_emails, update_email_check, update_email, get_email_id_by_ordering_id
+from models.email import upsert_emails, get_local_emails, update_email_check, update_email, get_email_id_by_ordering_id, get_audit_logs
 import logging
 import uuid
 
@@ -51,10 +51,7 @@ def create_email():
         # 如果有ordering-id,则进行email-id替换其status
         ordering_id = body.get("ordering_id")
         if ordering_id:
-            # order_result = get_order_result(ordering_id)
-            # if order_result is None:
-            #     return jsonify({"code": 404, "message": "未找到对应解析结果"}), 404
-            # # 去数据库里面查哪个email中是这个 ordering_id
+            # 去数据库里面查哪个email中是这个 ordering_id
             data_email_id = get_email_id_by_ordering_id(ordering_id)
             # 更新该email_id的 ordering_id 和 status 字段
             status = body.get("status")
@@ -63,7 +60,7 @@ def create_email():
             if not data_email_id:
                 return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
             if data_email_id:
-                update_email(data_email_id, {"status": status})
+                update_email(data_email_id, {"status": status}, record_log=False)
             return jsonify({"code": 200, "message": "写入成功", "data": {"ordering_id": ordering_id, "email_id": data_email_id, "status": status}})
 
         # 如果是 email_id
@@ -158,7 +155,9 @@ def get_email_attachment(email_id):
 def update_email_route(email_id):
     try:
         body = request.get_json(force=True) or {}
-        ok = update_email(email_id, body)
+        operator = getattr(g, "user", None)
+        operator = operator.get("username") if operator else None
+        ok = update_email(email_id, body, operator=operator)
         if ok is False and not body:
             return jsonify({"code": 400, "message": "请求体不能为空"}), 400
         if not ok:
@@ -166,6 +165,16 @@ def update_email_route(email_id):
         return jsonify({"code": 200, "message": "更新成功"})
     except Exception as e:
         logger.exception("update_email error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
+@bp.route("/email/<email_id>/logs", methods=["GET"])
+def get_email_logs(email_id):
+    try:
+        logs = get_audit_logs(email_id)
+        return jsonify({"code": 200, "data": logs})
+    except Exception as e:
+        logger.exception("get_email_logs error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
 

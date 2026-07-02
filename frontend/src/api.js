@@ -214,6 +214,16 @@ export const fetchEmailHtml = async (email_id) => {
   }
 };
 
+/** 获取邮件的 PDF 附件列表 */
+export const fetchEmailAttachment = async (email_id) => {
+  try {
+    const { data } = await client.get(`/email/${encodeURIComponent(email_id)}/attachment`);
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+}
+
 /** 查询email解析结果 */
 export const checkEmailParserResult = async (email_task_id) => {
   try {
@@ -238,6 +248,16 @@ export const fetchEmailResult = async (ordering_id) => {
 export const updateEmailCheck = async (email_id, is_check) => {
   try {
     const { data } = await client.patch(`/email/${encodeURIComponent(email_id)}/check`, { is_check });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
+/** 更新邮件字段（mbl_number/intent_type1/intent_type2/... ） */
+export const updateEmail = async (email_id, fields) => {
+  try {
+    const { data } = await client.put(`/email/${encodeURIComponent(email_id)}`, fields);
     return data;
   } catch (error) {
     return unwrapCompanyError(error);

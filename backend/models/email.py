@@ -1,6 +1,7 @@
 import datetime
 import email.utils
-
+import json
+from services.email_parser import get_email_id, get_html_content, _json_get, _get_redis, get_order_result, get_email_detail
 from sqlalchemy import String, Text, DateTime, Integer, func, create_engine, Boolean, event, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
@@ -39,6 +40,22 @@ class Email(_Base):
     data_id: Mapped[int | None] = mapped_column(Integer, nullable=True, unique=True)
     email_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)
+    html_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attachments: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parser_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class AuditLog(_Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    table_name: Mapped[str] = mapped_column(String(50))
+    record_id: Mapped[str] = mapped_column(String(64))
+    field_name: Mapped[str] = mapped_column(String(100))
+    old_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    operator: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 @event.listens_for(Email, 'before_insert')
@@ -60,6 +77,15 @@ def _migrate():
             conn.commit()
         if 'status' not in cols:
             conn.execute(text("ALTER TABLE email ADD COLUMN status TEXT"))
+            conn.commit()
+        if 'html_content' not in cols:
+            conn.execute(text("ALTER TABLE email ADD COLUMN html_content TEXT"))
+            conn.commit()
+        if 'attachments' not in cols:
+            conn.execute(text("ALTER TABLE email ADD COLUMN attachments TEXT"))
+            conn.commit()
+        if 'parser_result' not in cols:
+            conn.execute(text("ALTER TABLE email ADD COLUMN parser_result TEXT"))
             conn.commit()
 
 
@@ -140,6 +166,14 @@ def _to_bjt(date_str: str | None) -> str | None:
         return date_str
 
 
+def _normalize_html_content(html) -> str | None:
+    if isinstance(html, list) and html:
+        return html[0]
+    if isinstance(html, str):
+        return html
+    return None
+
+
 def upsert_emails(records: list[dict]) -> int:
     if not records:
         return 0
@@ -147,6 +181,15 @@ def upsert_emails(records: list[dict]) -> int:
         for r in records:
             if not r.get("id"):
                 continue
+            is_done = 1 if r.get("intent_type1") == "EXCHANGE_OF_PORT" else 0
+            attachments = r.get("attachments")
+            # 获取 parser_result
+            ordering_id = r.get("ordering_id") or None
+            if ordering_id:
+                parser_result = get_order_result(ordering_id)
+                parser_result = parser_result.get("result") if parser_result else None
+            else:
+                parser_result = None
             session.merge(Email(
                 id=r["id"],
                 date=_to_bjt(r.get("date")),
@@ -155,22 +198,29 @@ def upsert_emails(records: list[dict]) -> int:
                 intent_type1=r.get("intent_type1"),
                 subject=r.get("subject"),
                 email_summary=r.get("email_summary"),
+                html_content=_normalize_html_content(r.get("html_content")),
+                attachments=json.dumps(attachments, ensure_ascii=False) if attachments else None,
+                parser_result=json.dumps(parser_result, ensure_ascii=False) if parser_result else None,
                 intent_type2=str(r.get("intent_type2")) if r.get("intent_type2") else None,
                 ordering_id=r.get("ordering_id") or None,
                 email_url=r.get("email_url") or None,
+                is_done=is_done,
             ))
         session.commit()
         return len(records)
 
 
-def update_email_check(email_id: str, is_check: int) -> bool:
+def update_email_check(email_id: str, is_check: int, operator: str | None = None) -> bool:
     if is_check not in (0, 1, 2):
         return False
     with get_session() as session:
         row = session.get(Email, email_id)
         if row is None:
             return False
-        row.is_check = is_check
+        old_v = row.is_check
+        if old_v != is_check:
+            row.is_check = is_check
+            write_audit_logs(session, "email", email_id, [("is_check", old_v, is_check)], operator)
         session.commit()
         return True
 
@@ -180,10 +230,29 @@ _VALID_STATUSES = {"PENDING_TRACK", "COMPLETED", "FAILED"}
 _UPDATABLE_FIELDS = {
     "mbl_number", "intent_type1", "subject", "intent_type2",
     "ordering_id", "email_summary", "is_done", "email_url", "status",
+    "html_content", "attachments", "parser_result",
 }
 
 
-def update_email(email_id: str, fields: dict) -> bool:
+def write_audit_logs(
+    session: Session,
+    table_name: str,
+    record_id: str,
+    changes: list[tuple[str, object, object]],
+    operator: str | None = None,
+) -> None:
+    for field_name, old_v, new_v in changes:
+        session.add(AuditLog(
+            table_name=table_name,
+            record_id=record_id,
+            field_name=field_name,
+            old_value=None if old_v is None else str(old_v),
+            new_value=None if new_v is None else str(new_v),
+            operator=operator,
+        ))
+
+
+def update_email(email_id: str, fields: dict, operator: str | None = None, record_log: bool = True) -> bool:
     updates = {k: v for k, v in fields.items() if k in _UPDATABLE_FIELDS}
     if "status" in updates and updates["status"] and updates["status"] not in _VALID_STATUSES:
         raise ValueError(f"status 必须为 {_VALID_STATUSES} 之一")
@@ -193,11 +262,40 @@ def update_email(email_id: str, fields: dict) -> bool:
         row = session.get(Email, email_id)
         if row is None:
             return False
+        changes = []
         for k, v in updates.items():
+            old_v = getattr(row, k)
+            if old_v == v:
+                continue
+            changes.append((k, old_v, v))
             setattr(row, k, v)
+        if record_log:
+            write_audit_logs(session, "email", email_id, changes, operator)
         session.commit()
         return True
-    
+
+
+def get_audit_logs(record_id: str, table_name: str = "email") -> list[dict]:
+    with get_session() as session:
+        rows = (
+            session.query(AuditLog)
+            .filter(AuditLog.table_name == table_name, AuditLog.record_id == record_id)
+            .order_by(AuditLog.created_at.desc())
+            .all()
+        )
+        return [
+            {
+                "id": r.id,
+                "field_name": r.field_name,
+                "old_value": r.old_value,
+                "new_value": r.new_value,
+                "operator": r.operator,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+
+
 def get_email_id_by_ordering_id(ordering_id: str) -> str | None:
     with get_session() as session:
         row = session.query(Email).filter(Email.ordering_id == "ordering_id:" + ordering_id).first()

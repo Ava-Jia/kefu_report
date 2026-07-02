@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
-  Button, Card, DatePicker, Dropdown, Input, Modal, Popover, Select, Space,
+  Button, Card, DatePicker, Dropdown, Input, Modal, Select, Space,
   Table, Tag, Typography, message,
 } from 'antd';
 import { EyeOutlined, LinkOutlined, SyncOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { fetchEmailList, updateEmailCheck } from '../api';
+import { fetchEmailList, updateEmailCheck, updateEmail } from '../api';
 
 const { Text } = Typography;
 
@@ -23,6 +23,7 @@ const INTENT_COLOR = {
   SHIPPING_COMPANY_REPLY: 'lime',
   EXCHANGE_OF_PORT: 'magenta',
   OTHER: 'default',
+  OTHER_AGENT_REQUEST: 'default',
 };
 
 const INTENT_LABEL = {
@@ -38,6 +39,7 @@ const INTENT_LABEL = {
   SHIPPING_COMPANY_REPLY: '船公司回复',
   EXCHANGE_OF_PORT: '预报/换单',
   OTHER: '其他',
+  OTHER_AGENT_REQUEST: '其他代理请求'
 };
 
 const EXCHANGE_OF_PORT = 'EXCHANGE_OF_PORT';
@@ -49,6 +51,22 @@ const INTENT_OPTIONS = Object.keys(INTENT_COLOR).map((value) => ({
 
 const splitValues = (v) =>
   v ? v.split(',').map((s) => s.trim()).filter(Boolean) : [];
+
+const parseIntentType2 = (v) => {
+  if (!v) return [];
+  const trimmed = v.trim();
+  let items = [];
+  if (trimmed.startsWith('[')) {
+    try {
+      items = JSON.parse(trimmed.replace(/'/g, '"'));
+    } catch {
+      items = trimmed.slice(1, -1).split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, ''));
+    }
+  } else {
+    items = splitValues(trimmed);
+  }
+  return items.filter((s) => s && s.trim());
+};
 
 const copyText = (text) => {
   if (!text) return;
@@ -104,9 +122,112 @@ const MultiMbl = ({ value }) => {
   );
 };
 
-const MultiIntent = ({ value }) => {
+const IntentDetailModal = ({ open, onClose, items1, items2, emailId, onSaved }) => {
+  const [editing, setEditing] = useState(false);
+  const [draftItems1, setDraftItems1] = useState(items1);
+  const [draftItems2, setDraftItems2] = useState(items2);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setEditing(false);
+      setDraftItems1(items1);
+      setDraftItems2(items2);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const handleSave = async () => {
+    const fields = {
+      intent_type1: draftItems1.join(','),
+      intent_type2: JSON.stringify(draftItems2),
+    };
+    setSaving(true);
+    try {
+      const res = await updateEmail(emailId, fields);
+      if (res?.code === 200) {
+        message.success('保存成功');
+        onSaved?.(fields);
+        setEditing(false);
+      } else {
+        message.error(res?.message || '保存失败');
+      }
+    } catch {
+      message.error('保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="意图详情"
+      open={open}
+      onCancel={onClose}
+      width={400}
+      centered
+      footer={editing ? [
+        <Button key="cancel" onClick={() => setEditing(false)} disabled={saving}>取消</Button>,
+        <Button key="save" type="primary" loading={saving} onClick={handleSave}>保存</Button>,
+      ] : [
+        <Button key="edit" onClick={() => setEditing(true)}>修改</Button>,
+      ]}
+    >
+      {editing ? (
+        <>
+          <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>一级意图</div>
+          <Select
+            mode="multiple"
+            value={draftItems1}
+            onChange={setDraftItems1}
+            options={INTENT_OPTIONS}
+            style={{ width: '100%', marginBottom: 12 }}
+          />
+          <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>二级意图（输入后回车添加）</div>
+          <Select
+            mode="tags"
+            value={draftItems2}
+            onChange={setDraftItems2}
+            open={false}
+            tokenSeparators={[]}
+            style={{ width: '100%' }}
+            placeholder="输入后按回车添加"
+          />
+        </>
+      ) : (
+        <>
+          {items1.length > 0 && (
+            <>
+              <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>一级意图</div>
+              <Space wrap size={8}>
+                {items1.map((v) => (
+                  <Tag key={v} color={INTENT_COLOR[v] ?? 'blue'} style={{ fontSize: 14, padding: '4px 10px' }}>
+                    {INTENT_LABEL[v] ?? v}
+                  </Tag>
+                ))}
+              </Space>
+            </>
+          )}
+          {items2.length > 0 && (
+            <>
+              <div style={{ fontSize: 12, color: '#999', margin: '12px 0 6px' }}>二级意图</div>
+              <Space wrap size={8}>
+                {items2.map((v) => (
+                  <Tag key={v} style={{ fontSize: 14, padding: '4px 10px' }}>{v}</Tag>
+                ))}
+              </Space>
+            </>
+          )}
+        </>
+      )}
+    </Modal>
+  );
+};
+
+const MultiIntent = ({ value, intentType2, emailId, onSaved }) => {
   const [open, setOpen] = useState(false);
   const items = splitValues(value);
+  const items2 = parseIntentType2(intentType2);
   if (!items.length) return '-';
   return (
     <>
@@ -114,22 +235,37 @@ const MultiIntent = ({ value }) => {
         <Tag color={INTENT_COLOR[items[0]] ?? 'blue'}>{INTENT_LABEL[items[0]] ?? items[0]}</Tag>
         {items.length > 1 && <Tag>+{items.length - 1}</Tag>}
       </span>
-      <Modal
-        title="一级意图"
+      <IntentDetailModal
         open={open}
-        onCancel={() => setOpen(false)}
-        footer={null}
-        width={400}
-        centered
-      >
-        <Space wrap size={8}>
-          {items.map((v) => (
-            <Tag key={v} color={INTENT_COLOR[v] ?? 'blue'} style={{ fontSize: 14, padding: '4px 10px' }}>
-              {INTENT_LABEL[v] ?? v}
-            </Tag>
-          ))}
-        </Space>
-      </Modal>
+        onClose={() => setOpen(false)}
+        items1={items}
+        items2={items2}
+        emailId={emailId}
+        onSaved={onSaved}
+      />
+    </>
+  );
+};
+
+const SecondaryIntent = ({ value, intentType1, emailId, onSaved }) => {
+  const [open, setOpen] = useState(false);
+  const items2 = parseIntentType2(value);
+  const items1 = splitValues(intentType1);
+  if (!items2.length) return '-';
+  return (
+    <>
+      <span style={{ cursor: 'pointer' }} onClick={() => setOpen(true)}>
+        <Tag>{items2[0]}</Tag>
+        {items2.length > 1 && <Tag>+{items2.length - 1}</Tag>}
+      </span>
+      <IntentDetailModal
+        open={open}
+        onClose={() => setOpen(false)}
+        items1={items1}
+        items2={items2}
+        emailId={emailId}
+        onSaved={onSaved}
+      />
     </>
   );
 };
@@ -195,7 +331,7 @@ const PreviewButton = ({ row }) => {
   );
 };
 
-const buildTableColumns = (onCheckChange) => [
+const buildTableColumns = (onCheckChange, onIntentSaved) => [
   {
     title: '日期',
     dataIndex: 'date',
@@ -299,9 +435,9 @@ const buildTableColumns = (onCheckChange) => [
     dataIndex: 'intent_type1',
     key: 'intent_type1',
     width: 130,
-    render: (v) => (
+    render: (v, record) => (
       <div style={{ overflow: 'hidden', maxHeight: 28 }}>
-        <MultiIntent value={v} />
+        <MultiIntent value={v} intentType2={record.intent_type2} emailId={record.id} onSaved={(fields) => onIntentSaved(record.id, fields)} />
       </div>
     ),
   },
@@ -310,36 +446,11 @@ const buildTableColumns = (onCheckChange) => [
     dataIndex: 'intent_type2',
     key: 'intent_type2',
     width: 140,
-    render: (v) => {
-      if (!v) return '-';
-      const trimmed = v.trim();
-      let items = [];
-      if (trimmed.startsWith('[')) {
-        try {
-          items = JSON.parse(trimmed.replace(/'/g, '"'));
-        } catch {
-          items = trimmed.slice(1, -1).split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, ''));
-        }
-      } else {
-        items = splitValues(trimmed);
-      }
-      items = items.filter((s) => s && s.trim());
-      if (!items.length) return '-';
-      if (items.length === 1) return <div style={{ overflow: 'hidden', maxHeight: 28 }}><Tag>{items[0]}</Tag></div>;
-      return (
-        <div style={{ overflow: 'hidden', maxHeight: 28 }}>
-          <Popover
-            trigger="click"
-            content={<Space wrap size={4}>{items.map((s) => <Tag key={s}>{s}</Tag>)}</Space>}
-          >
-            <span style={{ cursor: 'pointer' }}>
-              <Tag>{items[0]}</Tag>
-              <Tag>+{items.length - 1}</Tag>
-            </span>
-          </Popover>
-        </div>
-      );
-    },
+    render: (v, record) => (
+      <div style={{ overflow: 'hidden', maxHeight: 28 }}>
+        <SecondaryIntent value={v} intentType1={record.intent_type1} emailId={record.id} onSaved={(fields) => onIntentSaved(record.id, fields)} />
+      </div>
+    ),
   },
   {
     title: '是否下单',
@@ -350,7 +461,7 @@ const buildTableColumns = (onCheckChange) => [
     render: (v, record) => {
       if (record.intent_type1 !== EXCHANGE_OF_PORT) return '-';
       if (v === null || v === undefined || v === '') return '-';
-      return String(v) === '1' ? '已下单' : '未下单';
+      return v ? <Tag color="green">已下单</Tag> : <Tag color="red">取消</Tag>;
     },
   },
   {
@@ -432,7 +543,11 @@ export default function Email() {
     }
   };
 
-  const tableColumns = buildTableColumns(handleCheckChange);
+  const handleIntentSaved = (id, fields) => {
+    setTableData((prev) => prev.map((row) => row.id === id ? { ...row, ...fields } : row));
+  };
+
+  const tableColumns = buildTableColumns(handleCheckChange, handleIntentSaved);
 
   const pushParams = (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber) => {
     const p = {};

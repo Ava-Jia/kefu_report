@@ -2,9 +2,9 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { Button, Spin, Modal } from 'antd';
 import { ArrowLeftOutlined, LinkOutlined, ZoomInOutlined } from '@ant-design/icons';
-import { fetchEmailHtml, fetchEmailResult } from '../api';
+import { fetchEmailHtml, fetchEmailResult, fetchEmailAttachment } from '../api';
 
-function EditableText({ value, onChange, style }) {
+function EditableText({ value, onChange, style, renderValue }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const ref = useRef(null);
@@ -30,50 +30,96 @@ function EditableText({ value, onChange, style }) {
   }
 
   return (
-    <span onDoubleClick={() => { setDraft(value); setEditing(true); }} style={{ ...style, cursor: 'text', display: 'block' }}>
-      {value}
+    <span onDoubleClick={() => { setDraft(value); setEditing(true); }} style={{ ...style, cursor: 'text', display: 'block', minHeight: '1.4em' }}>
+      {renderValue ? renderValue(value) : (value || '—')}
     </span>
   );
 }
+
+const NUMBERED_FIELDS = ['consigneeEmail'];
+
+const circledNumber = (n) => (n >= 1 && n <= 20 ? String.fromCodePoint(9311 + n) : `(${n})`);
+
+const numberList = (str) => {
+  const parts = String(str ?? '').split(/[,;、；\n]+/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length === 0) return '—';
+  return parts.map((p, i) => `${circledNumber(i + 1)} ${p}`).join('\n');
+};
+
+const RESULT_TEMPLATE = {
+  agentEmail: '', agentName: '',
+  collectAmountUSD: '', collectItem: '',
+  consigneeAddress: '', consigneeEmail: '', consigneeName: '', consigneeTel: '',
+  containerType: '', ctrNumber: '',
+  customerType: '', descriptionOfGoods: '',
+  expenseItem: {
+    expenseAmount: '', expenseName: '',
+    otherFee: [{ otherFeeAmount: '', otherFeeName: '', type: '' }],
+  },
+  grossWeight: '', hblUrl: '', houseBillNo: '',
+  isSuspicious: 0, mark: '', masterBillNo: '', masterBillNoFromEmail: '',
+  notifyAddress: '', notifyEmails: '', notifyName: '', notifyTel: '',
+  orderType: '', packageUnit: '', pieces: '',
+  shipperAddress: '', shipperEmail: '', shipperName: '', shipperTel: '',
+  summary: '', volume: '',
+};
+
+const deepMerge = (tmpl, src) => {
+  if (Array.isArray(tmpl)) {
+    if (!Array.isArray(src) || src.length === 0) return tmpl;
+    return src.map((item) => deepMerge(tmpl[0], item));
+  }
+  if (tmpl && typeof tmpl === 'object') {
+    const merged = {};
+    for (const key of Object.keys(tmpl)) {
+      merged[key] = deepMerge(tmpl[key], src?.[key]);
+    }
+    return merged;
+  }
+  return src !== undefined ? src : tmpl;
+};
 
 const FIELD_LABEL = {
   agentEmail: '代理邮箱', agentName: '代理名称',
   collectAmountUSD: '到付金额(USD)', collectItem: '到付项目',
   consigneeAddress: '收货人地址', consigneeEmail: '收货人邮箱',
-  consigneeName: '收货人', consigneeTel: '收货人电话',
-  containerType: '箱型', ctrNumber: '箱号',
+  consigneeName: '收货人名称', consigneeTel: '收货人电话',
+  containerType: 'COC/SOC', ctrNumber: '箱号',
   customerType: '客户类型', descriptionOfGoods: '货物描述',
-  grossWeight: '毛重', houseBillNo: 'HBL号',
+  grossWeight: '毛重', houseBillNo: 'HBL Number',
   hblUrl: 'HBL链接', isSuspicious: '是否可疑',
-  mark: '唛头', masterBillNo: 'MBL号',
+  mark: '唛头', masterBillNo: 'MBL Number',
   masterBillNoFromEmail: 'MBL(邮件)', notifyAddress: '通知方地址',
   notifyEmails: '通知方邮箱', notifyName: '通知方',
   notifyTel: '通知方电话', orderType: '单据类型',
   packageUnit: '包装单位', pieces: '件数',
   shipperAddress: '发货人地址', shipperEmail: '发货人邮箱',
-  shipperName: '发货人', shipperTel: '发货人电话',
-  summary: '备注', volume: '体积(CBM)',
+  shipperName: '发货人名称', shipperTel: '发货人电话',
+  summary: '备注', volume: '体积',
   expenseAmount: '费用金额',
   expenseName: '费用名称', handlingFee: '操作费',
+  otherFeeAmount: '其他费用金额', otherFeeName: '其他费用名称', type: '费用类型',
 };
 
 const FIELD_ORDER = [
   'masterBillNo', 'houseBillNo',
-  'consigneeEmail', 'consigneeName', 'consigneeAddress',
+  'consigneeName', 'consigneeEmail', 'consigneeAddress',
   'notifyName', 'notifyAddress',
   'shipperName', 'shipperAddress',
   'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume', 'containerType',
   'expenseItem', 'expenseAmount', 'expenseName', 'handlingFee',
 ];
+const ATTENTION_FIELDS = ['masterBillNo', 'houseBillNo', 'consigneeName', 'consigneeEmail', 'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume', 'containerType', 'expenseItem', 'expenseAmount', 'expenseName'];
 
-const flattenValue = (val) => {
+const flattenValue = (val, path) => {
   if (Array.isArray(val)) {
-    return val.flatMap((item) =>
-      item && typeof item === 'object' ? Object.entries(item) : []
-    );
+    return val.flatMap((item, i) => flattenValue(item, [...path, i]));
   }
   if (val && typeof val === 'object') {
-    return Object.entries(val);
+    return Object.entries(val).flatMap(([k, v]) => {
+      const childPath = [...path, k];
+      return (Array.isArray(v) || (v && typeof v === 'object')) ? flattenValue(v, childPath) : [[k, v, childPath]];
+    });
   }
   return [];
 };
@@ -83,11 +129,45 @@ const sortedEntries = (obj) => {
   const ordered = FIELD_ORDER.flatMap((k) => {
     const found = entries.find(([key]) => key === k);
     if (!found) return [];
-    if (k === 'expenseItem') return flattenValue(found[1]);
-    return [found];
+    if (k === 'expenseItem') return flattenValue(found[1], [k]);
+    return [[found[0], found[1], [k]]];
   });
-  const rest = entries.filter(([k]) => !FIELD_ORDER.includes(k));
+  const rest = entries.filter(([k]) => !FIELD_ORDER.includes(k)).map(([k, v]) => [k, v, [k]]);
   return [...ordered, ...rest];
+};
+
+const setDeep = (obj, path, val) => {
+  const [head, ...rest] = path;
+  const container = Array.isArray(obj) ? [...obj] : { ...(obj ?? {}) };
+  container[head] = rest.length === 0 ? val : setDeep(container[head], rest, val);
+  return container;
+};
+
+const LABEL_BOX_STYLE = {
+  width: 90,
+  height: 22,
+  flexShrink: 0,
+  boxSizing: 'border-box',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'flex-end',
+  padding: '0 4px',
+  fontWeight: 600,
+  fontSize: 12,
+  color: '#d46b08',
+  background: '#fff7e6',
+  border: '1px solid #ffa940',
+  borderRadius: 4,
+  overflow: 'hidden',
+  whiteSpace: 'nowrap',
+  textOverflow: 'ellipsis',
+};
+
+const LABEL_BOX_STYLE_ATTENTION = {
+  ...LABEL_BOX_STYLE,
+  color: '#cf1322',
+  background: '#fff1f0',
+  border: '1px solid #ff4d4f',
 };
 
 const isUrl = (v) => typeof v === 'string' && /^https?:\/\//i.test(v);
@@ -103,12 +183,17 @@ function ResultField({ label, value, onChange, linkUrl }) {
     : String(value);
 
   const friendlyLabel = FIELD_LABEL[label] || label;
+  const labelBoxStyle = ATTENTION_FIELDS.includes(label) ? LABEL_BOX_STYLE_ATTENTION : LABEL_BOX_STYLE;
 
   if (display === null) {
     return (
-      <div style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid #f5f5f5' }}>
-        <span style={{ width: 90, flexShrink: 0, fontWeight: 700, color: '#1a1a1a', fontSize: 13 }}>{friendlyLabel}</span>
-        <span style={{ color: '#ccc', fontSize: 13 }}>—</span>
+      <div style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid #f5f5f5', alignItems: 'flex-start' }}>
+        <span style={labelBoxStyle}>{friendlyLabel}</span>
+        {onChange ? (
+          <EditableText value="" onChange={onChange} style={{ fontSize: 13, wordBreak: 'break-all', whiteSpace: 'pre-wrap', color: '#1677ff', flex: 1 }} />
+        ) : (
+          <span style={{ color: '#1677ff', fontSize: 13 }}>—</span>
+        )}
       </div>
     );
   }
@@ -116,7 +201,7 @@ function ResultField({ label, value, onChange, linkUrl }) {
   if (typeof display === 'object') {
     return (
       <div style={{ padding: '6px 0', borderBottom: '1px solid #f5f5f5' }}>
-        <div style={{ fontWeight: 700, color: '#1a1a1a', fontSize: 13, marginBottom: 4 }}>{friendlyLabel}</div>
+        <div style={{ ...labelBoxStyle, display: 'inline-flex', marginBottom: 4 }}>{friendlyLabel}</div>
         <div style={{ paddingLeft: 8, borderLeft: '2px solid #e8e8e8' }}>
           {Object.entries(display).map(([k, v]) => (
             <ResultField key={k} label={k} value={v} />
@@ -128,16 +213,23 @@ function ResultField({ label, value, onChange, linkUrl }) {
 
   return (
     <div style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid #f5f5f5', alignItems: 'flex-start' }}>
-      <span style={{ width: 90, flexShrink: 0, fontWeight: 700, color: '#1a1a1a', fontSize: 13, paddingTop: 1 }}>{friendlyLabel}</span>
+      <span style={labelBoxStyle}>{friendlyLabel}</span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
         {isUrl(display) ? (
           <a href={display} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: '#1677ff' }}>
             <LinkOutlined /> 查看链接
           </a>
         ) : onChange ? (
-          <EditableText value={display} onChange={onChange} style={{ fontSize: 13, wordBreak: 'break-all', whiteSpace: 'pre-wrap', color: '#1677ff', flex: 1 }} />
+          <EditableText
+            value={display}
+            onChange={onChange}
+            style={{ fontSize: 13, wordBreak: 'break-all', whiteSpace: 'pre-wrap', color: '#1677ff', flex: 1 }}
+            renderValue={NUMBERED_FIELDS.includes(label) ? numberList : undefined}
+          />
         ) : (
-          <span style={{ fontSize: 13, wordBreak: 'break-all', whiteSpace: 'pre-wrap', color: '#1677ff' }}>{display}</span>
+          <span style={{ fontSize: 13, wordBreak: 'break-all', whiteSpace: 'pre-wrap', color: '#1677ff' }}>
+            {NUMBERED_FIELDS.includes(label) ? numberList(display) : display}
+          </span>
         )}
         {linkUrl && (
           <a href={linkUrl} target="_blank" rel="noreferrer" title="查看文件" style={{ color: '#1677ff', flexShrink: 0 }}>
@@ -160,7 +252,7 @@ export default function EmailDetail() {
 
   const [html, setHtml] = useState('');
   const [htmlLoading, setHtmlLoading] = useState(true);
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState(() => deepMerge(RESULT_TEMPLATE, null));
   const [attachments, setAttachments] = useState([]);
   const [visible, setVisible] = useState(false);
   const [zoomOpen, setZoomOpen] = useState(false);
@@ -191,10 +283,10 @@ export default function EmailDetail() {
   const [resultLoading, setResultLoading] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
 
-  const onFieldChange = (key, val) => {
+  const onFieldChange = (path, val) => {
     setResult((prev) => {
-      if (Array.isArray(prev)) return [{ ...(prev[0] ?? {}), [key]: val }, ...prev.slice(1)];
-      return { ...prev, [key]: val };
+      if (Array.isArray(prev)) return [setDeep(prev[0] ?? {}, path, val), ...prev.slice(1)];
+      return setDeep(prev, path, val);
     });
   };
 
@@ -222,15 +314,27 @@ export default function EmailDetail() {
       })
       .finally(() => setHtmlLoading(false));
 
+    fetchEmailAttachment(id)
+      .then((res) => {
+        if (res?.code === 200) {
+          const list = (res.data.attachments ?? []).map((item) => ({
+            attachmentName: item.filename,
+            attachmentTypeUrl: item.oss_url,
+          }));
+          setAttachments(list);
+        }
+      });
+
     if (orderingId) {
       setResultLoading(true);
       fetchEmailResult(orderingId)
         .then((res) => {
-          if (res?.code === 200) {
-            setResult(res.data.result);
-            setAttachments(res.data.attachments?.attachments ?? []);
-          }
+          const raw = res?.code === 200 ? res.data.result : null;
+          setResult(Array.isArray(raw)
+            ? raw.map((item) => deepMerge(RESULT_TEMPLATE, item))
+            : deepMerge(RESULT_TEMPLATE, raw));
         })
+        .catch(() => setResult(deepMerge(RESULT_TEMPLATE, null)))
         .finally(() => setResultLoading(false));
     }
   }, [id, orderingId]);
@@ -337,21 +441,16 @@ export default function EmailDetail() {
 
       {/* 第三列：解析信息 */}
       <div className="scrollbar-hidden" style={{ width: '30%', flexShrink: 0, padding: '16px 14px' }}>
-        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>解析信息</div>
-        {resultLoading ? (
-          <Spin size="small" />
-        ) : resultObj ? (
-          sortedEntries(resultObj).map(([k, v]) => (
-            <ResultField key={k} label={k} value={v}
-              onChange={typeof v !== 'object' && !isUrl(String(v ?? '')) ? (val) => onFieldChange(k, val) : undefined}
-              linkUrl={k === 'houseBillNo' ? resultObj.hblUrl : k === 'masterBillNo' ? resultObj.mblUrl : undefined}
-            />
-          ))
-        ) : (
-          <div style={{ color: '#aaa', fontSize: 12 }}>
-            {orderingId ? '暂无解析结果' : '无 ordering_id'}
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: 15, marginBottom: 12 }}>
+          解析信息
+          {resultLoading && <Spin size="small" />}
+        </div>
+        {sortedEntries(resultObj).map(([k, v, path]) => (
+          <ResultField key={path.join('.')} label={k} value={v}
+            onChange={(v === null || typeof v !== 'object') && !isUrl(String(v ?? '')) ? (val) => onFieldChange(path, val) : undefined}
+            linkUrl={k === 'houseBillNo' ? resultObj.hblUrl : k === 'masterBillNo' ? resultObj.mblUrl : undefined}
+          />
+        ))}
       </div>
       </div>
       <Modal

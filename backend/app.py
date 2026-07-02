@@ -42,7 +42,7 @@ def create_app():
 
     @app.before_request
     def check_auth():
-        from flask import request
+        from flask import request, g
         if (
             request.method == "OPTIONS"
             or request.path in _PUBLIC_PATHS
@@ -51,8 +51,10 @@ def create_app():
             return
         raw = request.headers.get("Authorization", "")
         token = raw.removeprefix("Bearer ").strip()
-        if not token or verify_token(token) is None:
+        payload = verify_token(token) if token else None
+        if payload is None:
             return jsonify({"success": False, "message": "未登录或登录已过期"}), 401
+        g.user = payload
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(report_bp)

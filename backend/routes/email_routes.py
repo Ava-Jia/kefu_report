@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request, g
 from services.email_parser import get_email_id, get_html_content, _json_get, _get_redis, get_order_result, get_email_detail
 from models.email import upsert_emails, get_local_emails, update_email_check, update_email, get_email_id_by_ordering_id, get_audit_logs
+import json
 import logging
 import uuid
 
@@ -105,16 +106,21 @@ def list_emails():
 # 获取指定的html-content
 @bp.route("/email/<email_id>/html", methods=["GET"])
 def get_email_html(email_id):
-    """从 Redis 获取指定邮件的 html_content。"""
-    try:
-        html = get_html_content(email_id)
-        if html is None:
-            return jsonify({"code": 404, "message": "未找到对应邮件或无 HTML 内容"}), 404
-        return jsonify({"code": 200, "message": "查询成功", "data": {"html_content": html}})
-    except Exception as e:
-        logger.exception("get_email_html error")
-        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
-    
+    html_content, attachments, result = get_html_content(email_id)
+    if html_content is None:
+        return jsonify({
+            "code": 404,
+            "message": "未找到 HTML 内容"
+        }), 404
+    return jsonify({
+        "code": 200,
+        "message": "查询成功",
+        "data": {
+            "html_content": html_content,
+            "attachments": attachments,
+            "result": result,
+        }
+    })
 
 # 获取指定的result
 @bp.route("/email/<ordering_id>/result", methods=["GET"])
@@ -126,7 +132,14 @@ def get_order(ordering_id):
 
         if result is None:
             return jsonify({"code": 404, "message": "未找到对解析结果"}), 404
-        
+
+        try:
+            data_email_id = get_email_id_by_ordering_id(ordering_id)
+            if data_email_id:
+                update_email(data_email_id, {"parser_result": json.dumps(result, ensure_ascii=False)}, record_log=False)
+        except Exception:
+            logger.exception("缓存 parser_result 失败")
+
         return jsonify({"code": 200, "message": "查询成功", "data": {"result": result, "attachments": attachments}})
     except Exception as e:
         logger.exception("get_order_result error")

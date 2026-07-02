@@ -1,6 +1,7 @@
 import datetime
 import email.utils
-
+import json
+from services.email_parser import get_email_id, get_html_content, _json_get, _get_redis, get_order_result, get_email_detail
 from sqlalchemy import String, Text, DateTime, Integer, func, create_engine, Boolean, event, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
@@ -39,6 +40,9 @@ class Email(_Base):
     data_id: Mapped[int | None] = mapped_column(Integer, nullable=True, unique=True)
     email_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)
+    html_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attachments: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parser_result: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class AuditLog(_Base):
@@ -73,6 +77,15 @@ def _migrate():
             conn.commit()
         if 'status' not in cols:
             conn.execute(text("ALTER TABLE email ADD COLUMN status TEXT"))
+            conn.commit()
+        if 'html_content' not in cols:
+            conn.execute(text("ALTER TABLE email ADD COLUMN html_content TEXT"))
+            conn.commit()
+        if 'attachments' not in cols:
+            conn.execute(text("ALTER TABLE email ADD COLUMN attachments TEXT"))
+            conn.commit()
+        if 'parser_result' not in cols:
+            conn.execute(text("ALTER TABLE email ADD COLUMN parser_result TEXT"))
             conn.commit()
 
 
@@ -153,6 +166,14 @@ def _to_bjt(date_str: str | None) -> str | None:
         return date_str
 
 
+def _normalize_html_content(html) -> str | None:
+    if isinstance(html, list) and html:
+        return html[0]
+    if isinstance(html, str):
+        return html
+    return None
+
+
 def upsert_emails(records: list[dict]) -> int:
     if not records:
         return 0
@@ -161,6 +182,14 @@ def upsert_emails(records: list[dict]) -> int:
             if not r.get("id"):
                 continue
             is_done = 1 if r.get("intent_type1") == "EXCHANGE_OF_PORT" else 0
+            attachments = r.get("attachments")
+            # 获取 parser_result
+            ordering_id = r.get("ordering_id") or None
+            if ordering_id:
+                parser_result = get_order_result(ordering_id)
+                parser_result = parser_result.get("result") if parser_result else None
+            else:
+                parser_result = None
             session.merge(Email(
                 id=r["id"],
                 date=_to_bjt(r.get("date")),
@@ -169,6 +198,9 @@ def upsert_emails(records: list[dict]) -> int:
                 intent_type1=r.get("intent_type1"),
                 subject=r.get("subject"),
                 email_summary=r.get("email_summary"),
+                html_content=_normalize_html_content(r.get("html_content")),
+                attachments=json.dumps(attachments, ensure_ascii=False) if attachments else None,
+                parser_result=json.dumps(parser_result, ensure_ascii=False) if parser_result else None,
                 intent_type2=str(r.get("intent_type2")) if r.get("intent_type2") else None,
                 ordering_id=r.get("ordering_id") or None,
                 email_url=r.get("email_url") or None,
@@ -198,6 +230,7 @@ _VALID_STATUSES = {"PENDING_TRACK", "COMPLETED", "FAILED"}
 _UPDATABLE_FIELDS = {
     "mbl_number", "intent_type1", "subject", "intent_type2",
     "ordering_id", "email_summary", "is_done", "email_url", "status",
+    "html_content", "attachments", "parser_result",
 }
 
 

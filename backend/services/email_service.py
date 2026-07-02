@@ -221,6 +221,7 @@ def get_email_detail(email_id: str) -> dict | None:
             return None
         return {
             "id": row.id,
+            "data_id": row.data_id,
             "date": row.date,
             "from": row.from_addr,
             "mbl_number": row.mbl_number,
@@ -238,3 +239,24 @@ def get_email_detail(email_id: str) -> dict | None:
             "attachments": json.loads(row.attachments) if row.attachments else [],
             "parser_result": json.loads(row.parser_result) if row.parser_result else None,
         }
+
+# data_id 是全局唯一的自增排序号，根据当前 data_id 找排序上更靠后/靠前的一条邮件
+def get_next_email_id(data_id: int, direction: str) -> str | None:
+    with get_session() as session:
+        if direction == "next":
+            row = (
+                session.query(Email)
+                .filter(Email.data_id > data_id)
+                .order_by(Email.data_id.asc())
+                .first()
+            )
+        elif direction == "prev":
+            row = (
+                session.query(Email)
+                .filter(Email.data_id < data_id)
+                .order_by(Email.data_id.desc())
+                .first()
+            )
+        else:
+            raise ValueError("direction must be 'next' or 'prev'")
+        return row.id if row else None

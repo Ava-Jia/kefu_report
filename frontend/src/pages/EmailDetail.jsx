@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Button, Spin, Modal, message } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined, ZoomInOutlined } from '@ant-design/icons';
-import { fetchEmailPreview, updateEmail } from '../api';
+import { fetchEmailPreview, updateEmail, fetchAdjacentEmail } from '../api';
 
 function EditableText({ value, onChange, style, renderValue }) {
   const [editing, setEditing] = useState(false);
@@ -172,6 +172,10 @@ const LABEL_BOX_STYLE_ATTENTION = {
 const isUrl = (v) => typeof v === 'string' && /^https?:\/\//i.test(v);
 const isImageUrl = (v) => typeof v === 'string' && /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(v);
 
+const OSS_BASE_URL = 'https://pltplt.oss-cn-shanghai.aliyuncs.com/';
+// 部分历史附件没有 oss_url，只有对象存储的 path，需要自行拼出可访问链接
+const resolveAttachmentUrl = (att) => att?.oss_url || (att?.path ? OSS_BASE_URL + String(att.path).replace(/^\/+/, '') : undefined);
+
 const makeHtmlReadable = (raw) => raw
   .replace(/font-size\s*:\s*(\d+(?:\.\d+)?)\s*px/gi, (m, n) => parseFloat(n) < 24 ? 'font-size:24px' : m)
   .replace(/font-size\s*:\s*(\d+(?:\.\d+)?)\s*pt/gi, (m, n) => parseFloat(n) < 18 ? 'font-size:18pt' : m);
@@ -241,10 +245,12 @@ export default function EmailDetail() {
   const navigate = useNavigate();
   const location = useLocation();
   const backTo = location.state?.from ?? '/email';
-  const subject = location.state?.subject ?? '';
 
   const [html, setHtml] = useState('');
   const [htmlLoading, setHtmlLoading] = useState(true);
+  const [subject, setSubject] = useState(location.state?.subject ?? '');
+  const [dataId, setDataId] = useState(null);
+  const [navLoading, setNavLoading] = useState(null);
   const [result, setResult] = useState(() => deepMerge(RESULT_TEMPLATE, null));
   const [rawResult, setRawResult] = useState(null);
   const [attachments, setAttachments] = useState([]);
@@ -367,21 +373,70 @@ export default function EmailDetail() {
     }
   };
 
+  const navLoadingRef = useRef(false);
+
+  const navigateAdjacent = async (direction) => {
+    if (navLoadingRef.current) return;
+    if (dataId === null || dataId === undefined) {
+      message.info('缺少 data_id，无法定位上一条/下一条');
+      return;
+    }
+    navLoadingRef.current = true;
+    setNavLoading(direction);
+    try {
+      const res = await fetchAdjacentEmail(id, dataId, direction);
+      if (res?.code === 200) {
+        if (res.data?.id) {
+          // 跳转后保持锁定，直到新邮件的 preview 数据加载完成（见下方 useEffect 的 finally）才释放
+          navigate(`/email/${res.data.id}`, { state: { from: backTo } });
+          return;
+        }
+        message.info(direction === 'next' ? '已经是最后一条' : '已经是第一条');
+      } else {
+        message.error(res?.message || '切换失败');
+      }
+    } catch {
+      message.error('切换失败');
+    }
+    navLoadingRef.current = false;
+    setNavLoading(null);
+  };
+
+  const handleNav = (direction, e) => {
+    e?.currentTarget?.blur();
+    if (navLoadingRef.current) return;
+    if (resultDirty) {
+      Modal.confirm({
+        title: '有未保存的修改',
+        content: '切换邮件将丢失未保存的修改，是否继续？',
+        okText: '继续',
+        cancelText: '取消',
+        onOk: () => navigateAdjacent(direction),
+      });
+    } else {
+      navigateAdjacent(direction);
+    }
+  };
+
   const resultObj = result ? (Array.isArray(result) ? result[0] ?? {} : result) : null;
 
   useEffect(() => {
     setResultLoading(true);
     setResultDirty(false);
+    setSubject(location.state?.subject ?? '');
     fetchEmailPreview(id)
       .then((res) => {
         if (res?.code === 200) {
-          const { html_content: htmlContent, attachments: allAttachments, result: raw } = res.data;
+          const { html_content: htmlContent, attachments: allAttachments, result: raw, data_id: emailDataId, subject: emailSubject } = res.data;
+          setDataId(emailDataId ?? null);
+          setSubject(emailSubject ?? '');
 
           let htmlStr = htmlContent || '';
           (allAttachments ?? []).forEach((att) => {
-            if (att.content_id && att.oss_url) {
+            const url = resolveAttachmentUrl(att);
+            if (att.content_id && url) {
               const cid = att.content_id.replace(/^<|>$/g, '');
-              htmlStr = htmlStr.split(`cid:${cid}`).join(att.oss_url);
+              htmlStr = htmlStr.split(`cid:${cid}`).join(url);
             }
           });
           setHtml(makeHtmlReadable(htmlStr));
@@ -390,7 +445,7 @@ export default function EmailDetail() {
             .filter((item) => (item.filename || '').toLowerCase().endsWith('.pdf'))
             .map((item) => ({
               attachmentName: item.filename,
-              attachmentTypeUrl: item.oss_url,
+              attachmentTypeUrl: resolveAttachmentUrl(item),
             }));
           setAttachments(pdfList);
 
@@ -401,12 +456,14 @@ export default function EmailDetail() {
           setResult(mergedResult);
           savedSnapshotRef.current = { result: mergedResult, rawResult: raw ?? null };
         } else {
+          setDataId(null);
           setRawResult(null);
           setResult(deepMerge(RESULT_TEMPLATE, null));
           savedSnapshotRef.current = { result: deepMerge(RESULT_TEMPLATE, null), rawResult: null };
         }
       })
       .catch(() => {
+        setDataId(null);
         setRawResult(null);
         setResult(deepMerge(RESULT_TEMPLATE, null));
         savedSnapshotRef.current = { result: deepMerge(RESULT_TEMPLATE, null), rawResult: null };
@@ -414,6 +471,8 @@ export default function EmailDetail() {
       .finally(() => {
         setHtmlLoading(false);
         setResultLoading(false);
+        navLoadingRef.current = false;
+        setNavLoading(null);
       });
   }, [id]);
 
@@ -464,13 +523,25 @@ export default function EmailDetail() {
             size="large"
             type="primary"
           >
-            审核/提交
+            Check
           </Button>
           <Button
             size="large"
             type="primary"
-            danger>
-            审核不通过
+            loading={navLoading === 'prev'}
+            disabled={navLoading === 'next'}
+            onClick={(e) => handleNav('prev', e)}
+          >
+            上一个
+          </Button>
+          <Button
+            size="large"
+            type="primary"
+            loading={navLoading === 'next'}
+            disabled={navLoading === 'prev'}
+            onClick={(e) => handleNav('next', e)}
+          >
+            下一个
           </Button>
           
           <Button
@@ -568,7 +639,9 @@ export default function EmailDetail() {
             {/* 当前附件内容 */}
             {attachments[activeIdx] && (
               <div style={{ flex: 1, overflow: 'hidden' }}>
-                {isImageUrl(attachments[activeIdx].attachmentTypeUrl) ? (
+                {!attachments[activeIdx].attachmentTypeUrl ? (
+                  <div style={{ color: '#aaa', fontSize: 13 }}>该附件暂无可预览链接</div>
+                ) : isImageUrl(attachments[activeIdx].attachmentTypeUrl) ? (
                   <img
                     src={attachments[activeIdx].attachmentTypeUrl}
                     alt={attachments[activeIdx].attachmentName}

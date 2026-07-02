@@ -4,6 +4,7 @@ from services.email_service import (
     upsert_emails, get_local_emails, update_email_check, update_email,
     get_email_id_by_ordering_id, get_audit_logs,
     get_email_detail as get_email_full_detail,
+    get_next_email_id,
 )
 import logging
 
@@ -120,10 +121,34 @@ def get_email_preview(email_id):
                 "html_content": detail["html_content"],
                 "attachments": detail["attachments"],
                 "result": detail["parser_result"],
+                "data_id": detail["data_id"],
+                "is_check": detail["is_check"],
+                "subject": detail["subject"],
             }
         })
     except Exception as e:
         logger.exception("get_email_preview error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
+# 根据 data_id 获取当前邮件的上一条/下一条邮件 id
+@bp.route("/email/<email_id>/adjacent", methods=["GET"])
+def get_adjacent_email(email_id):
+    try:
+        direction = request.args.get("direction")
+        data_id_raw = request.args.get("data_id")
+        if direction not in ("next", "prev"):
+            return jsonify({"code": 400, "message": "direction 必须为 next 或 prev"}), 400
+        if not data_id_raw:
+            return jsonify({"code": 400, "message": "data_id 不能为空"}), 400
+        try:
+            data_id = int(data_id_raw)
+        except ValueError:
+            return jsonify({"code": 400, "message": "data_id 必须为整数"}), 400
+        adjacent_id = get_next_email_id(data_id, direction)
+        return jsonify({"code": 200, "message": "查询成功", "data": {"id": adjacent_id}})
+    except Exception as e:
+        logger.exception("get_adjacent_email error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
 @bp.route("/email/<email_id>", methods=["PUT"])

@@ -214,6 +214,18 @@ export const fetchEmailPreview = async (email_id) => {
   }
 };
 
+/** 根据 data_id 获取上一条/下一条邮件 id（direction: 'next' | 'prev'） */
+export const fetchAdjacentEmail = async (email_id, data_id, direction) => {
+  try {
+    const { data } = await client.get(`/email/${encodeURIComponent(email_id)}/adjacent`, {
+      params: { data_id, direction },
+    });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
 /** 查询email解析结果 */
 export const checkEmailParserResult = async (email_task_id) => {
   try {

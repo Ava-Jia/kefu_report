@@ -1,9 +1,11 @@
 from flask import Blueprint, jsonify, request, g
-from services.email_parser import get_email_id, get_html_content, _json_get, _get_redis, get_order_result, get_email_detail
-from models.email import upsert_emails, get_local_emails, update_email_check, update_email, get_email_id_by_ordering_id, get_audit_logs
-import json
+from services.email_parser import get_email_id, _json_get, _get_redis, get_email_detail
+from services.email_service import (
+    upsert_emails, get_local_emails, update_email_check, update_email,
+    get_email_id_by_ordering_id, get_audit_logs,
+    get_email_detail as get_email_full_detail,
+)
 import logging
-import uuid
 
 bp = Blueprint("email", __name__, url_prefix="/api")
 logger = logging.getLogger(__name__)
@@ -103,65 +105,25 @@ def list_emails():
         logger.exception("list_emails error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-# 获取指定的html-content
-@bp.route("/email/<email_id>/html", methods=["GET"])
-def get_email_html(email_id):
-    html_content, attachments, result = get_html_content(email_id)
-    if html_content is None:
-        return jsonify({
-            "code": 404,
-            "message": "未找到 HTML 内容"
-        }), 404
-    return jsonify({
-        "code": 200,
-        "message": "查询成功",
-        "data": {
-            "html_content": html_content,
-            "attachments": attachments,
-            "result": result,
-        }
-    })
-
-# 获取指定的result
-@bp.route("/email/<ordering_id>/result", methods=["GET"])
-def get_order(ordering_id):
+# 一次性获取邮件预览所需的 html 内容、全部附件、解析结果
+@bp.route("/email/<email_id>/preview", methods=["GET"])
+def get_email_preview(email_id):
     try:
-        results = get_order_result(ordering_id)
-        attachments = results.get("input_payload")
-        result = results.get("result")
-
-        if result is None:
-            return jsonify({"code": 404, "message": "未找到对解析结果"}), 404
-
-        try:
-            data_email_id = get_email_id_by_ordering_id(ordering_id)
-            if data_email_id:
-                update_email(data_email_id, {"parser_result": json.dumps(result, ensure_ascii=False)}, record_log=False)
-        except Exception:
-            logger.exception("缓存 parser_result 失败")
-
-        return jsonify({"code": 200, "message": "查询成功", "data": {"result": result, "attachments": attachments}})
-    except Exception as e:
-        logger.exception("get_order_result error")
-        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
-
-# 获取Email的attachment
-@bp.route("/email/<email_id>/attachment", methods=["GET"])
-def get_email_attachment(email_id):
-    try:
-        r = _get_redis()
-        data = _json_get(r, f"email_id:{email_id}")
-        if not data:
+        detail = get_email_full_detail(email_id)
+        if detail is None:
             return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
-        attachments = data.get("attachments", [])
-        # 只保留 PDF 附件
-        pdf_attachments = [
-            item for item in attachments
-            if (item.get("filename") or "").lower().endswith(".pdf")
-        ]
-        return jsonify({"code": 200, "message": "查询成功", "data": {"attachments": pdf_attachments}})
+
+        return jsonify({
+            "code": 200,
+            "message": "查询成功",
+            "data": {
+                "html_content": detail["html_content"],
+                "attachments": detail["attachments"],
+                "result": detail["parser_result"],
+            }
+        })
     except Exception as e:
-        logger.exception("get_email_attachment error")
+        logger.exception("get_email_preview error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
 @bp.route("/email/<email_id>", methods=["PUT"])

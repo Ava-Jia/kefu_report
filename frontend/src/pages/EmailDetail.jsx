@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
-import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Button, Spin, Modal } from 'antd';
 import { ArrowLeftOutlined, LinkOutlined, ZoomInOutlined } from '@ant-design/icons';
-import { fetchEmailHtml, fetchEmailResult, fetchEmailAttachment } from '../api';
+import { fetchEmailPreview } from '../api';
 
 function EditableText({ value, onChange, style, renderValue }) {
   const [editing, setEditing] = useState(false);
@@ -53,8 +53,8 @@ const RESULT_TEMPLATE = {
   containerType: '', ctrNumber: '',
   customerType: '', descriptionOfGoods: '',
   expenseItem: {
-    expenseAmount: '', expenseName: '',
-    otherFee: [{ otherFeeAmount: '', otherFeeName: '', type: '' }],
+    expenseName: '',expenseAmount: '',
+    otherFee: [{ otherFeeName: '', otherFeeAmount: '', type: '' }],
   },
   grossWeight: '', hblUrl: '', houseBillNo: '',
   isSuspicious: 0, mark: '', masterBillNo: '', masterBillNoFromEmail: '',
@@ -90,15 +90,14 @@ const FIELD_LABEL = {
   hblUrl: 'HBL链接', isSuspicious: '是否可疑',
   mark: '唛头', masterBillNo: 'MBL Number',
   masterBillNoFromEmail: 'MBL(邮件)', notifyAddress: '通知方地址',
-  notifyEmails: '通知方邮箱', notifyName: '通知方',
+  notifyEmails: '通知方邮箱', notifyName: '通知方名称',
   notifyTel: '通知方电话', orderType: '单据类型',
   packageUnit: '包装单位', pieces: '件数',
   shipperAddress: '发货人地址', shipperEmail: '发货人邮箱',
   shipperName: '发货人名称', shipperTel: '发货人电话',
   summary: '备注', volume: '体积',
-  expenseAmount: '费用金额',
-  expenseName: '费用名称', handlingFee: '操作费',
-  otherFeeAmount: '其他费用金额', otherFeeName: '其他费用名称', type: '费用类型',
+  expenseName: '费用名称',expenseAmount: '费用金额',
+  handlingFee: '操作费', otherFeeAmount: '其他费用金额', otherFeeName: '其他费用名称', type: '费用类型',
 };
 
 const FIELD_ORDER = [
@@ -107,9 +106,10 @@ const FIELD_ORDER = [
   'notifyName', 'notifyAddress',
   'shipperName', 'shipperAddress',
   'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume', 'containerType',
-  'expenseItem', 'expenseAmount', 'expenseName', 'handlingFee',
+  'expenseItem', 'expenseName', 'expenseAmount', 'handlingFee',
 ];
 const ATTENTION_FIELDS = ['masterBillNo', 'houseBillNo', 'consigneeName', 'consigneeEmail', 'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume', 'containerType', 'expenseItem', 'expenseAmount', 'expenseName'];
+const SECTION_DIVIDER_AFTER = new Set(['houseBillNo', 'consigneeAddress', 'shipperAddress', 'containerType', 'expenseAmount']);
 
 const flattenValue = (val, path) => {
   if (Array.isArray(val)) {
@@ -156,7 +156,6 @@ const LABEL_BOX_STYLE = {
   fontSize: 12,
   color: '#d46b08',
   background: '#fff7e6',
-  border: '1px solid #ffa940',
   borderRadius: 4,
   overflow: 'hidden',
   whiteSpace: 'nowrap',
@@ -167,7 +166,6 @@ const LABEL_BOX_STYLE_ATTENTION = {
   ...LABEL_BOX_STYLE,
   color: '#cf1322',
   background: '#fff1f0',
-  border: '1px solid #ff4d4f',
 };
 
 const isUrl = (v) => typeof v === 'string' && /^https?:\/\//i.test(v);
@@ -184,10 +182,11 @@ function ResultField({ label, value, onChange, linkUrl }) {
 
   const friendlyLabel = FIELD_LABEL[label] || label;
   const labelBoxStyle = ATTENTION_FIELDS.includes(label) ? LABEL_BOX_STYLE_ATTENTION : LABEL_BOX_STYLE;
+  const rowBorderBottom = SECTION_DIVIDER_AFTER.has(label) ? '2px solid #000' : '1px solid #f5f5f5';
 
   if (display === null) {
     return (
-      <div style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid #f5f5f5', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: rowBorderBottom, alignItems: 'flex-end' }}>
         <span style={labelBoxStyle}>{friendlyLabel}</span>
         {onChange ? (
           <EditableText value="" onChange={onChange} style={{ fontSize: 13, wordBreak: 'break-all', whiteSpace: 'pre-wrap', color: '#1677ff', flex: 1 }} />
@@ -200,7 +199,7 @@ function ResultField({ label, value, onChange, linkUrl }) {
 
   if (typeof display === 'object') {
     return (
-      <div style={{ padding: '6px 0', borderBottom: '1px solid #f5f5f5' }}>
+      <div style={{ padding: '6px 0', borderBottom: rowBorderBottom }}>
         <div style={{ ...labelBoxStyle, display: 'inline-flex', marginBottom: 4 }}>{friendlyLabel}</div>
         <div style={{ paddingLeft: 8, borderLeft: '2px solid #e8e8e8' }}>
           {Object.entries(display).map(([k, v]) => (
@@ -212,9 +211,9 @@ function ResultField({ label, value, onChange, linkUrl }) {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid #f5f5f5', alignItems: 'flex-start' }}>
+    <div style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: rowBorderBottom, alignItems: 'flex-end' }}>
       <span style={labelBoxStyle}>{friendlyLabel}</span>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
+      <span style={{ display: 'flex', alignItems: 'flex-end', gap: 4, flex: 1, minWidth: 0 }}>
         {isUrl(display) ? (
           <a href={display} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: '#1677ff' }}>
             <LinkOutlined /> 查看链接
@@ -243,8 +242,6 @@ function ResultField({ label, value, onChange, linkUrl }) {
 
 export default function EmailDetail() {
   const { id } = useParams();
-  const [searchParams] = useSearchParams();
-  const orderingId = searchParams.get('ordering_id');
   const navigate = useNavigate();
   const location = useLocation();
   const backTo = location.state?.from ?? '/email';
@@ -293,51 +290,42 @@ export default function EmailDetail() {
   const resultObj = result ? (Array.isArray(result) ? result[0] ?? {} : result) : null;
 
   useEffect(() => {
-    fetchEmailHtml(id)
+    setResultLoading(true);
+    fetchEmailPreview(id)
       .then((res) => {
         if (res?.code === 200) {
-          const htmlContent = res.data.html_content;
-          if (Array.isArray(htmlContent)) {
-            let htmlStr = htmlContent[0] || '';
-            const inlineImages = htmlContent[1] || [];
-            inlineImages.forEach((att) => {
-              if (att.content_id && att.oss_url) {
-                const cid = att.content_id.replace(/^<|>$/g, '');
-                htmlStr = htmlStr.split(`cid:${cid}`).join(att.oss_url);
-              }
-            });
-            setHtml(makeHtmlReadable(htmlStr));
-          } else {
-            setHtml(makeHtmlReadable(htmlContent || ''));
-          }
-        }
-      })
-      .finally(() => setHtmlLoading(false));
+          const { html_content: htmlContent, attachments: allAttachments, result: raw } = res.data;
 
-    fetchEmailAttachment(id)
-      .then((res) => {
-        if (res?.code === 200) {
-          const list = (res.data.attachments ?? []).map((item) => ({
-            attachmentName: item.filename,
-            attachmentTypeUrl: item.oss_url,
-          }));
-          setAttachments(list);
-        }
-      });
+          let htmlStr = htmlContent || '';
+          (allAttachments ?? []).forEach((att) => {
+            if (att.content_id && att.oss_url) {
+              const cid = att.content_id.replace(/^<|>$/g, '');
+              htmlStr = htmlStr.split(`cid:${cid}`).join(att.oss_url);
+            }
+          });
+          setHtml(makeHtmlReadable(htmlStr));
 
-    if (orderingId) {
-      setResultLoading(true);
-      fetchEmailResult(orderingId)
-        .then((res) => {
-          const raw = res?.code === 200 ? res.data.result : null;
+          const pdfList = (allAttachments ?? [])
+            .filter((item) => (item.filename || '').toLowerCase().endsWith('.pdf'))
+            .map((item) => ({
+              attachmentName: item.filename,
+              attachmentTypeUrl: item.oss_url,
+            }));
+          setAttachments(pdfList);
+
           setResult(Array.isArray(raw)
             ? raw.map((item) => deepMerge(RESULT_TEMPLATE, item))
             : deepMerge(RESULT_TEMPLATE, raw));
-        })
-        .catch(() => setResult(deepMerge(RESULT_TEMPLATE, null)))
-        .finally(() => setResultLoading(false));
-    }
-  }, [id, orderingId]);
+        } else {
+          setResult(deepMerge(RESULT_TEMPLATE, null));
+        }
+      })
+      .catch(() => setResult(deepMerge(RESULT_TEMPLATE, null)))
+      .finally(() => {
+        setHtmlLoading(false);
+        setResultLoading(false);
+      });
+  }, [id]);
 
   const emailSrcDoc = `<style>
     ::-webkit-scrollbar{display:none}

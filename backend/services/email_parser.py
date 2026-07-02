@@ -47,20 +47,6 @@ def get_email_id() -> list[str]:
     r = _get_redis()
     return [key.split(":", 1)[1] for key in r.scan_iter("email_id:*", count=200)]
 
-def get_html_content(email_id: str):
-    r = _get_redis()
-    result = _json_get(r, f"email_id:{email_id}")
-    if result is None:
-        return None, []
-    html = result.get("html_content")
-    attachments = result.get("attachments") or []
-    if isinstance(html, list) and html:
-        html_content = html[0]
-    elif isinstance(html, str):
-        html_content = html
-    else:
-        html_content = None
-    return html_content, attachments, result
 def get_order_result(ordering_id: str) -> dict | None:
     "获取指定 ordering_id 的解析结果。"
     r = _get_redis()

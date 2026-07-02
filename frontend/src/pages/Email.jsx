@@ -321,8 +321,7 @@ const PreviewButton = ({ row }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const handleClick = () => {
-    const qs = row.ordering_id ? `?ordering_id=${encodeURIComponent(row.ordering_id)}` : '';
-    navigate(`/email/${row.id}${qs}`, { state: { from: location.pathname + location.search, subject: row.subject } });
+    navigate(`/email/${row.id}`, { state: { from: location.pathname + location.search, subject: row.subject } });
   };
   return (
     <Button size="small" icon={<EyeOutlined />} onClick={handleClick}>
@@ -388,7 +387,7 @@ const buildTableColumns = (onCheckChange, onIntentSaved) => [
     title: 'MBL 号',
     dataIndex: 'mbl_number',
     key: 'mbl_number',
-    width: 150,
+    width: 170,
     render: (v) => {
       const preview = v ? splitValues(v).join('\n') : '';
       return (

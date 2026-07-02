@@ -12,7 +12,8 @@ os.chdir(BACKEND_DIR)
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app import create_app  # noqa: E402
-from models.email import AuditLog, Email, get_audit_logs, get_session, update_email  # noqa: E402
+from models.email import AuditLog, Email, get_session  # noqa: E402
+from services.email_service import get_audit_logs, update_email  # noqa: E402
 from utils.auth import generate_token  # noqa: E402
 
 

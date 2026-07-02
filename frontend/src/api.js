@@ -204,40 +204,20 @@ export const fetchCompanyTasks = async (limit = 50, offset = 0) => {
     return unwrapCompanyError(error);
   }
 };
-/** 获取邮件 HTML 内容（从 Redis） */
-export const fetchEmailHtml = async (email_id) => {
+/** 一次性获取邮件预览所需的 html 内容、全部附件、解析结果 */
+export const fetchEmailPreview = async (email_id) => {
   try {
-    const { data } = await client.get(`/email/${encodeURIComponent(email_id)}/html`);
+    const { data } = await client.get(`/email/${encodeURIComponent(email_id)}/preview`);
     return data;
   } catch (error) {
     return unwrapCompanyError(error);
   }
 };
 
-/** 获取邮件的 PDF 附件列表 */
-export const fetchEmailAttachment = async (email_id) => {
-  try {
-    const { data } = await client.get(`/email/${encodeURIComponent(email_id)}/attachment`);
-    return data;
-  } catch (error) {
-    return unwrapCompanyError(error);
-  }
-}
-
 /** 查询email解析结果 */
 export const checkEmailParserResult = async (email_task_id) => {
   try {
     const { data } = await client.get(`/email/${encodeURIComponent(email_task_id)}`);
-    return data;
-  } catch (error) {
-    return unwrapCompanyError(error);
-  }
-}
-
-/** 通过 ordering_id 获取邮件解析结果 */
-export const fetchEmailResult = async (ordering_id) => {
-  try {
-    const { data } = await client.get(`/email/${encodeURIComponent(ordering_id)}/result`);
     return data;
   } catch (error) {
     return unwrapCompanyError(error);

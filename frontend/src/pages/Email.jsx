@@ -270,6 +270,12 @@ const SecondaryIntent = ({ value, intentType1, emailId, onSaved }) => {
   );
 };
 
+const PARSE_STATUS_MAP = {
+  PENDING_TRACK: { label: '解析中', color: 'gold' },
+  COMPLETED: { label: '完成', color: 'green' },
+  FAILED: { label: '失败', color: 'red' },
+};
+
 const CHECK_OPTIONS = [
   { value: 0, label: 'Todo', color: 'default' },
   { value: 1, label: '已处理', color: 'success' },
@@ -468,7 +474,11 @@ const buildTableColumns = (onCheckChange, onIntentSaved) => [
     dataIndex: 'status',
     key: 'status',
     width: 80,
-    render: (v) => { v === null || v === undefined || v === '' ? '-' : v; },   
+    render: (v) => {
+      if (v === null || v === undefined || v === '') return '-';
+      const s = PARSE_STATUS_MAP[v];
+      return s ? <Tag color={s.color}>{s.label}</Tag> : v;
+    },
   },
   {
     title: '操作',

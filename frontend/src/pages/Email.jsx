@@ -23,7 +23,7 @@ const INTENT_COLOR = {
   SHIPPING_COMPANY_REPLY: 'lime',
   EXCHANGE_OF_PORT: 'magenta',
   OTHER: 'default',
-  OTHER_AGENT_REQUEST: 'default',
+  AGENT_REPLY: 'default',
 };
 
 const INTENT_LABEL = {
@@ -39,7 +39,8 @@ const INTENT_LABEL = {
   SHIPPING_COMPANY_REPLY: '船公司回复',
   EXCHANGE_OF_PORT: '预报/换单',
   OTHER: '其他',
-  OTHER_AGENT_REQUEST: '其他代理请求'
+  AGENT_REPLY: '代理回复',
+  OTHER_AGENT_REQUEST: '代理回复'
 };
 
 const EXCHANGE_OF_PORT = 'EXCHANGE_OF_PORT';
@@ -341,13 +342,21 @@ const buildTableColumns = (onCheckChange, onIntentSaved) => [
     title: '日期',
     dataIndex: 'date',
     key: 'date',
-    width: 120,
+    width: 140,
     fixed: 'left',
     ellipsis: true,
     render: (v) => {
       if (!v) return '-';
       return v.length > 16 ? v.slice(0, 16) : v;
     },
+  },
+  {
+    title: '代理名称',
+    dataIndex: 'broker_name',
+    key: 'broker_name',
+    width: 120,
+    ellipsis: true,
+    render: (v) => v || '-',
   },
   {
     title: '发件人',

@@ -15,7 +15,7 @@ _VALID_STATUSES = {"PENDING_TRACK", "COMPLETED", "FAILED"}
 _UPDATABLE_FIELDS = {
     "mbl_number", "intent_type1", "subject", "intent_type2",
     "ordering_id", "email_summary", "is_done", "email_url", "status",
-    "html_content", "attachments", "parser_result",
+    "html_content", "attachments", "parser_result", "broker_name",
 }
 
 _BJT = datetime.timezone(datetime.timedelta(hours=8))
@@ -77,6 +77,7 @@ def get_local_emails(
                 {
                     "id": e.id,
                     "date": e.date,
+                    "broker_name": e.broker_name,
                     "from": e.from_addr,
                     "mbl_number": e.mbl_number,
                     "intent_type1": e.intent_type1,
@@ -214,11 +215,22 @@ def get_email_id_by_ordering_id(ordering_id: str) -> str | None:
         return row.id if row else None
 
 
+def _attachment_filter(attachments: list[dict]) -> list[dict]:
+    """如果 attachment 中record_id是空，则展示"""
+    results = []
+    for attachment in attachments:
+        if not attachment.get("record_id"):
+            results.append(attachment)
+    return results
+
+
 def get_email_detail(email_id: str) -> dict | None:
     with get_session() as session:
         row = session.get(Email, email_id)
         if row is None:
             return None
+        attachments = json.loads(row.attachments) if row.attachments else []
+        attachments = _attachment_filter(attachments)
         return {
             "id": row.id,
             "data_id": row.data_id,
@@ -236,7 +248,7 @@ def get_email_detail(email_id: str) -> dict | None:
             "email_url": row.email_url,
             "status": row.status,
             "html_content": row.html_content,
-            "attachments": json.loads(row.attachments) if row.attachments else [],
+            "attachments": attachments,
             "parser_result": json.loads(row.parser_result) if row.parser_result else None,
         }
 

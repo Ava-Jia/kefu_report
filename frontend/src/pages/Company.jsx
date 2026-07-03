@@ -10,7 +10,6 @@ import {
 } from "@ant-design/icons";
 import {
   searchCompany,
-  checkCompanyResult,
   fetchCompanyTasks,
   downloadCompanyXlsx,
   retryCompanyTask,
@@ -116,7 +115,6 @@ export default function CompanySearch() {
     }
   });
 
-  const pollingRef = useRef(null);
   const tasksRef = useRef(tasks);
   const taskListRef = useRef(null);
 
@@ -407,41 +405,6 @@ export default function CompanySearch() {
     return <Badge status="success" text="已完成" />;
   };
 
-  const pollPendingTasks = useCallback(async () => {
-    const pending = tasksRef.current.filter((t) =>
-      ["pending", "running"].includes(t.status)
-    );
-    if (pending.length === 0) return;
-
-    await Promise.all(
-      pending.map(async (task) => {
-        try {
-          const res = await checkCompanyResult(task.taskId);
-
-          if (!res.success) {
-            throw new Error(res.error || res.message);
-          }
-
-          const nextTask = normalizeTask({ ...task, ...(res.task || {}) });
-
-          setTasks((cur) =>
-            cur.map((t) =>
-              t.taskId === task.taskId
-                ? {
-                    ...t,
-                    ...nextTask,
-                    taskId: t.taskId,
-                    names: nextTask.names.length ? nextTask.names : t.names,
-                    searchName: nextTask.searchName || t.searchName,
-                  }
-                : t
-            )
-          );
-        } catch {}
-      })
-    );
-  }, []);
-
   const handleFetchAllTasks = useCallback(async ({ revealList = false } = {}) => {
     setLoadingAllTasks(true);
 
@@ -472,24 +435,8 @@ export default function CompanySearch() {
   }, [scrollTaskListIntoView]);
 
   useEffect(() => {
-    const hasPending = tasks.some((t) => ["pending", "running"].includes(t.status));
-
-    if (hasPending && !pollingRef.current) {
-      pollingRef.current = setInterval(pollPendingTasks, 120000);
-    }
-
-    if (!hasPending && pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
-    };
-  }, [tasks, pollPendingTasks]);
+    handleFetchAllTasks();
+  }, [handleFetchAllTasks]);
 
   useEffect(() => {
     if (tasks.length === 0) {

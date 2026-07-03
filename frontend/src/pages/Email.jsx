@@ -278,8 +278,8 @@ const PARSE_STATUS_MAP = {
 };
 
 const CHECK_OPTIONS = [
-  { value: 0, label: 'Todo', color: 'default' },
-  { value: 1, label: '已处理', color: 'success' },
+  { value: 0, label: '待处理', color: 'gold' },
+  { value: 1, label: '已处理', color: 'green' },
   { value: 2, label: '待定',   color: 'warning' },
 ];
 
@@ -311,7 +311,7 @@ const CheckButton = ({ id, value, onChange }) => {
         borderRadius: '50%',
         border: `2px solid ${done ? '#52c41a' : '#d9d9d9'}`,
         background: done ? '#52c41a' : 'transparent',
-        cursor: loading ? 'not-allowed' : 'pointer',
+        cursor: loading ? 'wait' : 'pointer',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -612,6 +612,10 @@ export default function Email() {
     pushParams(1, initPageSize, value || '', initDateFrom, initDateTo, initIsCheck, initMblNumber);
   };
 
+  const handleClearAll = () => {
+    setSearchParams({}, { replace: false });
+  };
+
   const handleIsCheckChange = (value) => {
     pushParams(1, initPageSize, initCategory, initDateFrom, initDateTo, value ?? null, initMblNumber);
   };
@@ -654,14 +658,6 @@ export default function Email() {
   return (
     <div>
         <Space style={{ marginBottom: 12 }} wrap>
-          <Input.Search
-            size="large"
-            placeholder="搜索 MBL 号"
-            defaultValue={initMblNumber}
-            allowClear
-            style={{ width: 200 }}
-            onSearch={handleMblSearch}
-          />
           <Select
             allowClear
             size="large"
@@ -671,20 +667,14 @@ export default function Email() {
             style={{ width: 200 }}
             onChange={(value) => handleCategoryChange(value || '')}
           />
-          {[
-            { label: '全部', value: null },
-            { label: 'Todo', value: 0 },
-            { label: '已处理', value: 1 },
-          ].map(({ label, value }) => (
-            <Button
-              key={String(value)}
-              size="large"
-              type={initIsCheck === value ? 'primary' : 'default'}
-              onClick={() => handleIsCheckChange(value)}
-            >
-              {label}
-            </Button>
-          ))}
+          <Input.Search
+            size="large"
+            placeholder="搜索 MBL 号"
+            defaultValue={initMblNumber}
+            allowClear
+            style={{ width: 200 }}
+            onSearch={handleMblSearch}
+          />
           <Button
             size="large"
             onClick={handleTodayOrder}
@@ -702,9 +692,40 @@ export default function Email() {
           <Button size="large" type={hasDateFilter ? 'primary' : 'default'} onClick={() => setCustomPickerOpen(true)}>
             {hasDateFilter ? `${initDateFrom} ~ ${initDateTo}` : '自定义日期'}
           </Button>
-          {hasDateFilter && (
-            <Button size="large" onClick={() => pushParams(1, initPageSize, initCategory, '', '')}>清除</Button>
-          )}
+          <Button size="large" danger onClick={handleClearAll}>清除</Button>
+          <div
+            style={{
+              marginLeft: 'auto',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '4px 12px',
+              border: '1px solid #d9d9d9',
+              borderRadius: 8,
+            }}
+          >
+            {[
+              { label: '全部', value: null },
+              { label: '待处理', value: 0, color: 'gold' },
+              { label: '已处理', value: 1, color: 'green' },
+            ].map(({ label, value, color }) => {
+              const active = initIsCheck === value;
+              const hex = color === 'gold' ? '#faad14' : color === 'green' ? '#52c41a' : null;
+              return (
+                <Button
+                  key={String(value)}
+                  size="large"
+                  type={active ? 'primary' : 'default'}
+                  onClick={() => handleIsCheckChange(value)}
+                  style={hex ? (active
+                    ? { background: hex, borderColor: hex, color: '#fff' }
+                    : { color: hex, borderColor: hex }) : undefined}
+                >
+                  {label}
+                </Button>
+              );
+            })}
+          </div>
         </Space>
         {selectedRowKeys.length > 0 && (
           <Space style={{ marginBottom: 8 }}>

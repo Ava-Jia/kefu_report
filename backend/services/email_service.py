@@ -214,11 +214,22 @@ def get_email_id_by_ordering_id(ordering_id: str) -> str | None:
         return row.id if row else None
 
 
+def _attachment_filter(attachments: list[dict]) -> list[dict]:
+    """如果 attachment 中record_id是空，则展示"""
+    results = []
+    for attachment in attachments:
+        if not attachment.get("record_id"):
+            results.append(attachment)
+    return results
+
+
 def get_email_detail(email_id: str) -> dict | None:
     with get_session() as session:
         row = session.get(Email, email_id)
         if row is None:
             return None
+        attachments = json.loads(row.attachments) if row.attachments else []
+        attachments = _attachment_filter(attachments)
         return {
             "id": row.id,
             "data_id": row.data_id,
@@ -236,7 +247,7 @@ def get_email_detail(email_id: str) -> dict | None:
             "email_url": row.email_url,
             "status": row.status,
             "html_content": row.html_content,
-            "attachments": json.loads(row.attachments) if row.attachments else [],
+            "attachments": attachments,
             "parser_result": json.loads(row.parser_result) if row.parser_result else None,
         }
 

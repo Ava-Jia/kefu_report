@@ -113,6 +113,7 @@ def get_email_preview(email_id):
         detail = get_email_full_detail(email_id)
         if detail is None:
             return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
+        # attachments中需要过滤一部分
 
         return jsonify({
             "code": 200,

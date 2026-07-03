@@ -171,6 +171,7 @@ const LABEL_BOX_STYLE_ATTENTION = {
 
 const isUrl = (v) => typeof v === 'string' && /^https?:\/\//i.test(v);
 const isImageUrl = (v) => typeof v === 'string' && /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(v);
+const isPdfUrl = (v) => typeof v === 'string' && /\.pdf(\?|$)/i.test(v);
 
 const OSS_BASE_URL = 'https://pltplt.oss-cn-shanghai.aliyuncs.com/';
 // 部分历史附件没有 oss_url，只有对象存储的 path，需要自行拼出可访问链接
@@ -441,13 +442,12 @@ export default function EmailDetail() {
           });
           setHtml(makeHtmlReadable(htmlStr));
 
-          const pdfList = (allAttachments ?? [])
-            .filter((item) => (item.filename || '').toLowerCase().endsWith('.pdf'))
+          const attachmentList = (allAttachments ?? [])
             .map((item) => ({
               attachmentName: item.filename,
               attachmentTypeUrl: resolveAttachmentUrl(item),
             }));
-          setAttachments(pdfList);
+          setAttachments(attachmentList);
 
           const mergedResult = Array.isArray(raw)
             ? raw.map((item) => deepMerge(RESULT_TEMPLATE, item))
@@ -647,12 +647,19 @@ export default function EmailDetail() {
                     alt={attachments[activeIdx].attachmentName}
                     style={{ width: '100%', height: 'auto', display: 'block', border: '1px solid #e8e8e8', borderRadius: 6 }}
                   />
-                ) : (
+                ) : isPdfUrl(attachments[activeIdx].attachmentTypeUrl) ? (
                   <iframe
                     title={`attachment-${activeIdx}`}
                     src={`${attachments[activeIdx].attachmentTypeUrl}#view=FitH&toolbar=0`}
                     style={{ width: '100%', height: '100%', border: '1px solid #e8e8e8', borderRadius: 6 }}
                   />
+                ) : (
+                  <div style={{ color: '#aaa', fontSize: 13 }}>
+                    该附件暂不支持预览，
+                    <a href={attachments[activeIdx].attachmentTypeUrl} target="_blank" rel="noreferrer">
+                      点击下载
+                    </a>
+                  </div>
                 )}
               </div>
             )}

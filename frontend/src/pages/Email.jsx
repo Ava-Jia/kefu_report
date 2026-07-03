@@ -342,13 +342,21 @@ const buildTableColumns = (onCheckChange, onIntentSaved) => [
     title: '日期',
     dataIndex: 'date',
     key: 'date',
-    width: 120,
+    width: 140,
     fixed: 'left',
     ellipsis: true,
     render: (v) => {
       if (!v) return '-';
       return v.length > 16 ? v.slice(0, 16) : v;
     },
+  },
+  {
+    title: '代理名称',
+    dataIndex: 'broker_name',
+    key: 'broker_name',
+    width: 120,
+    ellipsis: true,
+    render: (v) => v || '-',
   },
   {
     title: '发件人',

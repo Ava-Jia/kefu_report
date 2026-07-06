@@ -307,6 +307,20 @@ export const fetchRlsResults = async (limit = 100, offset = 0) => {
   }
 };
 
+/** 手动修正一条 RLS 结果的 release_status（人工补录） */
+export const updateRlsResult = async (taskId, queryNumber, result) => {
+  try {
+    const { data } = await client.patch("/rls/results", {
+      task_id: taskId,
+      query_number: queryNumber,
+      result,
+    });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
 /** 下载公司检索结果为 XLSX */
 export const downloadCompanyXlsx = async (taskId) => {
   const token = localStorage.getItem("token");

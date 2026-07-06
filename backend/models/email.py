@@ -38,6 +38,7 @@ class Email(Base):
     attachments: Mapped[str | None] = mapped_column(Text, nullable=True)
     parser_result: Mapped[str | None] = mapped_column(Text, nullable=True)
     broker_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    role: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
 
 class AuditLog(Base):

@@ -6,6 +6,7 @@ from services.rls_service import (
     list_rls_results,
     rls_get_task_result,
     rls_search_async,
+    update_rls_result,
 )
 
 bp = Blueprint("rls", __name__, url_prefix="/api")
@@ -53,4 +54,27 @@ def rls_results():
         return jsonify({"code": 200, "message": "查询成功", "data": result})
     except Exception as e:
         logger.exception("rls_results error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
+@bp.route("/rls/results", methods=["PATCH"])
+def rls_results_update():
+    """手动修正一条 RLS 结果的 release_status（人工补录）。"""
+    try:
+        body = request.get_json(force=True, silent=True)
+        if not body:
+            return jsonify({"code": 400, "message": "请求体必须为合法 JSON"}), 400
+        task_id = body.get("task_id")
+        query_number = body.get("query_number")
+        result = body.get("result")
+        if not task_id or not query_number:
+            return jsonify({"code": 400, "message": "缺少 task_id 或 query_number 参数"}), 400
+        if not result:
+            return jsonify({"code": 400, "message": "缺少 result 参数"}), 400
+        data = update_rls_result(task_id, str(query_number), result)
+        return jsonify({"code": 200, "message": "更新成功", "data": data})
+    except ValueError as e:
+        return jsonify({"code": 404, "message": str(e)}), 404
+    except Exception as e:
+        logger.exception("rls_results_update error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500

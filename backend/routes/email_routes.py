@@ -199,6 +199,19 @@ def get_order_result_route(ordering_id):
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
 
+@bp.route("/order/<email_id>/email", methods=["GET"])
+def get_email_result_route(email_id):
+    """获取指定 email_id 的结果。"""
+    try:
+        result = get_email_detail(email_id)
+        if result is None:
+            return jsonify({"code": 404, "message": "未找到对应解析结果"}), 404
+        return jsonify({"code": 200, "message": "查询成功", "data": result})
+    except Exception as e:
+        logger.exception("get_email_result_route error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
 @bp.route("/email/<email_id>/check", methods=["PATCH"])
 def update_check(email_id):
     try:

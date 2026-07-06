@@ -119,6 +119,25 @@ def _row_to_dict(row: RlsResult) -> dict:
     }
 
 
+def update_rls_result(task_id: str, query_number: str, result: str) -> dict:
+    """手动修正某条 RLS 结果的 release_status（用于自动检索失败时人工补录）。"""
+    with get_tasks_session() as session:
+        row = (
+            session.query(RlsResult)
+            .filter_by(task_id=task_id, query_number=str(query_number))
+            .first()
+        )
+        if row is None:
+            raise ValueError(f"未找到记录: task_id={task_id}, query_number={query_number}")
+
+        row.result = json.dumps(result, ensure_ascii=False)
+        row.success = True
+        row.error = None
+        session.commit()
+        session.refresh(row)
+        return _row_to_dict(row)
+
+
 def list_rls_results(limit: int = 100, offset: int = 0) -> list[dict]:
     """列出本地库中的 RLS 结果，按更新时间倒序。"""
     with get_tasks_session() as session:

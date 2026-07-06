@@ -4,7 +4,7 @@ import {
   Button, Card, DatePicker, Dropdown, Input, Modal, Select, Space,
   Table, Tag, Typography, message,
 } from 'antd';
-import { EyeOutlined, LinkOutlined, SyncOutlined } from '@ant-design/icons';
+import { EyeOutlined, MailOutlined, SyncOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { fetchEmailList, updateEmailCheck, updateEmail } from '../api';
 
@@ -124,14 +124,12 @@ const MultiMbl = ({ value }) => {
 };
 
 const IntentDetailModal = ({ open, onClose, items1, items2, emailId, onSaved }) => {
-  const [editing, setEditing] = useState(false);
   const [draftItems1, setDraftItems1] = useState(items1);
   const [draftItems2, setDraftItems2] = useState(items2);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setEditing(false);
       setDraftItems1(items1);
       setDraftItems2(items2);
     }
@@ -149,7 +147,7 @@ const IntentDetailModal = ({ open, onClose, items1, items2, emailId, onSaved }) 
       if (res?.code === 200) {
         message.success('保存成功');
         onSaved?.(fields);
-        setEditing(false);
+        onClose?.();
       } else {
         message.error(res?.message || '保存失败');
       }
@@ -167,60 +165,29 @@ const IntentDetailModal = ({ open, onClose, items1, items2, emailId, onSaved }) 
       onCancel={onClose}
       width={400}
       centered
-      footer={editing ? [
-        <Button key="cancel" onClick={() => setEditing(false)} disabled={saving}>取消</Button>,
+      footer={[
+        <Button key="cancel" onClick={onClose} disabled={saving}>取消</Button>,
         <Button key="save" type="primary" loading={saving} onClick={handleSave}>保存</Button>,
-      ] : [
-        <Button key="edit" onClick={() => setEditing(true)}>修改</Button>,
       ]}
     >
-      {editing ? (
-        <>
-          <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>一级意图</div>
-          <Select
-            mode="multiple"
-            value={draftItems1}
-            onChange={setDraftItems1}
-            options={INTENT_OPTIONS}
-            style={{ width: '100%', marginBottom: 12 }}
-          />
-          <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>二级意图（输入后回车添加）</div>
-          <Select
-            mode="tags"
-            value={draftItems2}
-            onChange={setDraftItems2}
-            open={false}
-            tokenSeparators={[]}
-            style={{ width: '100%' }}
-            placeholder="输入后按回车添加"
-          />
-        </>
-      ) : (
-        <>
-          {items1.length > 0 && (
-            <>
-              <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>一级意图</div>
-              <Space wrap size={8}>
-                {items1.map((v) => (
-                  <Tag key={v} color={INTENT_COLOR[v] ?? 'blue'} style={{ fontSize: 14, padding: '4px 10px' }}>
-                    {INTENT_LABEL[v] ?? v}
-                  </Tag>
-                ))}
-              </Space>
-            </>
-          )}
-          {items2.length > 0 && (
-            <>
-              <div style={{ fontSize: 12, color: '#999', margin: '12px 0 6px' }}>二级意图</div>
-              <Space wrap size={8}>
-                {items2.map((v) => (
-                  <Tag key={v} style={{ fontSize: 14, padding: '4px 10px' }}>{v}</Tag>
-                ))}
-              </Space>
-            </>
-          )}
-        </>
-      )}
+      <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>一级意图</div>
+      <Select
+        mode="multiple"
+        value={draftItems1}
+        onChange={setDraftItems1}
+        options={INTENT_OPTIONS}
+        style={{ width: '100%', marginBottom: 12 }}
+      />
+      <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>二级意图（输入后回车添加）</div>
+      <Select
+        mode="tags"
+        value={draftItems2}
+        onChange={setDraftItems2}
+        open={false}
+        tokenSeparators={[]}
+        style={{ width: '100%' }}
+        placeholder="输入后按回车添加"
+      />
     </Modal>
   );
 };
@@ -337,7 +304,73 @@ const PreviewButton = ({ row }) => {
   );
 };
 
-const buildTableColumns = (onCheckChange, onIntentSaved) => [
+const EditableTextCell = ({ row, field, title, value, onSaved }) => {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(value || '');
+  const [saving, setSaving] = useState(false);
+  const displayValue = value || '-';
+
+  const handleOpen = () => {
+    setDraft(value || '');
+    setOpen(true);
+  };
+
+  const handleSave = async () => {
+    const nextValue = draft.trim();
+    setSaving(true);
+    try {
+      const res = await updateEmail(row.id, { [field]: nextValue });
+      if (res?.code === 200) {
+        message.success('保存成功');
+        onSaved?.(row.id, { [field]: nextValue });
+        setOpen(false);
+      } else {
+        message.error(res?.message || '保存失败');
+      }
+    } catch {
+      message.error('保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <Button
+        size="small"
+        title={value || `修改${title}`}
+        onClick={handleOpen}
+        style={{
+          fontSize: 12,
+          padding: '0 6px',
+          maxWidth: '100%',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {displayValue}
+      </Button>
+      <Modal
+        title={`修改${title}`}
+        open={open}
+        onCancel={() => setOpen(false)}
+        onOk={handleSave}
+        confirmLoading={saving}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onPressEnter={handleSave}
+          placeholder={`请输入${title}`}
+        />
+      </Modal>
+    </>
+  );
+};
+
+const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
   {
     title: '日期',
     dataIndex: 'date',
@@ -356,13 +389,24 @@ const buildTableColumns = (onCheckChange, onIntentSaved) => [
     key: 'broker_name',
     width: 120,
     ellipsis: true,
-    render: (v) => v || '-',
+    render: (v, record) => {
+      const text = v || record['broker-name'];
+      return (
+        <EditableTextCell
+          row={record}
+          field="broker_name"
+          title="代理名称"
+          value={text}
+          onSaved={onFieldSaved}
+        />
+      );
+    },
   },
   {
     title: '发件人',
     dataIndex: 'from',
     key: 'from',
-    width: 100,
+    width: 200,
     ellipsis: true,
     render: (v) => {
       if (!v) return '-';
@@ -374,6 +418,22 @@ const buildTableColumns = (onCheckChange, onIntentSaved) => [
         </span>
       );
     },
+  },
+  {
+    title: '角色',
+    dataIndex: 'role',
+    key: 'role',
+    width: 100,
+    ellipsis: true,
+    render: (v, record) => (
+      <EditableTextCell
+        row={record}
+        field="role"
+        title="角色"
+        value={v}
+        onSaved={onFieldSaved}
+      />
+    ),
   },
   {
     title: '邮件主题',
@@ -467,7 +527,7 @@ const buildTableColumns = (onCheckChange, onIntentSaved) => [
     ),
   },
   {
-    title: '是否下单',
+    title: '下单状态',
     dataIndex: 'is_done',
     key: 'is_done',
     width: 80,
@@ -498,7 +558,7 @@ const buildTableColumns = (onCheckChange, onIntentSaved) => [
         <PreviewButton row={row} />
         {row.email_url && (
           <a href={row.email_url} target="_blank" rel="noreferrer" title="原始邮件链接">
-            <LinkOutlined style={{ fontSize: 16, color: '#1677ff' }} />
+            <MailOutlined style={{ fontSize: 16, color: '#1677ff' }} />
           </a>
         )}
       </Space>
@@ -565,7 +625,11 @@ export default function Email() {
     setTableData((prev) => prev.map((row) => row.id === id ? { ...row, ...fields } : row));
   };
 
-  const tableColumns = buildTableColumns(handleCheckChange, handleIntentSaved);
+  const handleFieldSaved = (id, fields) => {
+    setTableData((prev) => prev.map((row) => row.id === id ? { ...row, ...fields } : row));
+  };
+
+  const tableColumns = buildTableColumns(handleCheckChange, handleIntentSaved, handleFieldSaved);
 
   const pushParams = (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber) => {
     const p = {};
@@ -765,7 +829,7 @@ export default function Email() {
             onChange: handlePageChange,
           }}
           tableLayout="fixed"
-          scroll={{ x: 1130, y: 'calc(100vh - 160px)' }}
+          scroll={{ x: 1660, y: 'calc(100vh - 160px)' }}
         />
     </div>
   );

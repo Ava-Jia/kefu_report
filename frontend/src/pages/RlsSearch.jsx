@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Input, Button, Card, Tag, Space, Table, Empty, message } from "antd";
-import { SearchOutlined, ReloadOutlined } from "@ant-design/icons";
-import { searchRls, fetchRlsTaskResult, fetchRlsResults } from "../api.js";
+import { Input, Button, Card, Tag, Space, Table, Empty, message, Modal } from "antd";
+import { SearchOutlined, ReloadOutlined, EditOutlined } from "@ant-design/icons";
+import { searchRls, fetchRlsTaskResult, fetchRlsResults, updateRlsResult } from "../api.js";
 
 const parseQueryNumbers = (text) =>
   String(text || "")
@@ -49,6 +49,9 @@ export default function RlsSearch() {
   const [dbLoading, setDbLoading] = useState(false);
   const [dateFilter, setDateFilter] = useState(null);
   const resumedRef = useRef(false);
+  const [editingRow, setEditingRow] = useState(null);
+  const [manualResult, setManualResult] = useState("");
+  const [manualSubmitting, setManualSubmitting] = useState(false);
 
   const filteredResults = useMemo(() => {
     if (dateFilter === null) return dbResults;
@@ -158,6 +161,33 @@ export default function RlsSearch() {
     }
   };
 
+  const openManualEdit = (row) => {
+    setEditingRow(row);
+    setManualResult("");
+  };
+
+  const handleManualSubmit = async () => {
+    const value = manualResult.trim();
+    if (!value) {
+      message.warning("请输入检索到的状态");
+      return;
+    }
+    setManualSubmitting(true);
+    try {
+      const res = await updateRlsResult(editingRow.task_id, editingRow.query_number, value);
+      if (res.code !== 200) {
+        throw new Error(res.error || res.message || "更新失败");
+      }
+      message.success("更新成功");
+      setEditingRow(null);
+      loadDbResults();
+    } catch (e) {
+      message.error(e.message || "更新失败");
+    } finally {
+      setManualSubmitting(false);
+    }
+  };
+
   const dbColumns = [
     { title: "提单号", dataIndex: "query_number", key: "query_number", width: "16.6%", ellipsis: true },
     { title: "SCAC Code", dataIndex: "scac_code", key: "scac_code", width: "16.6%", ellipsis: true },
@@ -186,14 +216,18 @@ export default function RlsSearch() {
         );
       },
     },
-    {
-      title: "错误信息",
-      dataIndex: "error",
-      key: "error",
-      width: "16.6%",
-      ellipsis: { showTitle: true },
-    },
     { title: "更新时间", dataIndex: "updated_at", key: "updated_at", width: "16.6%", ellipsis: true },
+    {
+      title: "操作",
+      key: "action",
+      width: "10%",
+      render: (_, row) =>
+        !row.success && (
+          <Button size="small" icon={<EditOutlined />} onClick={() => openManualEdit(row)}>
+            手动补录
+          </Button>
+        ),
+    },
   ];
 
   return (
@@ -277,6 +311,26 @@ export default function RlsSearch() {
           }}
         />
       </Card>
+
+      <Modal
+        title="手动补录检索状态"
+        open={!!editingRow}
+        onOk={handleManualSubmit}
+        onCancel={() => setEditingRow(null)}
+        confirmLoading={manualSubmitting}
+        okText="保存"
+        cancelText="取消"
+      >
+        <p style={{ color: "#666" }}>
+          提单号：{editingRow?.query_number}　SCAC Code：{editingRow?.scac_code}
+        </p>
+        <Input
+          value={manualResult}
+          placeholder="请输入检索到的状态，如 Telex Release"
+          onChange={(e) => setManualResult(e.target.value)}
+          onPressEnter={handleManualSubmit}
+        />
+      </Modal>
     </div>
   );
 }

@@ -4,7 +4,7 @@ from services.email_service import (
     upsert_emails, get_local_emails, update_email_check, update_email,
     get_email_id_by_ordering_id, get_audit_logs,
     get_email_detail as get_email_full_detail,
-    get_next_email_id,
+    get_next_email_id, compute_is_done, normalize_parser_result,
 )
 import json
 import logging
@@ -62,18 +62,33 @@ def create_email():
             status = body.get("status")
             result = get_order_result(f"ordering_id:{ordering_id}")
             result = result.get("result") if result else None
+            result = normalize_parser_result(result)
+            parser_mbl = result.get("masterBillNo") if result else None
+
             if not status:
                 return jsonify({"code": 400, "message": "缺少 status 参数"}), 400
-            if result is None:
+            if not result:
                 return jsonify({"code": 400, "message": "缺少 result 参数"}), 400
             if not data_email_id:
                 return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
+            is_done = compute_is_done(result)
+            if not parser_mbl:
+                update_email(data_email_id, {
+                "status": status,
+                "parser_result": json.dumps(result, ensure_ascii=False),
+                "is_done": is_done,
+            }, operator="order_callback")
+                return jsonify({"code": 200, "message": "写入成功", "data": {"ordering_id": ordering_id, "email_id": data_email_id, "status": status}})
+
             update_email(data_email_id, {
                 "status": status,
                 "parser_result": json.dumps(result, ensure_ascii=False),
-            }, record_log=False)
+                "mbl_number": parser_mbl,
+                "is_done": is_done,
+            }, operator="order_callback")
             return jsonify({"code": 200, "message": "写入成功", "data": {"ordering_id": ordering_id, "email_id": data_email_id, "status": status}})
-
+            
+            
         # 如果是 email_id
         email_id = body.get("email_id")
         if not email_id:

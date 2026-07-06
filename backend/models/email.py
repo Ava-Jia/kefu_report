@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import String, Text, DateTime, Integer, func, Boolean, event, text
+from sqlalchemy import String, Text, DateTime, Integer, func, event, text
 from sqlalchemy.orm import Mapped, mapped_column, Session
 
 from db.database import Base, engine
@@ -18,10 +18,11 @@ class Email(Base):
     intent_type2: Mapped[str | None] = mapped_column(Text)
     ordering_id: Mapped[str | None] = mapped_column(String(100))
     email_summary: Mapped[str | None] = mapped_column(Text)
-    is_done: Mapped[bool] = mapped_column(
-        Boolean,
+    # 0=待处理 1=新建下单 2=新建失败 3=修改订单 4=作废
+    is_done: Mapped[int] = mapped_column(
+        Integer,
         nullable=False,
-        default=False,
+        default=0,
         server_default="0",
     )
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())

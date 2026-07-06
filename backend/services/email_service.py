@@ -20,6 +20,43 @@ _UPDATABLE_FIELDS = {
 
 _BJT = datetime.timezone(datetime.timedelta(hours=8))
 
+_IS_DONE_REQUIRED_FIELDS = (
+    'masterBillNo', 'houseBillNo',
+  'consigneeName', 'consigneeEmail', 'consigneeAddress',
+  'notifyName', 'notifyAddress',
+  'shipperName', 'shipperAddress',
+  'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume',
+)
+
+# is_done 取值：0=待处理 1=新建下单 2=新建失败 3=修改订单 4=作废
+IS_DONE_PENDING = 0
+IS_DONE_CREATED = 1
+IS_DONE_CREATE_FAILED = 2
+IS_DONE_MODIFIED = 3
+IS_DONE_VOIDED = 4
+
+
+def normalize_parser_result(parser_result: dict | list | None) -> dict | None:
+    """Redis 里的 result 有时是一个只含单个元素的 list，统一拆包成 dict。"""
+    if isinstance(parser_result, list):
+        return parser_result[0] if parser_result else None
+    return parser_result or None
+
+
+def _is_field_present(value) -> bool:
+    if value is None:
+        return False
+    return str(value).strip() != ""
+
+
+def compute_is_done(parser_result: dict | list | None) -> int:
+    """根据 parser_result 是否已解析出全部关键字段，判定新建下单是否成功。"""
+    parser_result = normalize_parser_result(parser_result)
+    if not parser_result:
+        return IS_DONE_PENDING
+    ok = all(_is_field_present(parser_result.get(f)) for f in _IS_DONE_REQUIRED_FIELDS)
+    return IS_DONE_CREATED if ok else IS_DONE_CREATE_FAILED
+
 
 def _to_bjt(date_str: str | None) -> str | None:
     if not date_str:
@@ -104,7 +141,6 @@ def upsert_emails(records: list[dict]) -> int:
         for r in records:
             if not r.get("id"):
                 continue
-            is_done = 1 if r.get("intent_type1") == "EXCHANGE_OF_PORT" else 0
             attachments = r.get("attachments")
             # 获取 parser_result
             ordering_id = r.get("ordering_id") or None
@@ -113,6 +149,7 @@ def upsert_emails(records: list[dict]) -> int:
                 parser_result = parser_result.get("result") if parser_result else None
             else:
                 parser_result = None
+            is_done = compute_is_done(parser_result)
             session.merge(Email(
                 id=r["id"],
                 date=_to_bjt(r.get("date")),

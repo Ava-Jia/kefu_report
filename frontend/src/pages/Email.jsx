@@ -4,7 +4,7 @@ import {
   Button, Card, DatePicker, Dropdown, Input, Modal, Select, Space,
   Table, Tag, Typography, message,
 } from 'antd';
-import { EyeOutlined, MailOutlined, SyncOutlined } from '@ant-design/icons';
+import { EditOutlined, EyeOutlined, MailOutlined, SyncOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { fetchEmailList, updateEmailCheck, updateEmail } from '../api';
 
@@ -84,25 +84,61 @@ const copyText = (text) => {
   }
 };
 
-const MultiMbl = ({ value }) => {
+const MultiMbl = ({ value, row, onSaved }) => {
   const [open, setOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
   const items = splitValues(value);
-  if (!items.length) return '-';
+
+  const handleEditOpen = () => {
+    setDraft(items.join('\n'));
+    setEditOpen(true);
+  };
+
+  const handleSave = async () => {
+    const nextValue = draft.split('\n').map((s) => s.trim()).filter(Boolean).join(',');
+    setSaving(true);
+    try {
+      const res = await updateEmail(row.id, { mbl_number: nextValue });
+      if (res?.code === 200) {
+        message.success('保存成功');
+        onSaved?.(row.id, { mbl_number: nextValue });
+        setEditOpen(false);
+      } else {
+        message.error(res?.message || '保存失败');
+      }
+    } catch {
+      message.error('保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-        <Button
-          size="small"
-          style={{ fontSize: 12, padding: '0 6px' }}
-          onClick={() => copyText(items.join('\n'))}
-        >
-          {items[0]}
-        </Button>
+        {items.length > 0 ? (
+          <Button
+            size="small"
+            style={{ fontSize: 12, padding: '0 6px' }}
+            onClick={() => copyText(items.join('\n'))}
+          >
+            {items[0]}
+          </Button>
+        ) : (
+          <span style={{ color: '#ccc' }}>-</span>
+        )}
         {items.length > 1 && (
           <Tag style={{ margin: 0, cursor: 'pointer' }} onClick={() => setOpen(true)}>
             +{items.length - 1}
           </Tag>
         )}
+        <EditOutlined
+          title="修改 MBL 号"
+          style={{ cursor: 'pointer', color: '#999', fontSize: 12 }}
+          onClick={handleEditOpen}
+        />
       </span>
       {items.length > 1 && (
         <Modal
@@ -119,6 +155,22 @@ const MultiMbl = ({ value }) => {
           </div>
         </Modal>
       )}
+      <Modal
+        title="修改 MBL 号"
+        open={editOpen}
+        onCancel={() => setEditOpen(false)}
+        onOk={handleSave}
+        confirmLoading={saving}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Input.TextArea
+          rows={6}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="每行一个 MBL 号"
+        />
+      </Modal>
     </>
   );
 };
@@ -244,6 +296,14 @@ const PARSE_STATUS_MAP = {
   FAILED: { label: '失败', color: 'red' },
 };
 
+// 0=待处理（尚未解析完成，展示为 -） 1=新建下单 2=新建失败 3=修改订单 4=作废
+const IS_DONE_MAP = {
+  1: { label: '已下单', color: 'green' },
+  2: { label: '新建失败', color: 'red' },
+  3: { label: '修改订单', color: 'blue' },
+  4: { label: '作废', color: 'default' },
+};
+
 const CHECK_OPTIONS = [
   { value: 0, label: '待处理', color: 'gold' },
   { value: 1, label: '已处理', color: 'green' },
@@ -282,7 +342,7 @@ const CheckButton = ({ id, value, onChange }) => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        transition: 'all 0.2s',
+        transition: 'all 0.1s',
         opacity: loading ? 0.5 : 1,
       }}
     >
@@ -375,7 +435,7 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
     title: '日期',
     dataIndex: 'date',
     key: 'date',
-    width: 140,
+    width: 150,
     fixed: 'left',
     ellipsis: true,
     render: (v) => {
@@ -387,7 +447,7 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
     title: '代理名称',
     dataIndex: 'broker_name',
     key: 'broker_name',
-    width: 120,
+    width: 200,
     ellipsis: true,
     render: (v, record) => {
       const text = v || record['broker-name'];
@@ -462,12 +522,12 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
     title: 'MBL 号',
     dataIndex: 'mbl_number',
     key: 'mbl_number',
-    width: 170,
-    render: (v) => {
+    width: 230,
+    render: (v, record) => {
       const preview = v ? splitValues(v).join('\n') : '';
       return (
         <div style={{ overflow: 'hidden', maxHeight: 28 }} title={preview || '-'}>
-          <MultiMbl value={v} />
+          <MultiMbl value={v} row={record} onSaved={onFieldSaved} />
         </div>
       );
     },
@@ -534,8 +594,9 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
     ellipsis: true,
     render: (v, record) => {
       if (record.intent_type1 !== EXCHANGE_OF_PORT) return '-';
-      if (v === null || v === undefined || v === '') return '-';
-      return v ? <Tag color="green">已下单</Tag> : <Tag color="red">取消</Tag>;
+      if (v === null || v === undefined || v === '' || v === 0) return '-';
+      const s = IS_DONE_MAP[v];
+      return s ? <Tag color={s.color}>{s.label}</Tag> : v;
     },
   },
   {
@@ -584,6 +645,16 @@ export default function Email() {
   const [selectedRowKeys, setSelectedRowKeys] = useState([]);
   const [total, setTotal] = useState(0);
   const [fadingIds, setFadingIds] = useState(new Set());
+  const [batchBarMounted, setBatchBarMounted] = useState(false);
+
+  useEffect(() => {
+    if (selectedRowKeys.length > 0) {
+      setBatchBarMounted(true);
+    } else {
+      const t = setTimeout(() => setBatchBarMounted(false), 200);
+      return () => clearTimeout(t);
+    }
+  }, [selectedRowKeys.length]);
 
   const category = initCategory;
   const dateRange = [
@@ -791,8 +862,15 @@ export default function Email() {
             })}
           </div>
         </Space>
-        {selectedRowKeys.length > 0 && (
-          <Space style={{ marginBottom: 8 }}>
+        {batchBarMounted && (
+          <Space
+            style={{
+              marginBottom: 8,
+              opacity: selectedRowKeys.length > 0 ? 1 : 0,
+              transform: selectedRowKeys.length > 0 ? 'translateY(0)' : 'translateY(-6px)',
+              transition: 'opacity 0.2s ease, transform 0.2s ease',
+            }}
+          >
             <span style={{ fontSize: 15, color: 'rgba(0,0,0,0.85)', fontWeight: 500 }}>
               已选 {selectedRowKeys.length} 条，批量标记为：
             </span>

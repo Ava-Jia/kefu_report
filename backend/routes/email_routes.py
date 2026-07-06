@@ -1,11 +1,12 @@
 from flask import Blueprint, jsonify, request, g
-from services.email_parser import get_email_id, _json_get, _get_redis, get_email_detail
+from services.email_parser import get_email_id, _json_get, _get_redis, get_email_detail, get_order_result
 from services.email_service import (
     upsert_emails, get_local_emails, update_email_check, update_email,
     get_email_id_by_ordering_id, get_audit_logs,
     get_email_detail as get_email_full_detail,
     get_next_email_id,
 )
+import json
 import logging
 
 bp = Blueprint("email", __name__, url_prefix="/api")
@@ -57,14 +58,20 @@ def create_email():
         if ordering_id:
             # 去数据库里面查哪个email中是这个 ordering_id
             data_email_id = get_email_id_by_ordering_id(ordering_id)
-            # 更新该email_id的 ordering_id 和 status 字段
+            # 更新该email_id的 ordering_id、status 和 解析结果 字段
             status = body.get("status")
+            result = get_order_result(f"ordering_id:{ordering_id}")
+            result = result.get("result") if result else None
             if not status:
                 return jsonify({"code": 400, "message": "缺少 status 参数"}), 400
+            if result is None:
+                return jsonify({"code": 400, "message": "缺少 result 参数"}), 400
             if not data_email_id:
                 return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
-            if data_email_id:
-                update_email(data_email_id, {"status": status}, record_log=False)
+            update_email(data_email_id, {
+                "status": status,
+                "parser_result": json.dumps(result, ensure_ascii=False),
+            }, record_log=False)
             return jsonify({"code": 200, "message": "写入成功", "data": {"ordering_id": ordering_id, "email_id": data_email_id, "status": status}})
 
         # 如果是 email_id
@@ -176,6 +183,19 @@ def get_email_logs(email_id):
         return jsonify({"code": 200, "data": logs})
     except Exception as e:
         logger.exception("get_email_logs error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
+@bp.route("/order/<ordering_id>/result", methods=["GET"])
+def get_order_result_route(ordering_id):
+    """获取指定 ordering_id 的解析结果。"""
+    try:
+        result = get_order_result(ordering_id)
+        if result is None:
+            return jsonify({"code": 404, "message": "未找到对应解析结果"}), 404
+        return jsonify({"code": 200, "message": "查询成功", "data": result})
+    except Exception as e:
+        logger.exception("get_order_result_route error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
 

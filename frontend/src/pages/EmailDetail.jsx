@@ -44,7 +44,16 @@ const circledNumber = (n) => (n >= 1 && n <= 20 ? String.fromCodePoint(9311 + n)
 const numberList = (str) => {
   const parts = String(str ?? '').split(/[,;、；\n]+/).map((s) => s.trim()).filter(Boolean);
   if (parts.length === 0) return '—';
-  return parts.map((p, i) => `${circledNumber(i + 1)} ${p}`).join('\n');
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {parts.map((p, i) => (
+        <span key={i} style={{ display: 'inline-flex', gap: 4 }}>
+          <span style={{ color: '#999' }}>{circledNumber(i + 1)}</span>
+          <span style={{ wordBreak: 'break-all' }}>{p}</span>
+        </span>
+      ))}
+    </span>
+  );
 };
 
 const RESULT_TEMPLATE = {
@@ -214,6 +223,33 @@ function ResultField({ label, value, onChange, linkUrl }) {
         </div>
       </div>
     );
+  }
+
+  if (NUMBERED_FIELDS.includes(label) && !isUrl(display)) {
+    const parts = String(display).split(/[,;、；\n]+/).map((s) => s.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      return (
+        <div style={{ padding: '6px 0', borderBottom: rowBorderBottom }}>
+          {parts.map((p, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: i === 0 ? 0 : 4 }}>
+              <span style={{ ...labelBoxStyle, visibility: i === 0 ? 'visible' : 'hidden' }}>{friendlyLabel}</span>
+              <span style={{ color: '#999', fontSize: 13, flexShrink: 0 }}>{circledNumber(i + 1)}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                {onChange ? (
+                  <EditableText
+                    value={p}
+                    onChange={(val) => onChange(parts.map((q, j) => (j === i ? val : q)).filter(Boolean).join(', '))}
+                    style={{ fontSize: 13, wordBreak: 'break-all', whiteSpace: 'pre-wrap', color: '#1677ff', flex: 1 }}
+                  />
+                ) : (
+                  <span style={{ fontSize: 13, wordBreak: 'break-all', color: '#1677ff' }}>{p}</span>
+                )}
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+    }
   }
 
   return (

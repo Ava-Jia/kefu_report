@@ -219,7 +219,8 @@ def _attachment_filter(attachments: list[dict]) -> list[dict]:
     """如果 attachment 中record_id是空，则展示"""
     results = []
     for attachment in attachments:
-        if not attachment.get("record_id"):
+
+        if not attachment.get("content_id"):
             results.append(attachment)
     return results
 

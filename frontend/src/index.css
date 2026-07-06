@@ -91,9 +91,21 @@ body {
   padding: 0;
 }
 
+@keyframes row-fly-left {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-100vw);
+    opacity: 0;
+  }
+}
+
 .row-fading td {
-  opacity: 0;
-  transition: opacity 0.6s ease;
+  animation: row-fly-left 0.6s cubic-bezier(0.55, 0, 1, 0.45) forwards;
+  position: relative;
+  z-index: 1;
 }
 
 .app-content {

@@ -272,6 +272,41 @@ export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = 
   }
 };
 
+/** RLS 检索 - 提交异步任务，返回 task_id */
+export const searchRls = async (scacCode, queryNumberList) => {
+  try {
+    const { data } = await client.post("/rls/search", {
+      SCAC_Code: scacCode,
+      query_number: queryNumberList,
+    });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
+/** 查询 RLS 检索任务结果 */
+export const fetchRlsTaskResult = async (taskId) => {
+  try {
+    const { data } = await client.get(`/rls/task/${encodeURIComponent(taskId)}`);
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
+/** 列出本地库中的 RLS 查询结果 */
+export const fetchRlsResults = async (limit = 100, offset = 0) => {
+  try {
+    const { data } = await client.get("/rls/results", {
+      params: { limit, offset },
+    });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
 /** 下载公司检索结果为 XLSX */
 export const downloadCompanyXlsx = async (taskId) => {
   const token = localStorage.getItem("token");

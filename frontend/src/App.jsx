@@ -12,6 +12,7 @@ import ReportForm from "./pages/ReportForm.jsx";
 import Analysis from "./pages/Analysis.jsx";
 import Knowledge from "./pages/Knowledge.jsx";
 import CompanySearch from "./pages/Company.jsx";
+import RlsSearch from "./pages/RlsSearch.jsx";
 import WechatBotKnowledge from "./pages/WechatBotKnowledge.jsx";
 import Email from "./pages/Email.jsx";
 import EmailDetail from "./pages/EmailDetail.jsx";
@@ -29,15 +30,18 @@ function TopMenu({ onLogout }) {
         ? ["/wechat-bot-knowledge"]
         : location.pathname.startsWith("/company-search")
           ? ["/company-search"]
-          : location.pathname.startsWith("/email")
-            ? ["/email"]
-            : ["/"];
+          : location.pathname.startsWith("/rls-search")
+            ? ["/rls-search"]
+            : location.pathname.startsWith("/email")
+              ? ["/email"]
+              : ["/"];
 
   const menuItems = [
     { key: "/", icon: <FileTextOutlined />, label: <Link to="/">日报管理</Link> },
     { key: "/analyze", icon: <LineChartOutlined />, label: <Link to="/analyze">问题总结</Link> },
     { key: "/knowledge", icon: <BookOutlined />, label: <Link to="/knowledge">知识库</Link> },
     { key: "/company-search", icon: <BookOutlined />, label: <Link to="/company-search">公司检索</Link> },
+    { key: "/rls-search", icon: <BookOutlined />, label: <Link to="/rls-search">RLS查询</Link> },
     { key: "/wechat-bot-knowledge", icon: <BookOutlined />, label: <Link to="/wechat-bot-knowledge">Wechat Bot 知识库</Link> },
     { key: "/email", icon: <BookOutlined />, label: <Link to="/email">Email管理</Link> },
   ];
@@ -106,6 +110,7 @@ export default function App() {
             <Route path="/analyze" element={<Analysis />} />
             <Route path="/knowledge" element={<Knowledge />} />
             <Route path="/company-search" element={<CompanySearch />} />
+            <Route path="/rls-search" element={<RlsSearch />} />
             <Route path="/wechat-bot-knowledge" element={<WechatBotKnowledge />} />
             <Route path="/email" element={<Email />} />
             <Route path="/email/:id" element={<EmailDetail />} />

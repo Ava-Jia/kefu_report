@@ -14,6 +14,7 @@ from routes.auth_routes import bp as auth_bp
 from routes.email_routes import bp as email_bp
 from routes.knowledge_routes import bp as knowledge_bp
 from routes.report_routes import bp as report_bp
+from routes.rls_routes import bp as rls_search_bp
 from routes.search_routes import bp as company_bp
 from routes.wechat_rag import bp as rag_bp
 from utils.auth import verify_token
@@ -65,6 +66,7 @@ def create_app():
     app.register_blueprint(knowledge_bp)
     app.register_blueprint(company_bp)
     app.register_blueprint(rag_bp)
+    app.register_blueprint(rls_search_bp)
 
     @app.route("/api/health", methods=["GET"])
     def health():

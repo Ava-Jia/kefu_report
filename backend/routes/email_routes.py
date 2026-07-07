@@ -186,6 +186,17 @@ def get_adjacent_email(email_id):
 def update_email_route(email_id):
     try:
         body = request.get_json(force=True) or {}
+        # 修改保存时，若改动了parser_result且未显式指定 is_done，则据此重算is_done
+        if "parser_result" in body and "is_done" not in body:
+            result = body["parser_result"]
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except json.JSONDecodeError:
+                    result = None
+            result = normalize_parser_result(result)
+            if result:
+                body["is_done"] = compute_is_done(result)
         operator = getattr(g, "user", None)
         operator = operator.get("username") if operator else None
         ok = update_email(email_id, body, operator=operator)

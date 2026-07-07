@@ -12,7 +12,7 @@ class Email(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     date: Mapped[str | None] = mapped_column(String(100))
     from_addr: Mapped[str | None] = mapped_column(Text)
-    mbl_number: Mapped[str | None] = mapped_column(String(100))
+    mbl_number: Mapped[str | None] = mapped_column(Text)
     intent_type1: Mapped[str | None] = mapped_column(String(100))
     subject: Mapped[str | None] = mapped_column(Text)
     intent_type2: Mapped[str | None] = mapped_column(Text)

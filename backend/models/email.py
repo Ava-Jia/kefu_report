@@ -68,6 +68,15 @@ class CreateFailureLog(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class EmailDomainRole(Base):
+    """邮件域名对应的 brokerName 和 role。"""
+    __tablename__ = "email_domain_role"
+
+    broker_name: Mapped[str | None] = mapped_column("brokerName", String(255), nullable=True)
+    domain: Mapped[str] = mapped_column(String(255), primary_key=True)
+    role: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+
 @event.listens_for(Email, 'before_insert')
 def _assign_data_id(mapper, connection, target):
     if target.data_id is None:
@@ -78,6 +87,7 @@ def _assign_data_id(mapper, connection, target):
 Email.__table__.create(bind=engine, checkfirst=True)
 AuditLog.__table__.create(bind=engine, checkfirst=True)
 CreateFailureLog.__table__.create(bind=engine, checkfirst=True)
+EmailDomainRole.__table__.create(bind=engine, checkfirst=True)
 
 
 def get_session() -> Session:

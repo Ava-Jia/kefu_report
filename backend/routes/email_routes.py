@@ -1,9 +1,9 @@
 from flask import Blueprint, jsonify, request, g
-from services.email_parser import get_email_id, _json_get, _get_redis, get_email_detail, get_order_result
+from services.email_parser import get_email_id, _json_get, _get_redis, get_email_result, get_order_result
 from services.email_service import (
     upsert_emails, get_local_emails, update_email_check, update_email,
     get_email_id_by_ordering_id, get_audit_logs,
-    get_email_detail as get_email_full_detail,
+    get_email_detail,
     get_next_email_id, compute_is_done, normalize_parser_result,
     log_create_failure,
 )
@@ -75,7 +75,7 @@ def list_emails():
 @bp.route("/email/<email_id>/preview", methods=["GET"])
 def get_email_preview(email_id):
     try:
-        detail = get_email_full_detail(email_id)
+        detail = get_email_detail(email_id)
         if detail is None:
             return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
         # attachments中需要过滤一部分
@@ -142,7 +142,7 @@ def update_email_route(email_id):
                     patch = None
             patch = normalize_parser_result(patch)
             if patch:
-                detail = get_email_full_detail(email_id)
+                detail = get_email_detail(email_id)
                 if detail is None:
                     return jsonify({"code": 404, "message": "未找到该邮件"}), 404
                 ordering_id = detail.get("ordering_id")
@@ -179,7 +179,7 @@ def get_email_logs(email_id):
     try:
         logs = get_audit_logs(email_id)
         # 解析结果的改动记在 email_parser_result 表，record_id 是该邮件的 ordering_id，需一并合并返回
-        detail = get_email_full_detail(email_id)
+        detail = get_email_detail(email_id)
         ordering_id = detail.get("ordering_id") if detail else None
         if ordering_id:
             logs += get_audit_logs(ordering_id, table_name="email_parser_result")
@@ -225,7 +225,7 @@ def get_order_result_route(ordering_id):
 def get_email_result_route(email_id):
     """用于测试：获取指定 email_id 的结果。"""
     try:
-        result = get_email_detail(email_id)
+        result = get_email_result(email_id)
         if result is None:
             return jsonify({"code": 404, "message": "未找到对应解析结果"}), 404
         return jsonify({"code": 200, "message": "查询成功", "data": result})
@@ -236,13 +236,32 @@ def get_email_result_route(email_id):
 
 
 
+# 常见船公司 SCAC 代码，用于判断 masterBillNo 前四位是否已带船公司代码
+_SCAC_CODES = {
+    "COSU", "CMDU", "EGLV", "ONEY", "WHLC", "SMLM", "MATS", "OOLU",
+    "HDMU", "MAEU", "MEDU", "YMJA", "HLCU", "ZIMU", "SJHH", "TSYN", "HDUJ",
+}
+
+
 def _merge_mbl_number(email_id, parser_mbl):
-    """将 parser 中的 mbl 追加到该邮件原有 mbl_number 并去重（逗号分隔，保序）。"""
+    """将 parser 中的 mbl 追加到该邮件原有 mbl_number 并去重（逗号分隔，保序）。
+    旧 mbl 若缺失 SCAC（前四位不属于已知船公司代码），且与 parser_mbl 去掉前四位后相同，
+    说明是同一个提单号，用带 SCAC 的 parser_mbl 替换掉旧的那一条。
+    """
     detail = get_email_detail(email_id) or {}
     old_mbl = detail.get("mbl_number") or ""
     mbls = [m.strip() for m in old_mbl.split(",") if m.strip()]
-    if parser_mbl not in mbls:
-        mbls.append(parser_mbl)
+
+    if parser_mbl:
+        matched = False
+        for i, m in enumerate(mbls):
+            if m[:4].upper() not in _SCAC_CODES and m == parser_mbl[4:]:
+                mbls[i] = parser_mbl
+                matched = True
+                break
+        if not matched and parser_mbl not in mbls:
+            mbls.append(parser_mbl)
+
     return ",".join(mbls)
 
 
@@ -251,7 +270,7 @@ def _create_by_ordering_id(body, ordering_id):
     # 去数据库里面查哪个 email 中是这个 ordering_id
     data_email_id = get_email_id_by_ordering_id(ordering_id)
     email_result = get_email_detail(data_email_id) if data_email_id else None
-    brokerName = email_result.get("brokerName") if email_result else None
+    brokerName = email_result.get("broker_name") if email_result else None
     status = body.get("status")
     # 获取解析结果
     parser_result = get_order_result(ordering_id)
@@ -259,7 +278,6 @@ def _create_by_ordering_id(body, ordering_id):
     results = normalize_parser_result(parser_result) # 解析结果标准化
 
     parser_mbl = results.get("masterBillNo") if results else None # 解析结果中的 mbl
-
     if not status:
         log_create_failure("缺少 status 参数", status_code=400,
                            ordering_id=ordering_id, email_id=data_email_id, request_body=body)
@@ -293,7 +311,7 @@ def _create_by_ordering_id(body, ordering_id):
 
 def _create_by_email_id(body, email_id):
     """从 Redis 获取 email_id 的邮件详情并写入本地 email 表。"""
-    record = get_email_detail(email_id)
+    record = get_email_result(email_id)
     if record is None:
         log_create_failure("未找到对应邮件", status_code=404,
                            email_id=email_id, request_body=body)

@@ -593,7 +593,9 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
     width: 90,
     ellipsis: true,
     render: (v, record) => {
-      if (record.intent_type1 !== EXCHANGE_OF_PORT) return '-';
+      const intents = (record.intent_type1 || '').split(',');
+      if (!intents.includes(EXCHANGE_OF_PORT)) return '-';
+      if (record.status === null || record.status === undefined || record.status === '') return '-';
       if (v === null || v === undefined || v === '' || v === 0) return '-';
       const s = IS_DONE_MAP[v];
       return s ? <Tag color={s.color}>{s.label}</Tag> : v;

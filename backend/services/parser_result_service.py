@@ -5,6 +5,7 @@ email_parser_result 表的数据库操作层（增删改查）。
 import json
 
 from models.email import EmailParserResult, get_session
+from services.email_service import write_audit_logs
 
 
 # JSON key（camelCase） -> ORM 列属性（snake_case）
@@ -81,6 +82,8 @@ def _serialize(row: EmailParserResult) -> dict:
     return {
         "id": row.id,
         "ordering_id": row.ordering_id,
+        "broker_name": row.broker_name,
+        "is_done": row.is_done,
         "parser_result": parser_result,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -110,21 +113,41 @@ def get_parser_result_by_ordering_id(ordering_id: str) -> dict | None:
         return _serialize(row) if row else None
 
 
-def upsert_parser_result_by_ordering_id(ordering_id: str, parser_result) -> dict:
-    """按 ordering_id 写入解析结果：已存在则更新，否则新增。"""
+def upsert_parser_result_by_ordering_id(
+    ordering_id: str, parser_result, broker_name: str | None, is_done: int,
+    master_bill_no: str | None = None, operator: str | None = None,
+) -> dict:
+    """
+    按 (ordering_id, master_bill_no) 写入解析结果：已存在则更新，否则新增。
+    同一 ordering_id 下不同 masterBillNo 视为不同记录，避免互相覆盖。
+    """
     with get_session() as session:
-        row = (
-            session.query(EmailParserResult)
-            .filter(EmailParserResult.ordering_id == ordering_id)
-            .first()
-        )
+        query = session.query(EmailParserResult).filter(EmailParserResult.ordering_id == ordering_id)
+        if master_bill_no:
+            query = query.filter(EmailParserResult.master_bill_no == master_bill_no)
+        else:
+            query = query.filter(
+                (EmailParserResult.master_bill_no.is_(None)) | (EmailParserResult.master_bill_no == "")
+            )
+        row = query.order_by(EmailParserResult.id.desc()).first()
+
         fields = _parse_result_input(parser_result)
+        fields.setdefault("master_bill_no", master_bill_no)
+        fields["broker_name"] = broker_name
+        fields["is_done"] = is_done
         if row is None:
             row = EmailParserResult(ordering_id=ordering_id, **fields)
             session.add(row)
         else:
+            changes = []
             for column, value in fields.items():
+                old_v = getattr(row, column)
+                if old_v == value:
+                    continue
+                changes.append((column, old_v, value))
                 setattr(row, column, value)
+            if changes:
+                write_audit_logs(session, "email_parser_result", ordering_id, changes, operator)
         session.commit()
         return _serialize(row)
 

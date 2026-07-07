@@ -7,7 +7,7 @@ from services.email_service import (
     get_next_email_id, compute_is_done, normalize_parser_result,
     log_create_failure,
 )
-from services.parser_result_service import upsert_parser_result_by_ordering_id
+from services.parser_result_service import upsert_parser_result_by_ordering_id, get_parser_result_by_ordering_id
 import json
 import logging
 
@@ -80,13 +80,18 @@ def get_email_preview(email_id):
             return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
         # attachments中需要过滤一部分
 
+        # 解析结果改从 email_parser_result 表按 ordering_id 获取
+        ordering_id = detail.get("ordering_id")
+        parser_row = get_parser_result_by_ordering_id(ordering_id) if ordering_id else None
+        result = parser_row.get("parser_result") if parser_row else None
+
         return jsonify({
             "code": 200,
             "message": "查询成功",
             "data": {
                 "html_content": detail["html_content"],
                 "attachments": detail["attachments"],
-                "result": detail["parser_result"],
+                "result": result,
                 "data_id": detail["data_id"],
                 "is_check": detail["is_check"],
                 "subject": detail["subject"],
@@ -121,22 +126,46 @@ def get_adjacent_email(email_id):
 def update_email_route(email_id):
     try:
         body = request.get_json(force=True) or {}
-        # 修改保存时，若改动了parser_result且未显式指定 is_done，则据此重算is_done
-        if "parser_result" in body and "is_done" not in body:
-            result = body["parser_result"]
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except json.JSONDecodeError:
-                    result = None
-            result = normalize_parser_result(result)
-            if result:
-                body["is_done"] = compute_is_done(result)
+        if not body:
+            return jsonify({"code": 400, "message": "请求体不能为空"}), 400
+
         operator = getattr(g, "user", None)
         operator = operator.get("username") if operator else None
-        ok = update_email(email_id, body, operator=operator)
-        if ok is False and not body:
-            return jsonify({"code": 400, "message": "请求体不能为空"}), 400
+
+        # parser_result 只作为「改动字段的局部补丁」写入 email_parser_result 表，不再写入 email 表
+        patch = body.pop("parser_result", None)
+        if patch is not None:
+            if isinstance(patch, str):
+                try:
+                    patch = json.loads(patch)
+                except json.JSONDecodeError:
+                    patch = None
+            patch = normalize_parser_result(patch)
+            if patch:
+                detail = get_email_full_detail(email_id)
+                if detail is None:
+                    return jsonify({"code": 404, "message": "未找到该邮件"}), 404
+                ordering_id = detail.get("ordering_id")
+                if not ordering_id:
+                    return jsonify({"code": 400, "message": "该邮件未关联 ordering_id，无法保存解析结果"}), 400
+                # 与已存的解析结果合并后计算 is_done，但只把本次改动的字段写回表里
+                existing = get_parser_result_by_ordering_id(ordering_id)
+                existing_result = (existing or {}).get("parser_result") or {}
+                merged = {**existing_result, **patch}
+                is_done = body.get("is_done")
+                if is_done is None:
+                    is_done = compute_is_done(merged)
+                    body["is_done"] = is_done
+                # 按 (ordering_id, masterBillNo) 匹配到具体那条记录（masterBillNo 取改动前的值，避免定位错行）
+                upsert_parser_result_by_ordering_id(
+                    ordering_id, patch,
+                    broker_name=detail.get("broker_name"),
+                    is_done=is_done,
+                    master_bill_no=existing_result.get("masterBillNo") or patch.get("masterBillNo"),
+                    operator=operator,
+                )
+
+        ok = update_email(email_id, body, operator=operator) if body else True
         if not ok:
             return jsonify({"code": 404, "message": "未找到该邮件或无可更新字段"}), 404
         return jsonify({"code": 200, "message": "更新成功"})
@@ -149,6 +178,12 @@ def update_email_route(email_id):
 def get_email_logs(email_id):
     try:
         logs = get_audit_logs(email_id)
+        # 解析结果的改动记在 email_parser_result 表，record_id 是该邮件的 ordering_id，需一并合并返回
+        detail = get_email_full_detail(email_id)
+        ordering_id = detail.get("ordering_id") if detail else None
+        if ordering_id:
+            logs += get_audit_logs(ordering_id, table_name="email_parser_result")
+            logs.sort(key=lambda x: x["created_at"] or "", reverse=True)
         return jsonify({"code": 200, "data": logs})
     except Exception as e:
         logger.exception("get_email_logs error")
@@ -215,11 +250,14 @@ def _create_by_ordering_id(body, ordering_id):
     """按 ordering_id 回填 email 的 status/mbl，并把解析结果写入 email_parser_result 表。"""
     # 去数据库里面查哪个 email 中是这个 ordering_id
     data_email_id = get_email_id_by_ordering_id(ordering_id)
+    email_result = get_email_detail(data_email_id) if data_email_id else None
+    brokerName = email_result.get("brokerName") if email_result else None
     status = body.get("status")
     # 获取解析结果
     parser_result = get_order_result(ordering_id)
     parser_result = parser_result.get("result") if parser_result else None
     results = normalize_parser_result(parser_result) # 解析结果标准化
+
     parser_mbl = results.get("masterBillNo") if results else None # 解析结果中的 mbl
 
     if not status:
@@ -235,14 +273,20 @@ def _create_by_ordering_id(body, ordering_id):
                            ordering_id=ordering_id, request_body=body)
         return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
 
+    is_done = compute_is_done(results)
     payload = {
         "status": status,
-        "is_done": compute_is_done(results),
+        "is_done": is_done,
     }
     if parser_mbl:
         payload["mbl_number"] = _merge_mbl_number(data_email_id, parser_mbl)
     update_email(data_email_id, payload, operator="order_callback") # 写入email表（无parser_result字段）
-    upsert_parser_result_by_ordering_id(ordering_id, results) # 写入 email_parser_result 表
+    # 解析结果 + brokerName + is_done 写入 email_parser_result 表
+    # 按 (ordering_id, masterBillNo) 匹配，避免同一 ordering_id 下不同提单号的解析结果互相覆盖
+    upsert_parser_result_by_ordering_id(
+        ordering_id, results, broker_name=brokerName, is_done=is_done, master_bill_no=parser_mbl,
+        operator="order_callback",
+    )
     return jsonify({"code": 200, "message": "写入成功",
                     "data": {"ordering_id": ordering_id, "email_id": data_email_id, "status": status}})
 

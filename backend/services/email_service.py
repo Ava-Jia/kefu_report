@@ -144,7 +144,8 @@ def upsert_emails(records: list[dict]) -> int:
                 continue
             attachments = r.get("attachments")
             # 获取 parser_result
-            ordering_id = r.get("ordering_id") or None
+            raw = r.get("ordering_id") or ""
+            ordering_id = raw[12:] or None          # 裸 UUID
             if ordering_id:
                 parser_result = get_order_result(ordering_id)
                 parser_result = parser_result.get("result") if parser_result else None
@@ -164,7 +165,7 @@ def upsert_emails(records: list[dict]) -> int:
                 attachments=json.dumps(attachments, ensure_ascii=False) if attachments else None,
                 parser_result=json.dumps(parser_result, ensure_ascii=False) if parser_result else None,
                 intent_type2=str(r.get("intent_type2")) if r.get("intent_type2") else None,
-                ordering_id=r.get("ordering_id")[12:] or None,
+                ordering_id=ordering_id,
                 email_url=r.get("email_url") or None,
                 is_done=is_done,
             ))
@@ -273,7 +274,7 @@ def get_audit_logs(record_id: str, table_name: str = "email") -> list[dict]:
 
 def get_email_id_by_ordering_id(ordering_id: str) -> str | None:
     with get_session() as session:
-        row = session.query(Email).filter(Email.ordering_id == "ordering_id:" + ordering_id).first()
+        row = session.query(Email).filter(Email.ordering_id == ordering_id).first()
         return row.id if row else None
 
 
@@ -314,6 +315,7 @@ def get_email_detail(email_id: str) -> dict | None:
             "html_content": row.html_content,
             "attachments": attachments,
             "parser_result": json.loads(row.parser_result) if row.parser_result else None,
+            "broker_name": row.broker_name,
         }
 
 # data_id 是全局唯一的自增排序号，根据当前 data_id 找排序上更靠后/靠前的一条邮件

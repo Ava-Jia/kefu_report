@@ -375,6 +375,8 @@ export default function EmailDetail() {
   const [resultSaving, setResultSaving] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
   const savedSnapshotRef = useRef({ result: null, rawResult: null });
+  // 只记录本次编辑改动过的顶层字段，保存时只回传这些字段（而非整个解析结果）
+  const changedFieldsRef = useRef({});
 
   const onFieldChange = (path, val) => {
     setResult((prev) => {
@@ -382,8 +384,10 @@ export default function EmailDetail() {
       return setDeep(prev, path, val);
     });
     setRawResult((prev) => {
-      if (Array.isArray(prev)) return [setDeep(prev[0] ?? {}, path, val), ...prev.slice(1)];
-      return setDeep(prev ?? {}, path, val);
+      const base = Array.isArray(prev) ? (prev[0] ?? {}) : (prev ?? {});
+      const nextBase = setDeep(base, path, val);
+      changedFieldsRef.current = { ...changedFieldsRef.current, [path[0]]: nextBase[path[0]] };
+      return Array.isArray(prev) ? [nextBase, ...prev.slice(1)] : nextBase;
     });
     setResultDirty(true);
   };
@@ -391,6 +395,7 @@ export default function EmailDetail() {
   const handleCancelEdit = () => {
     setResult(savedSnapshotRef.current.result);
     setRawResult(savedSnapshotRef.current.rawResult);
+    changedFieldsRef.current = {};
     setResultDirty(false);
   };
 
@@ -442,10 +447,12 @@ export default function EmailDetail() {
   const handleSaveResult = async () => {
     setResultSaving(true);
     try {
-      const res = await updateEmail(id, { parser_result: JSON.stringify(rawResult) });
+      // 只回传本次编辑改动过的字段，而非整个解析结果
+      const res = await updateEmail(id, { parser_result: JSON.stringify(changedFieldsRef.current) });
       if (res?.code === 200) {
         message.success('保存成功');
         savedSnapshotRef.current = { result, rawResult };
+        changedFieldsRef.current = {};
         setResultDirty(false);
       } else {
         message.error(res?.message || '保存失败');
@@ -507,6 +514,7 @@ export default function EmailDetail() {
   useEffect(() => {
     setResultLoading(true);
     setResultDirty(false);
+    changedFieldsRef.current = {};
     setSubject(location.state?.subject ?? '');
     fetchEmailPreview(id)
       .then((res) => {

@@ -118,6 +118,14 @@ class EmailParserResult(Base):
     is_suspicious: Mapped[int | None] = mapped_column(Integer, nullable=True)
     agent_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     agent_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    broker_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 0=待处理 1=新建下单 2=新建失败 3=修改订单 4=作废
+    is_done: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
 
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(

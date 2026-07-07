@@ -3,10 +3,12 @@ import logging
 from flask import Blueprint, jsonify, request
 
 from services.rls_service import (
-    list_rls_results,
+    rls_create_result,
     rls_get_task_result,
+    rls_list_remote_results,
+    rls_query_result,
     rls_search_async,
-    update_rls_result,
+    rls_update_remote_result,
 )
 
 bp = Blueprint("rls", __name__, url_prefix="/api")
@@ -35,7 +37,7 @@ def rls_search():
 
 @bp.route("/rls/task/<task_id>", methods=["GET"])
 def rls_task_result(task_id):
-    """根据 task_id 获取 RLS 查询结果。"""
+    """根据 task_id 获取 RLS 查询任务状态。"""
     try:
         result = rls_get_task_result(task_id)
         return jsonify({"code": 200, "message": "查询成功", "data": result})
@@ -43,38 +45,55 @@ def rls_task_result(task_id):
         logger.exception("rls_task_result error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-
-@bp.route("/rls/results", methods=["GET"])
-def rls_results():
-    """列出本地库中的 RLS 查询结果。"""
-    try:
-        limit = int(request.args.get("limit", 100))
-        offset = int(request.args.get("offset", 0))
-        result = list_rls_results(limit=limit, offset=offset)
-        return jsonify({"code": 200, "message": "查询成功", "data": result})
-    except Exception as e:
-        logger.exception("rls_results error")
-        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
-
-
-@bp.route("/rls/results", methods=["PATCH"])
-def rls_results_update():
-    """手动修正一条 RLS 结果的 release_status（人工补录）。"""
+@bp.route("/rls/result", methods=["POST"])
+def rls_result_create():
+    """新增一条 RLS """
     try:
         body = request.get_json(force=True, silent=True)
         if not body:
             return jsonify({"code": 400, "message": "请求体必须为合法 JSON"}), 400
-        task_id = body.get("task_id")
-        query_number = body.get("query_number")
-        result = body.get("result")
-        if not task_id or not query_number:
-            return jsonify({"code": 400, "message": "缺少 task_id 或 query_number 参数"}), 400
-        if not result:
-            return jsonify({"code": 400, "message": "缺少 result 参数"}), 400
-        data = update_rls_result(task_id, str(query_number), result)
-        return jsonify({"code": 200, "message": "更新成功", "data": data})
-    except ValueError as e:
-        return jsonify({"code": 404, "message": str(e)}), 404
+        result = rls_create_result(body)
+        return jsonify({"code": 200, "message": "新增成功", "data": result})
     except Exception as e:
-        logger.exception("rls_results_update error")
+        logger.exception("rls_result_create error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
+@bp.route("/rls/result", methods=["GET"])
+def rls_result_query():
+    """按提单号查询 RLS """
+    try:
+        query_number = request.args.get("query_number")
+        if not query_number:
+            return jsonify({"code": 400, "message": "缺少 query_number 参数"}), 400
+        result = rls_query_result(query_number)
+        return jsonify({"code": 200, "message": "查询成功", "data": result})
+    except Exception as e:
+        logger.exception("rls_result_query error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
+@bp.route("/rls/results", methods=["GET"])
+def rls_results_list_remote():
+    """列出 RLS """
+    try:
+        result = rls_list_remote_results(request.args.to_dict())
+        return jsonify({"code": 200, "message": "查询成功", "data": result})
+    except Exception as e:
+        logger.exception("rls_results_list_remote error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
+@bp.route("/rls/result/<result_id>", methods=["PATCH"])
+def rls_result_update(result_id):
+    """更新一条 RLS """
+    try:
+        body = request.get_json(force=True, silent=True)
+        if not body:
+            return jsonify({"code": 400, "message": "请求体必须为合法 JSON"}), 400
+        result = rls_update_remote_result(result_id, body)
+        return jsonify({"code": 200, "message": "更新成功", "data": result})
+    except Exception as e:
+        logger.exception("rls_result_update error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+

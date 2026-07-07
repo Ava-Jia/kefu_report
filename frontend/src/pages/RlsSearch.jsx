@@ -22,6 +22,27 @@ const DATE_FILTERS = [
   { key: 2, label: "前天" },
 ];
 
+/** 外部系统 release_status 是 JSON 字符串，提取其中的 bl_type 展示 */
+const parseReleaseStatus = (raw) => {
+  if (!raw) return null;
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return parsed?.bl_type ?? parsed;
+  } catch {
+    return raw;
+  }
+};
+
+/** 把外部系统返回的原始字段映射为页面内部使用的统一字段名 */
+const normalizeRlsRow = (item) => ({
+  id: item.id,
+  query_number: item.bl_number,
+  scac_code: item.item,
+  success: item.status === "success",
+  result: parseReleaseStatus(item.release_status),
+  updated_at: item.updated_at,
+});
+
 const POLL_INTERVAL = 5000;
 const POLL_MAX_ATTEMPTS = 60;
 const PENDING_TASKS_KEY = "rls_pending_tasks";
@@ -70,7 +91,8 @@ export default function RlsSearch() {
       if (res.code !== 200) {
         throw new Error(res.error || res.message || "加载失败");
       }
-      setDbResults(Array.isArray(res.data) ? res.data : []);
+      const rawList = Array.isArray(res.data) ? res.data : res.data?.results || [];
+      setDbResults(rawList.map(normalizeRlsRow));
     } catch (e) {
       message.error(e.message || "加载失败");
     } finally {
@@ -174,7 +196,7 @@ export default function RlsSearch() {
     }
     setManualSubmitting(true);
     try {
-      const res = await updateRlsResult(editingRow.task_id, editingRow.query_number, value);
+      const res = await updateRlsResult(editingRow.id, value);
       if (res.code !== 200) {
         throw new Error(res.error || res.message || "更新失败");
       }
@@ -294,7 +316,7 @@ export default function RlsSearch() {
         </Space>
 
         <Table
-          rowKey={(row) => `${row.task_id}-${row.query_number}`}
+          rowKey={(row) => row.id ?? `${row.query_number}-${row.updated_at}`}
           columns={dbColumns}
           dataSource={filteredResults}
           loading={dbLoading}

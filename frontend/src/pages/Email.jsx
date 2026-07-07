@@ -298,7 +298,7 @@ const PARSE_STATUS_MAP = {
 
 // 0=待处理（尚未解析完成，展示为 -） 1=新建下单 2=新建失败 3=修改订单 4=作废
 const IS_DONE_MAP = {
-  1: { label: '已下单', color: 'green' },
+  1: { label: '新建下单', color: 'green' },
   2: { label: '新建失败', color: 'red' },
   3: { label: '修改订单', color: 'blue' },
   4: { label: '作废', color: 'default' },
@@ -590,7 +590,7 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
     title: '下单状态',
     dataIndex: 'is_done',
     key: 'is_done',
-    width: 80,
+    width: 90,
     ellipsis: true,
     render: (v, record) => {
       if (record.intent_type1 !== EXCHANGE_OF_PORT) return '-';
@@ -792,42 +792,52 @@ export default function Email() {
 
   return (
     <div>
-        <Space style={{ marginBottom: 12 }} wrap>
-          <Select
-            allowClear
-            size="large"
-            value={initCategory || undefined}
-            placeholder="全部类别"
-            options={INTENT_OPTIONS}
-            style={{ width: 200 }}
-            onChange={(value) => handleCategoryChange(value || '')}
-          />
-          <Input.Search
-            size="large"
-            placeholder="搜索 MBL 号"
-            defaultValue={initMblNumber}
-            allowClear
-            style={{ width: 200 }}
-            onSearch={handleMblSearch}
-          />
-          <Button
-            size="large"
-            onClick={handleTodayOrder}
-            style={isTodayOrderActive ? { background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' } : {}}
-          >今日预报/换单</Button>
-          <DatePicker.RangePicker
-            open={customPickerOpen}
-            onOpenChange={setCustomPickerOpen}
-            value={hasDateFilter ? [dayjs(initDateFrom), dayjs(initDateTo)] : null}
-            onChange={handleCustomDateChange}
-            allowClear
-            disabledDate={(d) => d && d > dayjs().endOf('day')}
-            style={{ width: 0, padding: 0, border: 'none', overflow: 'hidden', position: 'absolute' }}
-          />
-          <Button size="large" type={hasDateFilter ? 'primary' : 'default'} onClick={() => setCustomPickerOpen(true)}>
-            {hasDateFilter ? `${initDateFrom} ~ ${initDateTo}` : '自定义日期'}
-          </Button>
-          <Button size="large" danger onClick={handleClearAll}>清除</Button>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            marginBottom: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <Space wrap>
+            <Select
+              allowClear
+              size="large"
+              value={initCategory || undefined}
+              placeholder="全部类别"
+              options={INTENT_OPTIONS}
+              style={{ width: 200 }}
+              onChange={(value) => handleCategoryChange(value || '')}
+            />
+            <Input.Search
+              size="large"
+              placeholder="搜索 MBL 号"
+              defaultValue={initMblNumber}
+              allowClear
+              style={{ width: 200 }}
+              onSearch={handleMblSearch}
+            />
+            <Button
+              size="large"
+              onClick={handleTodayOrder}
+              style={isTodayOrderActive ? { background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' } : {}}
+            >今日预报/换单</Button>
+            <DatePicker.RangePicker
+              open={customPickerOpen}
+              onOpenChange={setCustomPickerOpen}
+              value={hasDateFilter ? [dayjs(initDateFrom), dayjs(initDateTo)] : null}
+              onChange={handleCustomDateChange}
+              allowClear
+              disabledDate={(d) => d && d > dayjs().endOf('day')}
+              style={{ width: 0, padding: 0, border: 'none', overflow: 'hidden', position: 'absolute' }}
+            />
+            <Button size="large" type={hasDateFilter ? 'primary' : 'default'} onClick={() => setCustomPickerOpen(true)}>
+              {hasDateFilter ? `${initDateFrom} ~ ${initDateTo}` : '自定义日期'}
+            </Button>
+            <Button size="large" danger onClick={handleClearAll}>清除</Button>
+          </Space>
           <div
             style={{
               marginLeft: 'auto',
@@ -861,7 +871,7 @@ export default function Email() {
               );
             })}
           </div>
-        </Space>
+        </div>
         {batchBarMounted && (
           <Space
             style={{

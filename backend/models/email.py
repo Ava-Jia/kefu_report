@@ -77,6 +77,17 @@ class EmailDomainRole(Base):
     role: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
 
+class EmailParserResult(Base):
+    """按 mbl_number 拆分保存邮件解析结果。"""
+    __tablename__ = "email_parser_result"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    mbl_number: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parser_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 @event.listens_for(Email, 'before_insert')
 def _assign_data_id(mapper, connection, target):
     if target.data_id is None:
@@ -88,6 +99,7 @@ Email.__table__.create(bind=engine, checkfirst=True)
 AuditLog.__table__.create(bind=engine, checkfirst=True)
 CreateFailureLog.__table__.create(bind=engine, checkfirst=True)
 EmailDomainRole.__table__.create(bind=engine, checkfirst=True)
+EmailParserResult.__table__.create(bind=engine, checkfirst=True)
 
 
 def get_session() -> Session:

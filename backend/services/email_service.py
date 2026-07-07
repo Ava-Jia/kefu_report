@@ -4,10 +4,11 @@ Email 表的数据库操作层（查询 / 写入 / 审计日志）。
 import datetime
 import email.utils
 import json
+import logging
 
 from sqlalchemy.orm import Session
 
-from models.email import Email, AuditLog, get_session
+from models.email import Email, AuditLog, CreateFailureLog, get_session
 from services.email_parser import get_order_result
 
 _VALID_STATUSES = {"PENDING_TRACK", "COMPLETED", "FAILED"}
@@ -184,6 +185,28 @@ def update_email_check(email_id: str, is_check: int, operator: str | None = None
             write_audit_logs(session, "email", email_id, [("is_check", old_v, is_check)], operator)
         session.commit()
         return True
+
+
+def log_create_failure(
+    reason: str,
+    status_code: int | None = None,
+    ordering_id: str | None = None,
+    email_id: str | None = None,
+    request_body: dict | None = None,
+) -> None:
+    """记录一次 /email/create 失败。独立 session 提交，且吞掉自身异常，避免影响主流程返回。"""
+    try:
+        with get_session() as session:
+            session.add(CreateFailureLog(
+                ordering_id=ordering_id,
+                email_id=email_id,
+                request_body=json.dumps(request_body, ensure_ascii=False) if request_body else None,
+                reason=reason,
+                status_code=status_code,
+            ))
+            session.commit()
+    except Exception:
+        logging.getLogger(__name__).exception("log_create_failure error")
 
 
 def write_audit_logs(

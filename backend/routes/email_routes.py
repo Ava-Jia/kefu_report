@@ -5,6 +5,7 @@ from services.email_service import (
     get_email_id_by_ordering_id, get_audit_logs,
     get_email_detail as get_email_full_detail,
     get_next_email_id, compute_is_done, normalize_parser_result,
+    log_create_failure,
 )
 import json
 import logging
@@ -49,9 +50,11 @@ def create_email():
     从 Redis 获取指定 email_id 的邮件详情，并写入本地 SQLite。
     如果传的是 ordering_id, 则不仅要拿解析结果，还要将order_id写到对应的email_id的记录中。
     """
+    body = None
     try:
         body = request.get_json(force=True, silent=True)
         if not body:
+            log_create_failure("请求体必须为合法 JSON", status_code=400)
             return jsonify({"code": 400, "message": "请求体必须为合法 JSON"}), 400
         # 如果有ordering-id,则进行email-id替换其status
         ordering_id = body.get("ordering_id")
@@ -66,10 +69,16 @@ def create_email():
             parser_mbl = result.get("masterBillNo") if result else None
 
             if not status:
+                log_create_failure("缺少 status 参数", status_code=400,
+                                   ordering_id=ordering_id, email_id=data_email_id, request_body=body)
                 return jsonify({"code": 400, "message": "缺少 status 参数"}), 400
             if not result:
+                log_create_failure("缺少 result 参数", status_code=400,
+                                   ordering_id=ordering_id, email_id=data_email_id, request_body=body)
                 return jsonify({"code": 400, "message": "缺少 result 参数"}), 400
             if not data_email_id:
+                log_create_failure("未找到对应邮件", status_code=404,
+                                   ordering_id=ordering_id, request_body=body)
                 return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
             is_done = compute_is_done(result)
             if not parser_mbl:
@@ -92,14 +101,21 @@ def create_email():
         # 如果是 email_id
         email_id = body.get("email_id")
         if not email_id:
+            log_create_failure("缺少 email_id 参数", status_code=400, request_body=body)
             return jsonify({"code": 400, "message": "缺少 email_id 参数"}), 400
         record = get_email_detail(email_id)
         if record is None:
+            log_create_failure("未找到对应邮件", status_code=404,
+                               email_id=email_id, request_body=body)
             return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
         upsert_emails([record])
         return jsonify({"code": 200, "message": "写入成功", "data": {"id": record.get("id", email_id)}})
     except Exception as e:
         logger.exception("create_email error")
+        log_create_failure(f"服务器错误: {e}", status_code=500,
+                           ordering_id=(body or {}).get("ordering_id") if isinstance(body, dict) else None,
+                           email_id=(body or {}).get("email_id") if isinstance(body, dict) else None,
+                           request_body=body if isinstance(body, dict) else None)
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
 

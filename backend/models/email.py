@@ -55,6 +55,19 @@ class AuditLog(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class CreateFailureLog(Base):
+    """记录 /email/create 请求失败的详情，便于事后追溯。"""
+    __tablename__ = "create_failure_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ordering_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    email_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 @event.listens_for(Email, 'before_insert')
 def _assign_data_id(mapper, connection, target):
     if target.data_id is None:
@@ -64,6 +77,7 @@ def _assign_data_id(mapper, connection, target):
 
 Email.__table__.create(bind=engine, checkfirst=True)
 AuditLog.__table__.create(bind=engine, checkfirst=True)
+CreateFailureLog.__table__.create(bind=engine, checkfirst=True)
 
 
 def get_session() -> Session:

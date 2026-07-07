@@ -78,15 +78,51 @@ class EmailDomainRole(Base):
 
 
 class EmailParserResult(Base):
-    """按 mbl_number 拆分保存邮件解析结果。"""
+    """按 ordering_id 保存邮件解析结果，每个解析字段独立成列。"""
     __tablename__ = "email_parser_result"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    email_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    mbl_number: Mapped[str | None] = mapped_column(Text, nullable=True)
-    parser_result: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+    ordering_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    master_bill_no: Mapped[str | None] = mapped_column(Text, nullable=True)
+    master_bill_no_from_email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    house_bill_no: Mapped[str | None] = mapped_column(Text, nullable=True)
+    container_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    customer_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    collect_item: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # expenseItem 嵌套对象，整体存 JSON 字符串
+    expense_item: Mapped[str | None] = mapped_column(Text, nullable=True)
+    collect_amount_usd: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    shipper_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    shipper_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    shipper_tel: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    shipper_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    consignee_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consignee_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consignee_tel: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    consignee_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notify_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notify_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notify_tel: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    notify_emails: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pieces: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    description_of_goods: Mapped[str | None] = mapped_column(Text, nullable=True)
+    package_unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    gross_weight: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    volume: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    ctr_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hbl_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    order_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_suspicious: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    agent_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    agent_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
 
 @event.listens_for(Email, 'before_insert')
 def _assign_data_id(mapper, connection, target):

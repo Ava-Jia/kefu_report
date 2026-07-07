@@ -164,7 +164,7 @@ def upsert_emails(records: list[dict]) -> int:
                 attachments=json.dumps(attachments, ensure_ascii=False) if attachments else None,
                 parser_result=json.dumps(parser_result, ensure_ascii=False) if parser_result else None,
                 intent_type2=str(r.get("intent_type2")) if r.get("intent_type2") else None,
-                ordering_id=r.get("ordering_id") or None,
+                ordering_id=r.get("ordering_id")[12:] or None,
                 email_url=r.get("email_url") or None,
                 is_done=is_done,
             ))

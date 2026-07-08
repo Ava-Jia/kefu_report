@@ -104,6 +104,7 @@ def test_get_audit_logs_returns_newest_first(email_id):
 
 
 def test_update_email_route_writes_operator_from_token(client, email_id):
+    # /api/email/<id> 需鉴权，路由从 token 里取出用户名写入审计日志的 operator
     token = generate_token(user_id=1, username="token-user")
 
     response = client.put(

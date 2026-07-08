@@ -17,7 +17,11 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    // 登录接口自身的 401（用户名/密码错误）交给登录页展示错误，不做全局跳转，
+    // 否则会直接刷新页面、吞掉 “用户名或密码错误” 的提示。
+    const url = err.config?.url || "";
+    const isLoginRequest = url.includes("/auth/login");
+    if (err.response?.status === 401 && !isLoginRequest) {
       localStorage.removeItem("token");
       localStorage.removeItem("username");
       window.location.href = "/";

@@ -355,11 +355,18 @@ const CheckButton = ({ id, value, onChange }) => {
   );
 };
 
-const PreviewButton = ({ row }) => {
+const PreviewButton = ({ row, listContext }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const handleClick = () => {
-    navigate(`/email/${row.id}`, { state: { from: location.pathname + location.search, subject: row.subject } });
+    navigate(`/email/${row.id}`, {
+      state: {
+        from: location.pathname + location.search,
+        subject: row.subject,
+        // 携带当前筛选后的列表，用于详情页在筛选结果内翻页（上一条/下一条）
+        list: listContext,
+      },
+    });
   };
   return (
     <Button size="small" icon={<EyeOutlined />} onClick={handleClick}>
@@ -434,7 +441,7 @@ const EditableTextCell = ({ row, field, title, value, onSaved }) => {
   );
 };
 
-const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
+const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listContext) => [
   {
     title: '日期',
     dataIndex: 'date',
@@ -622,7 +629,7 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
     width: 100,
     render: (_, row) => (
       <Space size={4}>
-        <PreviewButton row={row} />
+        <PreviewButton row={row} listContext={listContext} />
         {row.email_url && (
           <a href={row.email_url} target="_blank" rel="noreferrer" title="原始邮件链接">
             <MailOutlined style={{ fontSize: 16, color: '#1677ff' }} />
@@ -746,7 +753,22 @@ export default function Email() {
     setTableData((prev) => prev.map((row) => row.id === id ? { ...row, ...fields } : row));
   };
 
-  const tableColumns = buildTableColumns(handleCheckChange, handleIntentSaved, handleFieldSaved);
+  // 当前筛选后的列表上下文，随预览一起带入详情页，用于结果内翻页 + 跨页续翻
+  const listContext = {
+    ids: tableData.map((r) => r.id),
+    page: initPage,
+    pageSize: initPageSize,
+    total,
+    filters: {
+      intent_type1: initCategory,
+      date_from: initDateFrom,
+      date_to: initDateTo,
+      is_check: initIsCheck,
+      mbl_number: initMblNumber,
+    },
+  };
+
+  const tableColumns = buildTableColumns(handleCheckChange, handleIntentSaved, handleFieldSaved, listContext);
 
   const pushParams = (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber) => {
     const p = {};
@@ -1110,10 +1132,9 @@ export default function Email() {
           rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
           pagination={{
             current: initPage,
-            pageSize: initPageSize,
+            pageSize: 50,
             total,
-            showSizeChanger: true,
-            pageSizeOptions: ['10', '50', '100'],
+            showSizeChanger: false,
             showTotal: (t) => `共 ${t} 条`,
             onChange: handlePageChange,
           }}

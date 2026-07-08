@@ -4,10 +4,11 @@ Email 表的数据库操作层（查询 / 写入 / 审计日志）。
 import datetime
 import email.utils
 import json
+import logging
 
 from sqlalchemy.orm import Session
 
-from models.email import Email, AuditLog, get_session
+from models.email import Email, AuditLog, CreateFailureLog, get_session
 from services.email_parser import get_order_result
 
 _VALID_STATUSES = {"PENDING_TRACK", "COMPLETED", "FAILED"}
@@ -143,7 +144,8 @@ def upsert_emails(records: list[dict]) -> int:
                 continue
             attachments = r.get("attachments")
             # 获取 parser_result
-            ordering_id = r.get("ordering_id") or None
+            raw = r.get("ordering_id") or ""
+            ordering_id = raw[12:] or None          # 裸 UUID
             if ordering_id:
                 parser_result = get_order_result(ordering_id)
                 parser_result = parser_result.get("result") if parser_result else None
@@ -163,7 +165,7 @@ def upsert_emails(records: list[dict]) -> int:
                 attachments=json.dumps(attachments, ensure_ascii=False) if attachments else None,
                 parser_result=json.dumps(parser_result, ensure_ascii=False) if parser_result else None,
                 intent_type2=str(r.get("intent_type2")) if r.get("intent_type2") else None,
-                ordering_id=r.get("ordering_id") or None,
+                ordering_id=ordering_id,
                 email_url=r.get("email_url") or None,
                 is_done=is_done,
             ))
@@ -184,6 +186,28 @@ def update_email_check(email_id: str, is_check: int, operator: str | None = None
             write_audit_logs(session, "email", email_id, [("is_check", old_v, is_check)], operator)
         session.commit()
         return True
+
+
+def log_create_failure(
+    reason: str,
+    status_code: int | None = None,
+    ordering_id: str | None = None,
+    email_id: str | None = None,
+    request_body: dict | None = None,
+) -> None:
+    """记录一次 /email/create 失败。独立 session 提交，且吞掉自身异常，避免影响主流程返回。"""
+    try:
+        with get_session() as session:
+            session.add(CreateFailureLog(
+                ordering_id=ordering_id,
+                email_id=email_id,
+                request_body=json.dumps(request_body, ensure_ascii=False) if request_body else None,
+                reason=reason,
+                status_code=status_code,
+            ))
+            session.commit()
+    except Exception:
+        logging.getLogger(__name__).exception("log_create_failure error")
 
 
 def write_audit_logs(
@@ -250,7 +274,7 @@ def get_audit_logs(record_id: str, table_name: str = "email") -> list[dict]:
 
 def get_email_id_by_ordering_id(ordering_id: str) -> str | None:
     with get_session() as session:
-        row = session.query(Email).filter(Email.ordering_id == "ordering_id:" + ordering_id).first()
+        row = session.query(Email).filter(Email.ordering_id == ordering_id).first()
         return row.id if row else None
 
 
@@ -291,6 +315,7 @@ def get_email_detail(email_id: str) -> dict | None:
             "html_content": row.html_content,
             "attachments": attachments,
             "parser_result": json.loads(row.parser_result) if row.parser_result else None,
+            "broker_name": row.broker_name,
         }
 
 # data_id 是全局唯一的自增排序号，根据当前 data_id 找排序上更靠后/靠前的一条邮件

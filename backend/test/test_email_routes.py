@@ -32,38 +32,10 @@ def auth_headers():
 
 
 # ---------------------------------------------------------------------------
-# GET /api/email/ids
+# Auth
 # ---------------------------------------------------------------------------
-def test_list_email_ids_success(client, auth_headers, monkeypatch):
-    monkeypatch.setattr(er, "get_email_id", lambda: ["e1", "e2"])
-    monkeypatch.setattr(er, "_get_redis", lambda: object())
-    monkeypatch.setattr(er, "_json_get", lambda r, key: {"id": key})
-    monkeypatch.setattr(er, "upsert_emails", lambda records: len(records))
-
-    resp = client.get("/api/email/ids", headers=auth_headers)
-
-    assert resp.status_code == 200
-    data = resp.get_json()
-    assert data["code"] == 200
-    assert data["data"]["total"] == 2
-    assert data["data"]["saved"] == 2
-    assert data["data"]["ids"] == ["e1", "e2"]
-
-
-def test_list_email_ids_error_returns_500(client, auth_headers, monkeypatch):
-    def boom():
-        raise RuntimeError("redis down")
-
-    monkeypatch.setattr(er, "get_email_id", boom)
-
-    resp = client.get("/api/email/ids", headers=auth_headers)
-
-    assert resp.status_code == 500
-    assert resp.get_json()["code"] == 500
-
-
 def test_requires_auth(client):
-    resp = client.get("/api/email/ids")
+    resp = client.get("/api/email/list")
     assert resp.status_code == 401
 
 
@@ -99,9 +71,28 @@ def test_create_email_not_found(client, monkeypatch):
 
 def test_create_email_by_ordering_id_success(client, monkeypatch):
     monkeypatch.setattr(er, "get_email_id_by_ordering_id", lambda oid: "email-1")
+    monkeypatch.setattr(er, "get_email_detail",
+                        lambda eid: {"mbl_number": "OLD", "brokerName": "Broker A"})
+    monkeypatch.setattr(er, "get_order_result",
+                        lambda oid: {"result": {"masterBillNo": "M1"}})
+    monkeypatch.setattr(er, "compute_is_done", lambda result: 1)
+    monkeypatch.setattr(er, "_merge_mbl_number", lambda eid, mbl: f"OLD,{mbl}")
     called = {}
-    monkeypatch.setattr(er, "update_email",
-                        lambda eid, fields, record_log: called.update(eid=eid, fields=fields))
+
+    def fake_update_email(eid, fields, operator=None, record_log=True):
+        called.update(eid=eid, fields=fields, operator=operator, record_log=record_log)
+        return True
+
+    def fake_upsert(ordering_id, parser_result, **kwargs):
+        called.update(
+            parser_ordering_id=ordering_id,
+            parser_result=parser_result,
+            parser_kwargs=kwargs,
+        )
+        return {}
+
+    monkeypatch.setattr(er, "update_email", fake_update_email)
+    monkeypatch.setattr(er, "upsert_parser_result_by_ordering_id", fake_upsert)
 
     resp = client.post("/api/email/create",
                        json={"ordering_id": "o1", "status": "done"})
@@ -110,16 +101,24 @@ def test_create_email_by_ordering_id_success(client, monkeypatch):
     body = resp.get_json()["data"]
     assert body["ordering_id"] == "o1"
     assert body["email_id"] == "email-1"
-    assert called["fields"] == {"status": "done"}
+    assert called["fields"] == {"status": "done", "is_done": 1, "mbl_number": "OLD,M1"}
+    assert called["operator"] == "order_callback"
+    assert called["parser_ordering_id"] == "o1"
+    assert called["parser_kwargs"]["broker_name"] == "Broker A"
+    assert called["parser_kwargs"]["is_done"] == 1
 
 
-def test_create_email_ordering_id_missing_status(client):
+def test_create_email_ordering_id_missing_status(client, monkeypatch):
+    monkeypatch.setattr(er, "get_order_result",
+                        lambda oid: {"result": {"masterBillNo": "M1"}})
     resp = client.post("/api/email/create", json={"ordering_id": "o1"})
     assert resp.status_code == 400
 
 
 def test_create_email_ordering_id_not_found(client, monkeypatch):
     monkeypatch.setattr(er, "get_email_id_by_ordering_id", lambda oid: None)
+    monkeypatch.setattr(er, "get_order_result",
+                        lambda oid: {"result": {"masterBillNo": "M1"}})
     resp = client.post("/api/email/create",
                        json={"ordering_id": "o1", "status": "done"})
     assert resp.status_code == 404
@@ -173,18 +172,24 @@ def test_get_email_preview_success(client, auth_headers, monkeypatch):
         "html_content": "<p>hi</p>",
         "attachments": [{"name": "a.pdf"}],
         "parser_result": {"k": "v"},
+        "ordering_id": "order-preview",
         "data_id": 12,
         "is_check": 1,
         "subject": "s",
     }
     monkeypatch.setattr(er, "get_email_full_detail", lambda eid: detail)
+    monkeypatch.setattr(
+        er,
+        "get_parser_result_by_ordering_id",
+        lambda oid: {"parser_result": {"k": "v2"}},
+    )
 
     resp = client.get("/api/email/abc/preview", headers=auth_headers)
 
     assert resp.status_code == 200
     data = resp.get_json()["data"]
     assert data["html_content"] == "<p>hi</p>"
-    assert data["result"] == {"k": "v"}
+    assert data["result"] == {"k": "v2"}
     assert data["data_id"] == 12
     assert data["subject"] == "s"
 

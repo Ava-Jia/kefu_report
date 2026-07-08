@@ -55,6 +55,83 @@ class AuditLog(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class CreateFailureLog(Base):
+    """记录 /email/create 请求失败的详情，便于事后追溯。"""
+    __tablename__ = "create_failure_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ordering_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    email_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class EmailDomainRole(Base):
+    """邮件域名对应的 brokerName 和 role。"""
+    __tablename__ = "email_domain_role"
+
+    broker_name: Mapped[str | None] = mapped_column("brokerName", String(255), nullable=True)
+    domain: Mapped[str] = mapped_column(String(255), primary_key=True)
+    role: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+
+class EmailParserResult(Base):
+    """按 ordering_id 保存邮件解析结果，每个解析字段独立成列。"""
+    __tablename__ = "email_parser_result"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ordering_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    master_bill_no: Mapped[str | None] = mapped_column(Text, nullable=True)
+    master_bill_no_from_email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    house_bill_no: Mapped[str | None] = mapped_column(Text, nullable=True)
+    container_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    customer_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    collect_item: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # expenseItem 嵌套对象，整体存 JSON 字符串
+    expense_item: Mapped[str | None] = mapped_column(Text, nullable=True)
+    collect_amount_usd: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    shipper_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    shipper_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    shipper_tel: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    shipper_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    consignee_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consignee_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consignee_tel: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    consignee_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notify_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notify_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notify_tel: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    notify_emails: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pieces: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    description_of_goods: Mapped[str | None] = mapped_column(Text, nullable=True)
+    package_unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    gross_weight: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    volume: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    ctr_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hbl_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    order_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_suspicious: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    agent_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    agent_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    broker_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 0=待处理 1=新建下单 2=新建失败 3=修改订单 4=作废
+    is_done: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
 @event.listens_for(Email, 'before_insert')
 def _assign_data_id(mapper, connection, target):
     if target.data_id is None:
@@ -64,6 +141,9 @@ def _assign_data_id(mapper, connection, target):
 
 Email.__table__.create(bind=engine, checkfirst=True)
 AuditLog.__table__.create(bind=engine, checkfirst=True)
+CreateFailureLog.__table__.create(bind=engine, checkfirst=True)
+EmailDomainRole.__table__.create(bind=engine, checkfirst=True)
+EmailParserResult.__table__.create(bind=engine, checkfirst=True)
 
 
 def get_session() -> Session:

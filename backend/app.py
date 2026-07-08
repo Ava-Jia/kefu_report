@@ -13,6 +13,7 @@ from routes.analyze_routes import bp as analyze_bp
 from routes.auth_routes import bp as auth_bp
 from routes.email_routes import bp as email_bp
 from routes.knowledge_routes import bp as knowledge_bp
+from routes.parser_result_routes import bp as parser_result_bp
 from routes.report_routes import bp as report_bp
 from routes.rls_routes import bp as rls_search_bp
 from routes.search_routes import bp as company_bp
@@ -26,7 +27,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 _PUBLIC_PATHS = {"/api/auth/login", "/api/health", "/api/email/create"}
-_PUBLIC_PATH_PREFIXES = ("/api/companys", "/api/order")
+_PUBLIC_PATH_PREFIXES = ("/api/companys", "/api/test", "/api/parser_result")
 
 
 def create_app():
@@ -64,6 +65,7 @@ def create_app():
     app.register_blueprint(analyze_bp)
     app.register_blueprint(email_bp)
     app.register_blueprint(knowledge_bp)
+    app.register_blueprint(parser_result_bp)
     app.register_blueprint(company_bp)
     app.register_blueprint(rag_bp)
     app.register_blueprint(rls_search_bp)

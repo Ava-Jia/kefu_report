@@ -1,109 +1,52 @@
 from flask import Blueprint, jsonify, request, g
-from services.email_parser import get_email_id, _json_get, _get_redis, get_email_detail, get_order_result
+from services.email_parser import get_email_id, _json_get, _get_redis, get_email_result, get_order_result
 from services.email_service import (
     upsert_emails, get_local_emails, update_email_check, update_email,
     get_email_id_by_ordering_id, get_audit_logs,
-    get_email_detail as get_email_full_detail,
+    get_email_detail,
     get_next_email_id, compute_is_done, normalize_parser_result,
+    log_create_failure,
 )
+from services.parser_result_service import upsert_parser_result_by_ordering_id, get_parser_result_by_ordering_id
 import json
 import logging
 
 bp = Blueprint("email", __name__, url_prefix="/api")
 logger = logging.getLogger(__name__)
 
-
-@bp.route("/email/ids", methods=["GET"])
-def list_email_ids():
-    """获取全部 email_id 并同步保存到本地 SQLite。"""
-    try:
-        ids = get_email_id()
-
-        r = _get_redis()
-        records = []
-        for email_id in ids:
-            data = _json_get(r, f"email_id:{email_id}")
-            if data:
-                records.append(data)
-
-        saved = upsert_emails(records)
-        logger.info("同步完成：共 %d 条，新增 %d 条", len(records), saved)
-
-        return jsonify({
-            "code": 200,
-            "message": "查询成功",
-            "data": {
-                "total": len(ids),
-                "saved": saved,
-                "ids": ids,
-            }
-        })
-    except Exception as e:
-        logger.exception("list_email_ids error")
-        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
-
-
+# POST /api/email/create：按 email_id 或 ordering_id 写入/更新本地邮件记录。
 @bp.route("/email/create", methods=["POST"])
 def create_email():
     """
     从 Redis 获取指定 email_id 的邮件详情，并写入本地 SQLite。
     如果传的是 ordering_id, 则不仅要拿解析结果，还要将order_id写到对应的email_id的记录中。
     """
+    body = None
     try:
         body = request.get_json(force=True, silent=True)
         if not body:
+            log_create_failure("请求体必须为合法 JSON", status_code=400)
             return jsonify({"code": 400, "message": "请求体必须为合法 JSON"}), 400
-        # 如果有ordering-id,则进行email-id替换其status
+        # 处理 ordering_id 的情况
         ordering_id = body.get("ordering_id")
         if ordering_id:
-            # 去数据库里面查哪个email中是这个 ordering_id
-            data_email_id = get_email_id_by_ordering_id(ordering_id)
-            # 更新该email_id的 ordering_id、status 和 解析结果 字段
-            status = body.get("status")
-            result = get_order_result(f"ordering_id:{ordering_id}")
-            result = result.get("result") if result else None
-            result = normalize_parser_result(result)
-            parser_mbl = result.get("masterBillNo") if result else None
+            return _create_by_ordering_id(body, ordering_id)
 
-            if not status:
-                return jsonify({"code": 400, "message": "缺少 status 参数"}), 400
-            if not result:
-                return jsonify({"code": 400, "message": "缺少 result 参数"}), 400
-            if not data_email_id:
-                return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
-            is_done = compute_is_done(result)
-            if not parser_mbl:
-                update_email(data_email_id, {
-                "status": status,
-                "parser_result": json.dumps(result, ensure_ascii=False),
-                "is_done": is_done,
-            }, operator="order_callback")
-                return jsonify({"code": 200, "message": "写入成功", "data": {"ordering_id": ordering_id, "email_id": data_email_id, "status": status}})
-
-            update_email(data_email_id, {
-                "status": status,
-                "parser_result": json.dumps(result, ensure_ascii=False),
-                "mbl_number": parser_mbl,
-                "is_done": is_done,
-            }, operator="order_callback")
-            return jsonify({"code": 200, "message": "写入成功", "data": {"ordering_id": ordering_id, "email_id": data_email_id, "status": status}})
-            
-            
-        # 如果是 email_id
+        # 处理 email_id 的情况
         email_id = body.get("email_id")
         if not email_id:
+            log_create_failure("缺少 email_id 参数", status_code=400, request_body=body)
             return jsonify({"code": 400, "message": "缺少 email_id 参数"}), 400
-        record = get_email_detail(email_id)
-        if record is None:
-            return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
-        upsert_emails([record])
-        return jsonify({"code": 200, "message": "写入成功", "data": {"id": record.get("id", email_id)}})
+        return _create_by_email_id(body, email_id)
     except Exception as e:
         logger.exception("create_email error")
+        log_create_failure(f"服务器错误: {e}", status_code=500,
+                           ordering_id=(body or {}).get("ordering_id") if isinstance(body, dict) else None,
+                           email_id=(body or {}).get("email_id") if isinstance(body, dict) else None,
+                           request_body=body if isinstance(body, dict) else None)
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-
-# 展示本地的email解析结果
+# GET /api/email/list：分页查询本地邮件解析结果，支持条件过滤。
 @bp.route("/email/list", methods=["GET"])
 def list_emails():
     """分页返回本地 SQLite 中的邮件解析结果。"""
@@ -128,14 +71,19 @@ def list_emails():
         logger.exception("list_emails error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-# 一次性获取邮件预览所需的 html 内容、全部附件、解析结果
+# GET /api/email/<email_id>/preview：获取邮件预览所需的 html、附件和解析结果。
 @bp.route("/email/<email_id>/preview", methods=["GET"])
 def get_email_preview(email_id):
     try:
-        detail = get_email_full_detail(email_id)
+        detail = get_email_detail(email_id)
         if detail is None:
             return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
         # attachments中需要过滤一部分
+
+        # 解析结果改从 email_parser_result 表按 ordering_id 获取
+        ordering_id = detail.get("ordering_id")
+        parser_row = get_parser_result_by_ordering_id(ordering_id) if ordering_id else None
+        result = parser_row.get("parser_result") if parser_row else None
 
         return jsonify({
             "code": 200,
@@ -143,7 +91,7 @@ def get_email_preview(email_id):
             "data": {
                 "html_content": detail["html_content"],
                 "attachments": detail["attachments"],
-                "result": detail["parser_result"],
+                "result": result,
                 "data_id": detail["data_id"],
                 "is_check": detail["is_check"],
                 "subject": detail["subject"],
@@ -153,8 +101,7 @@ def get_email_preview(email_id):
         logger.exception("get_email_preview error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-
-# 根据 data_id 获取当前邮件的上一条/下一条邮件 id
+# GET /api/email/<email_id>/adjacent：根据 data_id 获取上一条或下一条邮件 id。
 @bp.route("/email/<email_id>/adjacent", methods=["GET"])
 def get_adjacent_email(email_id):
     try:
@@ -174,15 +121,51 @@ def get_adjacent_email(email_id):
         logger.exception("get_adjacent_email error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
+# PUT /api/email/<email_id>：更新指定邮件的可编辑字段，并记录操作人。
 @bp.route("/email/<email_id>", methods=["PUT"])
 def update_email_route(email_id):
     try:
         body = request.get_json(force=True) or {}
+        if not body:
+            return jsonify({"code": 400, "message": "请求体不能为空"}), 400
+
         operator = getattr(g, "user", None)
         operator = operator.get("username") if operator else None
-        ok = update_email(email_id, body, operator=operator)
-        if ok is False and not body:
-            return jsonify({"code": 400, "message": "请求体不能为空"}), 400
+
+        # parser_result 只作为「改动字段的局部补丁」写入 email_parser_result 表，不再写入 email 表
+        patch = body.pop("parser_result", None)
+        if patch is not None:
+            if isinstance(patch, str):
+                try:
+                    patch = json.loads(patch)
+                except json.JSONDecodeError:
+                    patch = None
+            patch = normalize_parser_result(patch)
+            if patch:
+                detail = get_email_detail(email_id)
+                if detail is None:
+                    return jsonify({"code": 404, "message": "未找到该邮件"}), 404
+                ordering_id = detail.get("ordering_id")
+                if not ordering_id:
+                    return jsonify({"code": 400, "message": "该邮件未关联 ordering_id，无法保存解析结果"}), 400
+                # 与已存的解析结果合并后计算 is_done，但只把本次改动的字段写回表里
+                existing = get_parser_result_by_ordering_id(ordering_id)
+                existing_result = (existing or {}).get("parser_result") or {}
+                merged = {**existing_result, **patch}
+                is_done = body.get("is_done")
+                if is_done is None:
+                    is_done = compute_is_done(merged)
+                    body["is_done"] = is_done
+                # 按 (ordering_id, masterBillNo) 匹配到具体那条记录（masterBillNo 取改动前的值，避免定位错行）
+                upsert_parser_result_by_ordering_id(
+                    ordering_id, patch,
+                    broker_name=detail.get("broker_name"),
+                    is_done=is_done,
+                    master_bill_no=existing_result.get("masterBillNo") or patch.get("masterBillNo"),
+                    operator=operator,
+                )
+
+        ok = update_email(email_id, body, operator=operator) if body else True
         if not ok:
             return jsonify({"code": 404, "message": "未找到该邮件或无可更新字段"}), 404
         return jsonify({"code": 200, "message": "更新成功"})
@@ -190,49 +173,29 @@ def update_email_route(email_id):
         logger.exception("update_email error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-
+# GET /api/email/<email_id>/logs：查询指定邮件的审计日志。
 @bp.route("/email/<email_id>/logs", methods=["GET"])
 def get_email_logs(email_id):
     try:
         logs = get_audit_logs(email_id)
+        # 解析结果的改动记在 email_parser_result 表，record_id 是该邮件的 ordering_id，需一并合并返回
+        detail = get_email_detail(email_id)
+        ordering_id = detail.get("ordering_id") if detail else None
+        if ordering_id:
+            logs += get_audit_logs(ordering_id, table_name="email_parser_result")
+            logs.sort(key=lambda x: x["created_at"] or "", reverse=True)
         return jsonify({"code": 200, "data": logs})
     except Exception as e:
         logger.exception("get_email_logs error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-
-@bp.route("/order/<ordering_id>/result", methods=["GET"])
-def get_order_result_route(ordering_id):
-    """获取指定 ordering_id 的解析结果。"""
-    try:
-        result = get_order_result(ordering_id)
-        if result is None:
-            return jsonify({"code": 404, "message": "未找到对应解析结果"}), 404
-        return jsonify({"code": 200, "message": "查询成功", "data": result})
-    except Exception as e:
-        logger.exception("get_order_result_route error")
-        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
-
-
-@bp.route("/order/<email_id>/email", methods=["GET"])
-def get_email_result_route(email_id):
-    """获取指定 email_id 的结果。"""
-    try:
-        result = get_email_detail(email_id)
-        if result is None:
-            return jsonify({"code": 404, "message": "未找到对应解析结果"}), 404
-        return jsonify({"code": 200, "message": "查询成功", "data": result})
-    except Exception as e:
-        logger.exception("get_email_result_route error")
-        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
-
-
+# PATCH /api/email/<email_id>/check：更新指定邮件的审核状态 is_check。
 @bp.route("/email/<email_id>/check", methods=["PATCH"])
 def update_check(email_id):
     try:
         body = request.get_json(force=True) or {}
         is_check = body.get("is_check")
-        if is_check is None or is_check not in (0, 1, 2):
+        if is_check not in (0, 1, 2):
             return jsonify({"code": 400, "message": "is_check 必须为 0、1 或 2"}), 400
         operator = getattr(g, "user", None)
         operator = operator.get("username") if operator else None
@@ -243,3 +206,115 @@ def update_check(email_id):
     except Exception as e:
         logger.exception("update_check error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+# GET /api/test/<ordering_id>/order：测试查询指定 ordering_id 的订单解析结果。
+@bp.route("/test/<ordering_id>/order", methods=["GET"])
+def get_order_result_route(ordering_id):
+    """用于测试 ordering_id 的解析结果。"""
+    try:
+        result = get_order_result(ordering_id)
+        if result is None:
+            return jsonify({"code": 404, "message": "未找到对应解析结果"}), 404
+        return jsonify({"code": 200, "message": "查询成功", "data": result})
+    except Exception as e:
+        logger.exception("get_order_result_route error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+# GET /api/test/<email_id>/email：测试查询指定 email_id 的原始邮件结果。
+@bp.route("/test/<email_id>/email", methods=["GET"])
+def get_email_result_route(email_id):
+    """用于测试：获取指定 email_id 的结果。"""
+    try:
+        result = get_email_result(email_id)
+        if result is None:
+            return jsonify({"code": 404, "message": "未找到对应解析结果"}), 404
+        return jsonify({"code": 200, "message": "查询成功", "data": result})
+    except Exception as e:
+        logger.exception("get_email_result_route error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
+
+
+# 常见船公司 SCAC 代码，用于判断 masterBillNo 前四位是否已带船公司代码
+_SCAC_CODES = {
+    "COSU", "CMDU", "EGLV", "ONEY", "WHLC", "SMLM", "MATS", "OOLU",
+    "HDMU", "MAEU", "MEDU", "YMJA", "HLCU", "ZIMU", "SJHH", "TSYN", "HDUJ",
+}
+
+
+def _merge_mbl_number(email_id, parser_mbl):
+    """将 parser 中的 mbl 追加到该邮件原有 mbl_number 并去重（逗号分隔，保序）。
+    旧 mbl 若缺失 SCAC（前四位不属于已知船公司代码），且与 parser_mbl 去掉前四位后相同，
+    说明是同一个提单号，用带 SCAC 的 parser_mbl 替换掉旧的那一条。
+    """
+    detail = get_email_detail(email_id) or {}
+    old_mbl = detail.get("mbl_number") or ""
+    mbls = [m.strip() for m in old_mbl.split(",") if m.strip()]
+
+    if parser_mbl:
+        matched = False
+        for i, m in enumerate(mbls):
+            if m[:4].upper() not in _SCAC_CODES and m == parser_mbl[4:]:
+                mbls[i] = parser_mbl
+                matched = True
+                break
+        if not matched and parser_mbl not in mbls:
+            mbls.append(parser_mbl)
+
+    return ",".join(mbls)
+
+
+def _create_by_ordering_id(body, ordering_id):
+    """按 ordering_id 回填 email 的 status/mbl，并把解析结果写入 email_parser_result 表。"""
+    # 去数据库里面查哪个 email 中是这个 ordering_id
+    data_email_id = get_email_id_by_ordering_id(ordering_id)
+    email_result = get_email_detail(data_email_id) if data_email_id else None
+    brokerName = email_result.get("broker_name") if email_result else None
+    status = body.get("status")
+    # 获取解析结果
+    parser_result = get_order_result(ordering_id)
+    parser_result = parser_result.get("result") if parser_result else None
+    results = normalize_parser_result(parser_result) # 解析结果标准化
+
+    parser_mbl = results.get("masterBillNo") if results else None # 解析结果中的 mbl
+    if not status:
+        log_create_failure("缺少 status 参数", status_code=400,
+                           ordering_id=ordering_id, email_id=data_email_id, request_body=body)
+        return jsonify({"code": 400, "message": "缺少 status 参数"}), 400
+    if not results:
+        log_create_failure("缺少 result 参数", status_code=400,
+                           ordering_id=ordering_id, email_id=data_email_id, request_body=body)
+        return jsonify({"code": 400, "message": "缺少 result 参数"}), 400
+    if not data_email_id:
+        log_create_failure("未找到对应邮件", status_code=404,
+                           ordering_id=ordering_id, request_body=body)
+        return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
+
+    is_done = compute_is_done(results)
+    payload = {
+        "status": status,
+        "is_done": is_done,
+    }
+    if parser_mbl:
+        payload["mbl_number"] = _merge_mbl_number(data_email_id, parser_mbl)
+    update_email(data_email_id, payload, operator="order_callback") # 写入email表（无parser_result字段）
+    # 解析结果 + brokerName + is_done 写入 email_parser_result 表
+    # 按 (ordering_id, masterBillNo) 匹配，避免同一 ordering_id 下不同提单号的解析结果互相覆盖
+    upsert_parser_result_by_ordering_id(
+        ordering_id, results, broker_name=brokerName, is_done=is_done, master_bill_no=parser_mbl,
+        operator="order_callback",
+    )
+    return jsonify({"code": 200, "message": "写入成功",
+                    "data": {"ordering_id": ordering_id, "email_id": data_email_id, "status": status}})
+
+
+def _create_by_email_id(body, email_id):
+    """从 Redis 获取 email_id 的邮件详情并写入本地 email 表。"""
+    record = get_email_result(email_id)
+    if record is None:
+        log_create_failure("未找到对应邮件", status_code=404,
+                           email_id=email_id, request_body=body)
+        return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
+    upsert_emails([record])
+    return jsonify({"code": 200, "message": "写入成功", "data": {"id": record.get("id", email_id)}})

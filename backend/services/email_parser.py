@@ -50,10 +50,10 @@ def get_email_id() -> list[str]:
 def get_order_result(ordering_id: str) -> dict | None:
     "获取指定 ordering_id 的解析结果。"
     r = _get_redis()
-    return _json_get(r, ordering_id)
+    return _json_get(r, f"ordering_id:{ordering_id}")
 
 
-def get_email_detail(email_id: str) -> dict | None:
+def get_email_result(email_id: str) -> dict | None:
     "获取指定 email_id 的邮件解析结果。"
     r = _get_redis()
     return _json_get(r, f"email_id:{email_id}")

@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Button, Spin, Modal, message } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined, ZoomInOutlined } from '@ant-design/icons';
-import { fetchEmailPreview, updateEmail, fetchAdjacentEmail } from '../api';
+import { ArrowLeftOutlined, SaveOutlined, ZoomInOutlined, CheckOutlined } from '@ant-design/icons';
+import { fetchEmailPreview, updateEmail, updateEmailCheck, fetchAdjacentEmail } from '../api';
 
 function EditableText({ value, onChange, style, renderValue }) {
   const [editing, setEditing] = useState(false);
@@ -287,6 +287,8 @@ export default function EmailDetail() {
   const [htmlLoading, setHtmlLoading] = useState(true);
   const [subject, setSubject] = useState(location.state?.subject ?? '');
   const [dataId, setDataId] = useState(null);
+  const [isCheck, setIsCheck] = useState(0);
+  const [checking, setChecking] = useState(false);
   const [navLoading, setNavLoading] = useState(null);
   const [result, setResult] = useState(() => deepMerge(RESULT_TEMPLATE, null));
   const [rawResult, setRawResult] = useState(null);
@@ -373,6 +375,8 @@ export default function EmailDetail() {
   const [resultSaving, setResultSaving] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
   const savedSnapshotRef = useRef({ result: null, rawResult: null });
+  // 只记录本次编辑改动过的顶层字段，保存时只回传这些字段（而非整个解析结果）
+  const changedFieldsRef = useRef({});
 
   const onFieldChange = (path, val) => {
     setResult((prev) => {
@@ -380,8 +384,10 @@ export default function EmailDetail() {
       return setDeep(prev, path, val);
     });
     setRawResult((prev) => {
-      if (Array.isArray(prev)) return [setDeep(prev[0] ?? {}, path, val), ...prev.slice(1)];
-      return setDeep(prev ?? {}, path, val);
+      const base = Array.isArray(prev) ? (prev[0] ?? {}) : (prev ?? {});
+      const nextBase = setDeep(base, path, val);
+      changedFieldsRef.current = { ...changedFieldsRef.current, [path[0]]: nextBase[path[0]] };
+      return Array.isArray(prev) ? [nextBase, ...prev.slice(1)] : nextBase;
     });
     setResultDirty(true);
   };
@@ -389,16 +395,64 @@ export default function EmailDetail() {
   const handleCancelEdit = () => {
     setResult(savedSnapshotRef.current.result);
     setRawResult(savedSnapshotRef.current.rawResult);
+    changedFieldsRef.current = {};
     setResultDirty(false);
+  };
+
+  const handleCheck = async () => {
+    const next = isCheck === 1 ? 0 : 1;
+    setChecking(true);
+    try {
+      const res = await updateEmailCheck(id, next);
+      if (res?.code === 200) {
+        setIsCheck(next);
+        message.success(next === 1 ? '已标记为已处理' : '已取消处理');
+      } else {
+        message.error(res?.message || '操作失败');
+      }
+    } catch {
+      message.error('操作失败');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const [voiding, setVoiding] = useState(false);
+
+  const handleVoid = () => {
+    Modal.confirm({
+      title: '确认作废',
+      content: '作废后该邮件状态将标记为「作废」，是否继续？',
+      okText: '确认作废',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        setVoiding(true);
+        try {
+          const res = await updateEmail(id, { is_done: 4 });
+          if (res?.code === 200) {
+            message.success('已作废');
+          } else {
+            message.error(res?.message || '作废失败');
+          }
+        } catch {
+          message.error('作废失败');
+        } finally {
+          setVoiding(false);
+        }
+      },
+    });
   };
 
   const handleSaveResult = async () => {
     setResultSaving(true);
     try {
-      const res = await updateEmail(id, { parser_result: JSON.stringify(rawResult) });
+      // 只回传本次编辑改动过的字段，而非整个解析结果
+      const res = await updateEmail(id, { parser_result: JSON.stringify(changedFieldsRef.current) });
       if (res?.code === 200) {
         message.success('保存成功');
         savedSnapshotRef.current = { result, rawResult };
+        changedFieldsRef.current = {};
         setResultDirty(false);
       } else {
         message.error(res?.message || '保存失败');
@@ -460,12 +514,14 @@ export default function EmailDetail() {
   useEffect(() => {
     setResultLoading(true);
     setResultDirty(false);
+    changedFieldsRef.current = {};
     setSubject(location.state?.subject ?? '');
     fetchEmailPreview(id)
       .then((res) => {
         if (res?.code === 200) {
-          const { html_content: htmlContent, attachments: allAttachments, result: raw, data_id: emailDataId, subject: emailSubject } = res.data;
+          const { html_content: htmlContent, attachments: allAttachments, result: raw, data_id: emailDataId, subject: emailSubject, is_check: emailIsCheck } = res.data;
           setDataId(emailDataId ?? null);
+          setIsCheck(emailIsCheck ?? 0);
           setSubject(emailSubject ?? '');
 
           let htmlStr = htmlContent || '';
@@ -556,11 +612,14 @@ export default function EmailDetail() {
           }}
         >
           <Button
+            shape="circle"
             size="large"
-            type="primary"
-          >
-            Check
-          </Button>
+            icon={<CheckOutlined />}
+            type={isCheck === 1 ? 'primary' : 'default'}
+            loading={checking}
+            onClick={handleCheck}
+            title={isCheck === 1 ? '已处理（点击取消）' : '标记为已处理'}
+          />
           <Button
             size="large"
             type="primary"
@@ -580,6 +639,15 @@ export default function EmailDetail() {
             下一个
           </Button>
           
+          <Button
+            size="large"
+            danger
+            loading={voiding}
+            onClick={handleVoid}
+          >
+            作废
+          </Button>
+
           <Button
             size="large"
             disabled={!resultDirty || resultSaving}

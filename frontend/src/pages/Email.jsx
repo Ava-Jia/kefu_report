@@ -4,7 +4,7 @@ import {
   Button, Card, DatePicker, Dropdown, Input, Modal, Select, Space, Spin,
   Table, Tag, Typography, Upload, message,
 } from 'antd';
-import { EditOutlined, EyeOutlined, MailOutlined, SyncOutlined, UploadOutlined } from '@ant-design/icons';
+import { CaretDownOutlined, CaretUpOutlined, EditOutlined, EyeOutlined, MailOutlined, SyncOutlined, UploadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { fetchEmailList, updateEmailCheck, updateEmail, uploadEmailEml, fetchEmailParseStatus } from '../api';
 
@@ -441,9 +441,27 @@ const EditableTextCell = ({ row, field, title, value, onSaved }) => {
   );
 };
 
-const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listContext) => [
+const DateSortHeader = ({ order, onOrderChange }) => (
+  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+    日期
+    <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: '9px' }}>
+      <CaretUpOutlined
+        title="日期顺序（最早在前）"
+        onClick={(e) => { e.stopPropagation(); onOrderChange('asc'); }}
+        style={{ fontSize: 11, cursor: 'pointer', color: order === 'asc' ? '#1677ff' : '#bbb' }}
+      />
+      <CaretDownOutlined
+        title="日期倒序（最新在前）"
+        onClick={(e) => { e.stopPropagation(); onOrderChange('desc'); }}
+        style={{ fontSize: 11, cursor: 'pointer', color: order === 'desc' ? '#1677ff' : '#bbb' }}
+      />
+    </span>
+  </span>
+);
+
+const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listContext, order, onOrderChange) => [
   {
-    title: '日期',
+    title: <DateSortHeader order={order} onOrderChange={onOrderChange} />,
     dataIndex: 'date',
     key: 'date',
     width: 150,
@@ -692,6 +710,7 @@ export default function Email() {
     ? parseInt(searchParams.get('is_check'), 10)
     : null;
   const initMblNumber = searchParams.get('mbl_number') || '';
+  const initOrder = searchParams.get('order') === 'asc' ? 'asc' : 'desc';
 
   const [tableData, setTableData] = useState([]);
   const [tableLoading, setTableLoading] = useState(false);
@@ -753,24 +772,7 @@ export default function Email() {
     setTableData((prev) => prev.map((row) => row.id === id ? { ...row, ...fields } : row));
   };
 
-  // 当前筛选后的列表上下文，随预览一起带入详情页，用于结果内翻页 + 跨页续翻
-  const listContext = {
-    ids: tableData.map((r) => r.id),
-    page: initPage,
-    pageSize: initPageSize,
-    total,
-    filters: {
-      intent_type1: initCategory,
-      date_from: initDateFrom,
-      date_to: initDateTo,
-      is_check: initIsCheck,
-      mbl_number: initMblNumber,
-    },
-  };
-
-  const tableColumns = buildTableColumns(handleCheckChange, handleIntentSaved, handleFieldSaved, listContext);
-
-  const pushParams = (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber) => {
+  const pushParams = (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber, order = initOrder) => {
     const p = {};
     if (page !== 1) p.page = page;
     if (pageSize !== 50) p.pageSize = pageSize;
@@ -779,10 +781,11 @@ export default function Email() {
     if (dateTo) p.date_to = dateTo;
     if (isCheck !== null && isCheck !== undefined) p.is_check = isCheck;
     if (mblNumber) p.mbl_number = mblNumber;
+    if (order === 'asc') p.order = 'asc';
     setSearchParams(p, { replace: false });
   };
 
-  const loadTable = async (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber) => {
+  const loadTable = async (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber, order) => {
     setTableLoading(true);
     try {
       const res = await fetchEmailList({
@@ -793,6 +796,7 @@ export default function Email() {
         date_to: dateTo,
         is_check: isCheck,
         mbl_number: mblNumber,
+        order,
       });
       if (res?.code === 200) {
         setTableData(res.data.items);
@@ -808,8 +812,30 @@ export default function Email() {
   };
 
   useEffect(() => {
-    loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber);
+    loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initOrder);
   }, [searchParams.toString()]);
+
+  const handleOrderChange = (value) => {
+    pushParams(1, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, value);
+  };
+
+  // 当前筛选后的列表上下文，随预览一起带入详情页，用于结果内翻页 + 跨页续翻
+  const listContext = {
+    ids: tableData.map((r) => r.id),
+    page: initPage,
+    pageSize: initPageSize,
+    total,
+    filters: {
+      intent_type1: initCategory,
+      date_from: initDateFrom,
+      date_to: initDateTo,
+      is_check: initIsCheck,
+      mbl_number: initMblNumber,
+      order: initOrder,
+    },
+  };
+
+  const tableColumns = buildTableColumns(handleCheckChange, handleIntentSaved, handleFieldSaved, listContext, initOrder, handleOrderChange);
 
   const handleCategoryChange = (value) => {
     pushParams(1, initPageSize, value || '', initDateFrom, initDateTo, initIsCheck, initMblNumber);

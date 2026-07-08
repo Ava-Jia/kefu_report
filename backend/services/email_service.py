@@ -85,6 +85,7 @@ def get_local_emails(
     date_to: str | None = None,
     is_check: int | None = None,
     mbl_number: str | None = None,
+    order: str = "desc",
 ) -> dict:
     with get_session() as session:
         query = session.query(Email)
@@ -99,10 +100,11 @@ def get_local_emails(
         if mbl_number:
             query = query.filter(Email.mbl_number.contains(mbl_number))
 
+        date_order = Email.date.asc() if order == "asc" else Email.date.desc()
         total = query.count()
         items = (
             query
-            .order_by(Email.date.desc())
+            .order_by(date_order)
             .offset((page - 1) * page_size)
             .limit(page_size)
             .all()

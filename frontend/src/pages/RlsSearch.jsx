@@ -3,6 +3,21 @@ import { Input, Button, Card, Tag, Space, Table, Empty, message, Modal } from "a
 import { SearchOutlined, ReloadOutlined, EditOutlined } from "@ant-design/icons";
 import { searchRls, fetchRlsTaskResult, fetchRlsResults, updateRlsResult } from "../api.js";
 
+const copyText = (text) => {
+  if (!text) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => message.success("已复制"));
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+  message.success("已复制");
+};
+
 const parseQueryNumbers = (text) =>
   String(text || "")
     .split(/[\r\n,]+/)
@@ -37,9 +52,10 @@ const parseReleaseStatus = (raw) => {
 const normalizeRlsRow = (item) => ({
   id: item.id,
   query_number: item.bl_number,
-  scac_code: item.item,
+  item: item.item,
   success: item.status === "success",
   result: parseReleaseStatus(item.release_status),
+  plt_status: item.plt_status,
   updated_at: item.updated_at,
 });
 
@@ -211,21 +227,47 @@ export default function RlsSearch() {
   };
 
   const dbColumns = [
-    { title: "提单号", dataIndex: "query_number", key: "query_number", width: "16.6%", ellipsis: true },
-    { title: "SCAC Code", dataIndex: "scac_code", key: "scac_code", width: "16.6%", ellipsis: true },
     {
-      title: "状态",
+      title: "提单号",
+      dataIndex: "query_number",
+      key: "query_number",
+      width: "16%",
+      ellipsis: true,
+      render: (v) =>
+        v && (
+          <span
+            title={`点击复制：${v}`}
+            onClick={() => copyText(v)}
+            style={{
+              display: "inline-block",
+              maxWidth: "100%",
+              padding: "1px 8px",
+              border: "1px solid #d9d9d9",
+              borderRadius: 4,
+              cursor: "pointer",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {v}
+          </span>
+        ),
+    },
+    { title: "item", dataIndex: "item", key: "item", width: "14%", ellipsis: true },
+    {
+      title: "检索状态",
       dataIndex: "success",
       key: "success",
-      width: "16.6%",
+      width: "15%",
       render: (success) =>
         success ? <Tag color="green">成功</Tag> : <Tag color="red">失败</Tag>,
     },
     {
-      title: "release_status",
+      title: "Release_Status",
       dataIndex: "result",
       key: "result",
-      width: "16.6%",
+      width: "16%",
       render: (result) => {
         const value = typeof result === "string" ? result : result ? JSON.stringify(result) : "";
         if (!value) {
@@ -238,7 +280,28 @@ export default function RlsSearch() {
         );
       },
     },
-    { title: "更新时间", dataIndex: "updated_at", key: "updated_at", width: "16.6%", ellipsis: true },
+    {
+      title: "Plt_Status",
+      dataIndex: "plt_status",
+      key: "plt_status",
+      width: "12%",
+      render: (pltStatus) => {
+        if (!pltStatus) return <Tag color="default">-</Tag>;
+        return (
+          <Tag color={pltStatus === "release" ? "green" : "orange"}>
+            {pltStatus}
+          </Tag>
+        );
+      },
+    },
+    {
+      title: "更新时间",
+      dataIndex: "updated_at",
+      key: "updated_at",
+      width: "16%",
+      ellipsis: true,
+      render: (updatedAt) => (updatedAt || "").slice(0, 10),
+    },
     {
       title: "操作",
       key: "action",
@@ -320,7 +383,7 @@ export default function RlsSearch() {
           columns={dbColumns}
           dataSource={filteredResults}
           loading={dbLoading}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: 50 }}
           tableLayout="fixed"
           scroll={{ x: "max-content" }}
           locale={{
@@ -344,7 +407,7 @@ export default function RlsSearch() {
         cancelText="取消"
       >
         <p style={{ color: "#666" }}>
-          提单号：{editingRow?.query_number}　SCAC Code：{editingRow?.scac_code}
+          提单号：{editingRow?.query_number}　item：{editingRow?.item}
         </p>
         <Input
           value={manualResult}

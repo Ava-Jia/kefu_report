@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
-  Button, Card, DatePicker, Dropdown, Input, Modal, Select, Space,
-  Table, Tag, Typography, message,
+  Button, Card, DatePicker, Dropdown, Input, Modal, Select, Space, Spin,
+  Table, Tag, Typography, Upload, message,
 } from 'antd';
-import { EditOutlined, EyeOutlined, MailOutlined, SyncOutlined } from '@ant-design/icons';
+import { EditOutlined, EyeOutlined, MailOutlined, SyncOutlined, UploadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { fetchEmailList, updateEmailCheck, updateEmail } from '../api';
+import { fetchEmailList, updateEmailCheck, updateEmail, uploadEmailEml, fetchEmailParseStatus } from '../api';
 
 const { Text } = Typography;
 
@@ -50,12 +50,16 @@ const INTENT_OPTIONS = Object.keys(INTENT_COLOR).map((value) => ({
   value,
 }));
 
-const splitValues = (v) =>
-  v ? v.split(',').map((s) => s.trim()).filter(Boolean) : [];
+const splitValues = (v) => {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.map((s) => String(s).trim()).filter(Boolean);
+  return String(v).split(',').map((s) => s.trim()).filter(Boolean);
+};
 
 const parseIntentType2 = (v) => {
   if (!v) return [];
-  const trimmed = v.trim();
+  if (Array.isArray(v)) return v.map((s) => String(s).trim()).filter(Boolean);
+  const trimmed = String(v).trim();
   let items = [];
   if (trimmed.startsWith('[')) {
     try {
@@ -629,6 +633,46 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
   },
 ];
 
+// 展示 .eml 异步解析返回的关键字段
+const ParseResultView = ({ result }) => {
+  const intents1 = splitValues(result.intent_type1);
+  const intents2 = parseIntentType2(result.intent_type2);
+  const rows = [
+    ['邮件主题', result.subject],
+    ['发件人', result.from],
+    ['日期', result.date],
+    ['代理名称', result.brokerName],
+    ['MBL 号', result.mbl_number],
+    ['邮件摘要', result.email_summary],
+  ];
+  return (
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>解析结果</div>
+      <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+        <tbody>
+          {rows.map(([label, value]) => (
+            <tr key={label}>
+              <td style={{ padding: '4px 8px', color: '#999', width: 84, verticalAlign: 'top', whiteSpace: 'nowrap' }}>{label}</td>
+              <td style={{ padding: '4px 8px', wordBreak: 'break-all' }}>{value || <span style={{ color: '#ccc' }}>-</span>}</td>
+            </tr>
+          ))}
+          <tr>
+            <td style={{ padding: '4px 8px', color: '#999', verticalAlign: 'top' }}>意图</td>
+            <td style={{ padding: '4px 8px' }}>
+              {intents1.length || intents2.length ? (
+                <Space size={[4, 4]} wrap>
+                  {intents1.map((i) => <Tag key={i} color={INTENT_COLOR[i] ?? 'blue'}>{INTENT_LABEL[i] ?? i}</Tag>)}
+                  {intents2.map((i) => <Tag key={i}>{i}</Tag>)}
+                </Space>
+              ) : <span style={{ color: '#ccc' }}>-</span>}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 export default function Email() {
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -792,6 +836,96 @@ export default function Email() {
     pushParams(page, pageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber);
   };
 
+  // 上传解析：idle -> uploading -> polling -> done | failed
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadPhase, setUploadPhase] = useState('idle');
+  const [parseResult, setParseResult] = useState(null);
+  const [parseError, setParseError] = useState('');
+  const [showRawResult, setShowRawResult] = useState(false);
+  const pollTokenRef = useRef(0); // 自增令牌，切换文件/关弹窗时使旧轮询失效
+
+  const POLL_INTERVAL = 10000;
+  const POLL_MAX = 90; // 最多轮询约 3 分钟
+
+  const terminalPhase = (status) => {
+    const v = (status || '').toLowerCase();
+    if (['completed', 'success', 'succeeded', 'done', 'finished'].includes(v)) return 'done';
+    if (['failed', 'failure', 'error', 'cancelled', 'canceled'].includes(v)) return 'failed';
+    return null;
+  };
+
+  const pollStatus = async (taskId, token, attempt) => {
+    if (pollTokenRef.current !== token) return;
+    try {
+      const res = await fetchEmailParseStatus(taskId);
+      if (pollTokenRef.current !== token) return;
+      if (res?.code === 200) {
+        const data = res.data || {};
+        const phase = terminalPhase(data.status);
+        if (phase === 'done') {
+          setParseResult(data.result || {});
+          setUploadPhase('done');
+          return;
+        }
+        if (phase === 'failed') {
+          setParseError(data.error || '解析失败');
+          setUploadPhase('failed');
+          return;
+        }
+      }
+    } catch {
+      // 单次查询失败忽略，继续重试
+    }
+    if (attempt + 1 >= POLL_MAX) {
+      if (pollTokenRef.current === token) {
+        setParseError('解析超时，请稍后重试');
+        setUploadPhase('failed');
+      }
+      return;
+    }
+    setTimeout(() => pollStatus(taskId, token, attempt + 1), POLL_INTERVAL);
+  };
+
+  const handleUploadEml = async (file) => {
+    const token = ++pollTokenRef.current;
+    setParseResult(null);
+    setParseError('');
+    setShowRawResult(false);
+    setUploadPhase('uploading');
+    try {
+      const res = await uploadEmailEml(file);
+      if (pollTokenRef.current !== token) return false;
+      if (res?.code === 200 && res.data?.task_id) {
+        setUploadPhase('polling');
+        pollStatus(res.data.task_id, token, 0);
+      } else {
+        setParseError(res?.message || '上传失败');
+        setUploadPhase('failed');
+      }
+    } catch (e) {
+      if (pollTokenRef.current !== token) return false;
+      setParseError(e.message || '上传失败');
+      setUploadPhase('failed');
+    }
+    return false;
+  };
+
+  const closeUploadModal = () => {
+    pollTokenRef.current += 1; // 让进行中的轮询失效
+    setUploadModalOpen(false);
+  };
+
+  const openUploadModal = () => {
+    pollTokenRef.current += 1;
+    setUploadPhase('idle');
+    setParseResult(null);
+    setParseError('');
+    setShowRawResult(false);
+    setUploadModalOpen(true);
+  };
+
+  const uploadBusy = uploadPhase === 'uploading' || uploadPhase === 'polling';
+
   return (
     <div>
         <div
@@ -839,6 +973,11 @@ export default function Email() {
               {hasDateFilter ? `${initDateFrom} ~ ${initDateTo}` : '自定义日期'}
             </Button>
             <Button size="large" danger onClick={handleClearAll}>清除</Button>
+            <Button
+              size="large"
+              icon={<UploadOutlined />}
+              onClick={openUploadModal}
+            >上传解析</Button>
           </Space>
           <div
             style={{
@@ -874,6 +1013,66 @@ export default function Email() {
             })}
           </div>
         </div>
+        <Modal
+          title="上传 .eml 解析"
+          open={uploadModalOpen}
+          onCancel={closeUploadModal}
+          footer={null}
+          width={560}
+        >
+          <Upload.Dragger
+            accept=".eml"
+            showUploadList={false}
+            disabled={uploadBusy}
+            beforeUpload={handleUploadEml}
+          >
+            <p style={{ fontSize: 32, color: '#1677ff', margin: '8px 0' }}><UploadOutlined /></p>
+            <p style={{ margin: 0 }}>
+              {uploadPhase === 'uploading' ? '上传中...'
+                : uploadPhase === 'polling' ? '解析中...'
+                : '点击或拖拽 .eml 文件到此区域上传'}
+            </p>
+          </Upload.Dragger>
+
+          {uploadBusy && (
+            <div style={{ marginTop: 16, textAlign: 'center' }}>
+              <Spin />
+              <span style={{ marginLeft: 8, color: '#999' }}>
+                {uploadPhase === 'uploading' ? '正在上传文件…' : '正在解析邮件，请稍候…'}
+              </span>
+            </div>
+          )}
+
+          {uploadPhase === 'failed' && (
+            <div style={{ marginTop: 16, color: '#cf1322' }}>
+              {parseError || '解析失败'}
+            </div>
+          )}
+
+          {uploadPhase === 'done' && parseResult && (
+            <div style={{ marginTop: 16 }}>
+              <ParseResultView result={parseResult} />
+              <div style={{ marginTop: 12 }}>
+                <Button size="small" onClick={() => setShowRawResult((v) => !v)}>
+                  {showRawResult ? '隐藏原始数据' : '查看原始数据'}
+                </Button>
+                <Button
+                  size="small"
+                  style={{ marginLeft: 8 }}
+                  onClick={() => copyText(JSON.stringify(parseResult, null, 2))}
+                >复制完整结果</Button>
+              </div>
+              {showRawResult && (
+                <pre
+                  style={{
+                    marginTop: 8, maxHeight: 260, overflow: 'auto',
+                    background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12,
+                  }}
+                >{JSON.stringify(parseResult, null, 2)}</pre>
+              )}
+            </div>
+          )}
+        </Modal>
         {batchBarMounted && (
           <Space
             style={{

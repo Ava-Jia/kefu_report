@@ -256,6 +256,30 @@ export const updateEmail = async (email_id, fields) => {
   }
 };
 
+/** 上传 .eml 文件到 OSS 并提交异步解析，返回 task_id */
+export const uploadEmailEml = async (file) => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await client.post('/email/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
+/** 查询 .eml 异步解析任务状态/结果 */
+export const fetchEmailParseStatus = async (taskId) => {
+  try {
+    const { data } = await client.get(`/email/status/${encodeURIComponent(taskId)}`);
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
 /** 获取本地邮件列表 */
 export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = '', date_from = '', date_to = '', is_check = null, mbl_number = '' } = {}) => {
   try {

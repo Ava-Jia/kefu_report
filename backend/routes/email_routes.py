@@ -1,5 +1,8 @@
 from flask import Blueprint, jsonify, request, g
-from services.email_parser import get_email_id, _json_get, _get_redis, get_email_result, get_order_result
+from services.email_parser import (
+    get_email_id, _json_get, _get_redis, get_email_result, get_order_result,
+    upload_file_to_oss, submit_parse_async, email_parse_status
+)
 from services.email_service import (
     upsert_emails, get_local_emails, update_email_check, update_email,
     get_email_id_by_ordering_id, get_audit_logs,
@@ -7,6 +10,7 @@ from services.email_service import (
     get_next_email_id, compute_is_done, normalize_parser_result,
     log_create_failure,
 )
+
 from services.parser_result_service import upsert_parser_result_by_ordering_id, get_parser_result_by_ordering_id
 import json
 import logging
@@ -44,6 +48,39 @@ def create_email():
                            ordering_id=(body or {}).get("ordering_id") if isinstance(body, dict) else None,
                            email_id=(body or {}).get("email_id") if isinstance(body, dict) else None,
                            request_body=body if isinstance(body, dict) else None)
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+# POST /api/email/upload：上传 .eml 文件到 OSS，返回可公开访问的 URL（不做任何解析）。
+@bp.route("/email/upload", methods=["POST"])
+def upload_eml():
+    """把上传的 .eml 文件传到 OSS，返回 OSS URL。"""
+    try:
+        file = request.files.get("file")
+        if not file or not file.filename:
+            return jsonify({"code": 400, "message": "请上传 .eml 文件"}), 400
+        if not file.filename.lower().endswith(".eml"):
+            return jsonify({"code": 400, "message": "仅支持 .eml 文件"}), 400
+        eml_url = upload_file_to_oss(file.filename, file.read())
+        resp = submit_parse_async(eml_url)
+        if not resp or not resp.get("task_id"):
+            return jsonify({"code": 502, "message": "提交解析任务失败", "data": {"eml_url": eml_url}}), 502
+        return jsonify({"code": 200, "message": "上传成功", "data": {"task_id": resp["task_id"], "eml_url": eml_url}})
+    except Exception as e:
+        logger.exception("upload_eml error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+# GET /api/email/status/<task_id>：查询 .eml 异步解析任务的状态/结果。
+@bp.route("/email/status/<task_id>", methods=["GET"])
+def status_eml(task_id):
+    try:
+        if not task_id:
+            return jsonify({"code": 400, "message": "缺少 task_id 参数"}), 400
+        resp = email_parse_status(task_id)
+        if resp is None:
+            return jsonify({"code": 502, "message": "解析服务无响应或返回异常"}), 502
+        return jsonify({"code": 200, "message": "查询成功", "data": resp})
+    except Exception as e:
+        logger.exception("status_eml error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
 # GET /api/email/list：分页查询本地邮件解析结果，支持条件过滤。

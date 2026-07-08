@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request, g
 from services.email_parser import (
     get_email_id, _json_get, _get_redis, get_email_result, get_order_result,
-    upload_file_to_oss, submit_parse_async, email_parse_status
+    upload_file_to_oss, submit_parse_async, email_parse_status, email_html_attachment
 )
 from services.email_service import (
     upsert_emails, get_local_emails, update_email_check, update_email,
@@ -117,7 +117,8 @@ def get_email_preview(email_id):
         detail = get_email_detail(email_id)
         if detail is None:
             return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
-        # attachments中需要过滤一部分
+        # 从redis获取html和attachment
+        email_result = email_html_attachment(email_id)
 
         # 解析结果改从 email_parser_result 表按 ordering_id 获取
         ordering_id = detail.get("ordering_id")
@@ -128,8 +129,8 @@ def get_email_preview(email_id):
             "code": 200,
             "message": "查询成功",
             "data": {
-                "html_content": detail["html_content"],
-                "attachments": detail["attachments"],
+                "html_content": email_result["html_content"],
+                "attachments": email_result["attachments"],
                 "result": result,
                 "data_id": detail["data_id"],
                 "is_check": detail["is_check"],

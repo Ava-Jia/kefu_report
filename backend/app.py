@@ -27,7 +27,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 _PUBLIC_PATHS = {"/api/auth/login", "/api/health", "/api/email/create"}
-_PUBLIC_PATH_PREFIXES = ("/api/companys", "/api/test", "/api/parser_result")
+_PUBLIC_PATH_PREFIXES = ("/api/companys", "/api/test", "/api/parser_result", "/api/email")
 
 
 def create_app():

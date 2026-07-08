@@ -120,3 +120,43 @@ def email_parse_status(task_id: str):
     except ValueError:
         print(f"响应不是合法 JSON: {response.text}")
         return None
+    
+
+def email_html_attachment(email_id: str):
+    """通过email_id 获取html_content"""
+    if not email_id:
+        return {
+            "success": False,
+            "message": "email_id 不能为空",
+            "html_content": None,
+            "attachments": [],
+        }
+    
+    r = _get_redis()
+    results = _json_get(r, f"email_id:{email_id}")
+    if not results:
+        return {
+            "success": False,
+            "message": "未找到对应邮件",
+            "html_content": None,
+            "attachments": [],
+        }
+    email_html_content = results.get("html_content")
+    attachments = results.get("attachments")
+    attachments = _attachment_filter(attachments or [])
+    return {
+        "success": True,
+        "message": "查询成功",
+        "html_content": email_html_content,
+        "attachments": attachments,
+    }
+
+
+def _attachment_filter(attachments: list[dict]) -> list[dict]:
+    """如果 attachment 中record_id是空，则展示"""
+    results = []
+    for attachment in attachments:
+
+        if not attachment.get("content_id"):
+            results.append(attachment)
+    return results

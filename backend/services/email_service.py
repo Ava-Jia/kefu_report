@@ -16,7 +16,7 @@ _VALID_STATUSES = {"PENDING_TRACK", "COMPLETED", "FAILED"}
 _UPDATABLE_FIELDS = {
     "mbl_number", "intent_type1", "subject", "intent_type2",
     "ordering_id", "email_summary", "is_done", "email_url", "status",
-    "html_content", "attachments", "parser_result", "broker_name", "role",
+    "broker_name", "role",
 }
 
 _BJT = datetime.timezone(datetime.timedelta(hours=8))
@@ -140,20 +140,34 @@ def get_local_emails(
 def upsert_emails(records: list[dict]) -> int:
     if not records:
         return 0
+    # 局部导入避免 parser_result_service -> email_service 的循环导入问题。
+    from services.parser_result_service import upsert_parser_result_in_session
+    parser_result_rows = []
     with get_session() as session:
         for r in records:
             if not r.get("id"):
                 continue
-            attachments = r.get("attachments")
+            # attachments = r.get("attachments")
             # 获取 parser_result
             raw = r.get("ordering_id") or ""
             ordering_id = raw[12:] or None          # 裸 UUID
             if ordering_id:
                 parser_result = get_order_result(ordering_id)
                 parser_result = parser_result.get("result") if parser_result else None
+                parser_result = normalize_parser_result(parser_result)
             else:
                 parser_result = None
             is_done = compute_is_done(parser_result)
+            broker_name = r.get("brokerName")
+            # 因为识别到了parser-result，因此将其也入库；如果没有识别到，就不入库
+            if ordering_id and parser_result:
+                parser_result_rows.append({
+                    "ordering_id": ordering_id,
+                    "parser_result": parser_result,
+                    "broker_name": broker_name,
+                    "is_done": is_done,
+                    "master_bill_no": parser_result.get("masterBillNo"),
+                })
             session.merge(Email(
                 id=r["id"],
                 date=_to_bjt(r.get("date")),
@@ -162,17 +176,31 @@ def upsert_emails(records: list[dict]) -> int:
                 intent_type1=r.get("intent_type1"),
                 subject=r.get("subject"),
                 email_summary=r.get("email_summary"),
-                broker_name=r.get("brokerName"),
-                html_content=_normalize_html_content(r.get("html_content")),
-                attachments=json.dumps(attachments, ensure_ascii=False) if attachments else None,
-                parser_result=json.dumps(parser_result, ensure_ascii=False) if parser_result else None,
+                broker_name=broker_name,
+                html_content=None,
+                attachments=None,
+                parser_result=None,
+                # html_content=_normalize_html_content(r.get("html_content")),
+                # attachments=json.dumps(attachments, ensure_ascii=False) if attachments else None,
+                # parser_result=json.dumps(parser_result, ensure_ascii=False) if parser_result else None,
                 intent_type2=str(r.get("intent_type2")) if r.get("intent_type2") else None,
                 ordering_id=ordering_id,
                 email_url=r.get("email_url") or None,
                 is_done=is_done,
             ))
+        # 与 email 写入共享同一事务，保证「email 与 parser_result 要么一起成功、要么一起回滚」。
+        for row in parser_result_rows:
+            upsert_parser_result_in_session(
+                session,
+                row["ordering_id"],
+                row["parser_result"],
+                broker_name=row["broker_name"],
+                is_done=row["is_done"],
+                master_bill_no=row["master_bill_no"],
+                operator="email_create",
+            )
         session.commit()
-        return len(records)
+    return len(records)
 
 
 def update_email_check(email_id: str, is_check: int, operator: str | None = None) -> bool:
@@ -280,23 +308,11 @@ def get_email_id_by_ordering_id(ordering_id: str) -> str | None:
         return row.id if row else None
 
 
-def _attachment_filter(attachments: list[dict]) -> list[dict]:
-    """如果 attachment 中record_id是空，则展示"""
-    results = []
-    for attachment in attachments:
-
-        if not attachment.get("content_id"):
-            results.append(attachment)
-    return results
-
-
 def get_email_detail(email_id: str) -> dict | None:
     with get_session() as session:
         row = session.get(Email, email_id)
         if row is None:
             return None
-        attachments = json.loads(row.attachments) if row.attachments else []
-        attachments = _attachment_filter(attachments)
         return {
             "id": row.id,
             "data_id": row.data_id,
@@ -314,9 +330,6 @@ def get_email_detail(email_id: str) -> dict | None:
             "data_id": row.data_id,
             "email_url": row.email_url,
             "status": row.status,
-            "html_content": row.html_content,
-            "attachments": attachments,
-            "parser_result": json.loads(row.parser_result) if row.parser_result else None,
             "broker_name": row.broker_name,
         }
 

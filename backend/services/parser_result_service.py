@@ -113,6 +113,40 @@ def get_parser_result_by_ordering_id(ordering_id: str) -> dict | None:
         return _serialize(row) if row else None
 
 
+def upsert_parser_result_in_session(
+    session, ordering_id: str, parser_result, broker_name: str | None, is_done: int,
+    master_bill_no: str | None = None, operator: str | None = None,
+) -> EmailParserResult:
+    """在调用方给定的 session 内执行 upsert（不 commit），便于与其它写入共享同一事务。"""
+    query = session.query(EmailParserResult).filter(EmailParserResult.ordering_id == ordering_id)
+    if master_bill_no:
+        query = query.filter(EmailParserResult.master_bill_no == master_bill_no)
+    else:
+        query = query.filter(
+            (EmailParserResult.master_bill_no.is_(None)) | (EmailParserResult.master_bill_no == "")
+        )
+    row = query.order_by(EmailParserResult.id.desc()).first()
+
+    fields = _parse_result_input(parser_result)
+    fields.setdefault("master_bill_no", master_bill_no)
+    fields["broker_name"] = broker_name
+    fields["is_done"] = is_done
+    if row is None:
+        row = EmailParserResult(ordering_id=ordering_id, **fields)
+        session.add(row)
+    else:
+        changes = []
+        for column, value in fields.items():
+            old_v = getattr(row, column)
+            if old_v == value:
+                continue
+            changes.append((column, old_v, value))
+            setattr(row, column, value)
+        if changes:
+            write_audit_logs(session, "email_parser_result", ordering_id, changes, operator)
+    return row
+
+
 def upsert_parser_result_by_ordering_id(
     ordering_id: str, parser_result, broker_name: str | None, is_done: int,
     master_bill_no: str | None = None, operator: str | None = None,
@@ -122,32 +156,10 @@ def upsert_parser_result_by_ordering_id(
     同一 ordering_id 下不同 masterBillNo 视为不同记录，避免互相覆盖。
     """
     with get_session() as session:
-        query = session.query(EmailParserResult).filter(EmailParserResult.ordering_id == ordering_id)
-        if master_bill_no:
-            query = query.filter(EmailParserResult.master_bill_no == master_bill_no)
-        else:
-            query = query.filter(
-                (EmailParserResult.master_bill_no.is_(None)) | (EmailParserResult.master_bill_no == "")
-            )
-        row = query.order_by(EmailParserResult.id.desc()).first()
-
-        fields = _parse_result_input(parser_result)
-        fields.setdefault("master_bill_no", master_bill_no)
-        fields["broker_name"] = broker_name
-        fields["is_done"] = is_done
-        if row is None:
-            row = EmailParserResult(ordering_id=ordering_id, **fields)
-            session.add(row)
-        else:
-            changes = []
-            for column, value in fields.items():
-                old_v = getattr(row, column)
-                if old_v == value:
-                    continue
-                changes.append((column, old_v, value))
-                setattr(row, column, value)
-            if changes:
-                write_audit_logs(session, "email_parser_result", ordering_id, changes, operator)
+        row = upsert_parser_result_in_session(
+            session, ordering_id, parser_result, broker_name, is_done,
+            master_bill_no=master_bill_no, operator=operator,
+        )
         session.commit()
         return _serialize(row)
 

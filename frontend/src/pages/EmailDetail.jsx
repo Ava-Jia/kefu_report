@@ -591,7 +591,8 @@ export default function EmailDetail() {
           setIsCheck(emailIsCheck ?? 0);
           setSubject(emailSubject ?? '');
 
-          let htmlStr = htmlContent || '';
+          // html_content 可能是字符串或字符串数组，统一拼成字符串
+          let htmlStr = Array.isArray(htmlContent) ? htmlContent.join('') : (htmlContent || '');
           (allAttachments ?? []).forEach((att) => {
             const url = resolveAttachmentUrl(att);
             if (att.content_id && url) {

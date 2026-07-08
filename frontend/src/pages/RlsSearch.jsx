@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Input, Button, Card, Tag, Space, Table, Empty, message, Modal } from "antd";
 import { SearchOutlined, ReloadOutlined, EditOutlined } from "@ant-design/icons";
-import { searchRls, fetchRlsTaskResult, fetchRlsResults, updateRlsResult } from "../api.js";
+import { searchRls, fetchRlsResults, updateRlsResult } from "../api.js";
 
 const copyText = (text) => {
   if (!text) return;
@@ -59,33 +59,13 @@ const normalizeRlsRow = (item) => ({
   updated_at: item.updated_at,
 });
 
-const POLL_INTERVAL = 5000;
-const POLL_MAX_ATTEMPTS = 60;
-const PENDING_TASKS_KEY = "rls_pending_tasks";
-
-const loadPendingTaskIds = () => {
-  try {
-    const saved = localStorage.getItem(PENDING_TASKS_KEY);
-    const parsed = saved ? JSON.parse(saved) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const savePendingTaskIds = (taskIds) => {
-  localStorage.setItem(PENDING_TASKS_KEY, JSON.stringify(taskIds));
-};
-
 export default function RlsSearch() {
   const [scacCode, setScacCode] = useState("");
   const [queryNumberText, setQueryNumberText] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [pendingTaskIds, setPendingTaskIds] = useState(loadPendingTaskIds);
   const [dbResults, setDbResults] = useState([]);
   const [dbLoading, setDbLoading] = useState(false);
   const [dateFilter, setDateFilter] = useState(null);
-  const resumedRef = useRef(false);
   const [editingRow, setEditingRow] = useState(null);
   const [manualResult, setManualResult] = useState("");
   const [manualSubmitting, setManualSubmitting] = useState(false);
@@ -120,43 +100,6 @@ export default function RlsSearch() {
     loadDbResults();
   }, [loadDbResults]);
 
-  const removePendingTask = useCallback((taskId) => {
-    setPendingTaskIds((prev) => {
-      const next = prev.filter((id) => id !== taskId);
-      savePendingTaskIds(next);
-      return next;
-    });
-  }, []);
-
-  const pollTaskResult = useCallback(
-    async (taskId, attempt = 0) => {
-      try {
-        const res = await fetchRlsTaskResult(taskId);
-        const status = res?.data?.status;
-        if (res.code === 200 && (status === "completed" || status === "failed")) {
-          removePendingTask(taskId);
-          loadDbResults();
-          return;
-        }
-      } catch {
-        // 忽略单次轮询失败，继续重试
-      }
-
-      if (attempt + 1 >= POLL_MAX_ATTEMPTS) {
-        removePendingTask(taskId);
-        return;
-      }
-      setTimeout(() => pollTaskResult(taskId, attempt + 1), POLL_INTERVAL);
-    },
-    [loadDbResults, removePendingTask]
-  );
-
-  useEffect(() => {
-    if (resumedRef.current) return;
-    resumedRef.current = true;
-    loadPendingTaskIds().forEach((taskId) => pollTaskResult(taskId));
-  }, [pollTaskResult]);
-
   const handleSearch = async () => {
     const scac = scacCode.trim();
     const queryNumbers = parseQueryNumbers(queryNumberText);
@@ -176,22 +119,7 @@ export default function RlsSearch() {
       if (res.code !== 200) {
         throw new Error(res.error || res.message || "提交失败");
       }
-      const batches = Array.isArray(res.data) ? res.data : [res.data];
-      const taskIds = batches
-        .map((item) => item?.task_id || item?.taskId || item?.id || item)
-        .filter(Boolean)
-        .map(String);
-
-      message.success(
-        taskIds.length > 1 ? `任务已分 ${taskIds.length} 批提交` : "任务已提交"
-      );
-
-      setPendingTaskIds((prev) => {
-        const next = [...prev, ...taskIds];
-        savePendingTaskIds(next);
-        return next;
-      });
-      taskIds.forEach((taskId) => pollTaskResult(taskId));
+      message.success("任务已提交，请稍后点击刷新查看结果");
     } catch (e) {
       message.error(e.message || "提交失败");
     } finally {
@@ -349,11 +277,6 @@ export default function RlsSearch() {
           >
             提交查询
           </Button>
-          {pendingTaskIds.length > 0 && (
-            <span style={{ color: "#999" }}>
-              有 {pendingTaskIds.length} 个任务正在后台查询中，完成后会自动出现在下方结果中
-            </span>
-          )}
         </Space>
       </Card>
 

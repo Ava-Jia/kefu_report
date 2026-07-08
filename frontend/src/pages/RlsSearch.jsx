@@ -1,7 +1,22 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Input, Button, Card, Tag, Space, Table, Empty, message, Modal } from "antd";
 import { SearchOutlined, ReloadOutlined, EditOutlined } from "@ant-design/icons";
-import { searchRls, fetchRlsTaskResult, fetchRlsResults, updateRlsResult } from "../api.js";
+import { searchRls, fetchRlsResults, updateRlsResult } from "../api.js";
+
+const copyText = (text) => {
+  if (!text) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => message.success("已复制"));
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+  message.success("已复制");
+};
 
 const parseQueryNumbers = (text) =>
   String(text || "")
@@ -22,33 +37,35 @@ const DATE_FILTERS = [
   { key: 2, label: "前天" },
 ];
 
-const POLL_INTERVAL = 5000;
-const POLL_MAX_ATTEMPTS = 60;
-const PENDING_TASKS_KEY = "rls_pending_tasks";
-
-const loadPendingTaskIds = () => {
+/** 外部系统 release_status 是 JSON 字符串，提取其中的 bl_type 展示 */
+const parseReleaseStatus = (raw) => {
+  if (!raw) return null;
   try {
-    const saved = localStorage.getItem(PENDING_TASKS_KEY);
-    const parsed = saved ? JSON.parse(saved) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return parsed?.bl_type ?? parsed;
   } catch {
-    return [];
+    return raw;
   }
 };
 
-const savePendingTaskIds = (taskIds) => {
-  localStorage.setItem(PENDING_TASKS_KEY, JSON.stringify(taskIds));
-};
+/** 把外部系统返回的原始字段映射为页面内部使用的统一字段名 */
+const normalizeRlsRow = (item) => ({
+  id: item.id,
+  query_number: item.bl_number,
+  item: item.item,
+  success: item.status === "success",
+  result: parseReleaseStatus(item.release_status),
+  plt_status: item.plt_status,
+  updated_at: item.updated_at,
+});
 
 export default function RlsSearch() {
   const [scacCode, setScacCode] = useState("");
   const [queryNumberText, setQueryNumberText] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [pendingTaskIds, setPendingTaskIds] = useState(loadPendingTaskIds);
   const [dbResults, setDbResults] = useState([]);
   const [dbLoading, setDbLoading] = useState(false);
   const [dateFilter, setDateFilter] = useState(null);
-  const resumedRef = useRef(false);
   const [editingRow, setEditingRow] = useState(null);
   const [manualResult, setManualResult] = useState("");
   const [manualSubmitting, setManualSubmitting] = useState(false);
@@ -70,7 +87,8 @@ export default function RlsSearch() {
       if (res.code !== 200) {
         throw new Error(res.error || res.message || "加载失败");
       }
-      setDbResults(Array.isArray(res.data) ? res.data : []);
+      const rawList = Array.isArray(res.data) ? res.data : res.data?.results || [];
+      setDbResults(rawList.map(normalizeRlsRow));
     } catch (e) {
       message.error(e.message || "加载失败");
     } finally {
@@ -81,43 +99,6 @@ export default function RlsSearch() {
   useEffect(() => {
     loadDbResults();
   }, [loadDbResults]);
-
-  const removePendingTask = useCallback((taskId) => {
-    setPendingTaskIds((prev) => {
-      const next = prev.filter((id) => id !== taskId);
-      savePendingTaskIds(next);
-      return next;
-    });
-  }, []);
-
-  const pollTaskResult = useCallback(
-    async (taskId, attempt = 0) => {
-      try {
-        const res = await fetchRlsTaskResult(taskId);
-        const status = res?.data?.status;
-        if (res.code === 200 && (status === "completed" || status === "failed")) {
-          removePendingTask(taskId);
-          loadDbResults();
-          return;
-        }
-      } catch {
-        // 忽略单次轮询失败，继续重试
-      }
-
-      if (attempt + 1 >= POLL_MAX_ATTEMPTS) {
-        removePendingTask(taskId);
-        return;
-      }
-      setTimeout(() => pollTaskResult(taskId, attempt + 1), POLL_INTERVAL);
-    },
-    [loadDbResults, removePendingTask]
-  );
-
-  useEffect(() => {
-    if (resumedRef.current) return;
-    resumedRef.current = true;
-    loadPendingTaskIds().forEach((taskId) => pollTaskResult(taskId));
-  }, [pollTaskResult]);
 
   const handleSearch = async () => {
     const scac = scacCode.trim();
@@ -138,22 +119,7 @@ export default function RlsSearch() {
       if (res.code !== 200) {
         throw new Error(res.error || res.message || "提交失败");
       }
-      const batches = Array.isArray(res.data) ? res.data : [res.data];
-      const taskIds = batches
-        .map((item) => item?.task_id || item?.taskId || item?.id || item)
-        .filter(Boolean)
-        .map(String);
-
-      message.success(
-        taskIds.length > 1 ? `任务已分 ${taskIds.length} 批提交` : "任务已提交"
-      );
-
-      setPendingTaskIds((prev) => {
-        const next = [...prev, ...taskIds];
-        savePendingTaskIds(next);
-        return next;
-      });
-      taskIds.forEach((taskId) => pollTaskResult(taskId));
+      message.success("任务已提交，请稍后点击刷新查看结果");
     } catch (e) {
       message.error(e.message || "提交失败");
     } finally {
@@ -174,7 +140,7 @@ export default function RlsSearch() {
     }
     setManualSubmitting(true);
     try {
-      const res = await updateRlsResult(editingRow.task_id, editingRow.query_number, value);
+      const res = await updateRlsResult(editingRow.id, value);
       if (res.code !== 200) {
         throw new Error(res.error || res.message || "更新失败");
       }
@@ -189,21 +155,47 @@ export default function RlsSearch() {
   };
 
   const dbColumns = [
-    { title: "提单号", dataIndex: "query_number", key: "query_number", width: "16.6%", ellipsis: true },
-    { title: "SCAC Code", dataIndex: "scac_code", key: "scac_code", width: "16.6%", ellipsis: true },
     {
-      title: "状态",
+      title: "提单号",
+      dataIndex: "query_number",
+      key: "query_number",
+      width: "16%",
+      ellipsis: true,
+      render: (v) =>
+        v && (
+          <span
+            title={`点击复制：${v}`}
+            onClick={() => copyText(v)}
+            style={{
+              display: "inline-block",
+              maxWidth: "100%",
+              padding: "1px 8px",
+              border: "1px solid #d9d9d9",
+              borderRadius: 4,
+              cursor: "pointer",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {v}
+          </span>
+        ),
+    },
+    { title: "item", dataIndex: "item", key: "item", width: "14%", ellipsis: true },
+    {
+      title: "检索状态",
       dataIndex: "success",
       key: "success",
-      width: "16.6%",
+      width: "15%",
       render: (success) =>
         success ? <Tag color="green">成功</Tag> : <Tag color="red">失败</Tag>,
     },
     {
-      title: "release_status",
+      title: "Release_Status",
       dataIndex: "result",
       key: "result",
-      width: "16.6%",
+      width: "16%",
       render: (result) => {
         const value = typeof result === "string" ? result : result ? JSON.stringify(result) : "";
         if (!value) {
@@ -216,7 +208,28 @@ export default function RlsSearch() {
         );
       },
     },
-    { title: "更新时间", dataIndex: "updated_at", key: "updated_at", width: "16.6%", ellipsis: true },
+    {
+      title: "Plt_Status",
+      dataIndex: "plt_status",
+      key: "plt_status",
+      width: "12%",
+      render: (pltStatus) => {
+        if (!pltStatus) return <Tag color="default">-</Tag>;
+        return (
+          <Tag color={pltStatus === "release" ? "green" : "orange"}>
+            {pltStatus}
+          </Tag>
+        );
+      },
+    },
+    {
+      title: "更新时间",
+      dataIndex: "updated_at",
+      key: "updated_at",
+      width: "16%",
+      ellipsis: true,
+      render: (updatedAt) => (updatedAt || "").slice(0, 10),
+    },
     {
       title: "操作",
       key: "action",
@@ -264,11 +277,6 @@ export default function RlsSearch() {
           >
             提交查询
           </Button>
-          {pendingTaskIds.length > 0 && (
-            <span style={{ color: "#999" }}>
-              有 {pendingTaskIds.length} 个任务正在后台查询中，完成后会自动出现在下方结果中
-            </span>
-          )}
         </Space>
       </Card>
 
@@ -294,11 +302,11 @@ export default function RlsSearch() {
         </Space>
 
         <Table
-          rowKey={(row) => `${row.task_id}-${row.query_number}`}
+          rowKey={(row) => row.id ?? `${row.query_number}-${row.updated_at}`}
           columns={dbColumns}
           dataSource={filteredResults}
           loading={dbLoading}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: 50 }}
           tableLayout="fixed"
           scroll={{ x: "max-content" }}
           locale={{
@@ -322,7 +330,7 @@ export default function RlsSearch() {
         cancelText="取消"
       >
         <p style={{ color: "#666" }}>
-          提单号：{editingRow?.query_number}　SCAC Code：{editingRow?.scac_code}
+          提单号：{editingRow?.query_number}　item：{editingRow?.item}
         </p>
         <Input
           value={manualResult}

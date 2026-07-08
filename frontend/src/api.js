@@ -295,11 +295,21 @@ export const fetchRlsTaskResult = async (taskId) => {
   }
 };
 
-/** 列出本地库中的 RLS 查询结果 */
-export const fetchRlsResults = async (limit = 100, offset = 0) => {
+/** 列出 RLS 查询结果（转发至外部系统，支持过滤） */
+export const fetchRlsResults = async (params = {}) => {
   try {
-    const { data } = await client.get("/rls/results", {
-      params: { limit, offset },
+    const { data } = await client.get("/rls/results", { params });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
+/** 按提单号查询单条 RLS 结果（转发至外部系统） */
+export const fetchRlsResultByQueryNumber = async (queryNumber) => {
+  try {
+    const { data } = await client.get("/rls/result", {
+      params: { query_number: queryNumber },
     });
     return data;
   } catch (error) {
@@ -307,12 +317,10 @@ export const fetchRlsResults = async (limit = 100, offset = 0) => {
   }
 };
 
-/** 手动修正一条 RLS 结果的 release_status（人工补录） */
-export const updateRlsResult = async (taskId, queryNumber, result) => {
+/** 手动修正一条 RLS 结果的 release_status（人工补录，转发至外部系统） */
+export const updateRlsResult = async (resultId, result) => {
   try {
-    const { data } = await client.patch("/rls/results", {
-      task_id: taskId,
-      query_number: queryNumber,
+    const { data } = await client.patch(`/rls/result/${encodeURIComponent(resultId)}`, {
       result,
     });
     return data;

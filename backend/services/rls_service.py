@@ -4,7 +4,6 @@ RLS 查询系统 HTTP 客户端。
 """
 from __future__ import annotations
 
-import json
 import logging
 import math
 import os
@@ -12,7 +11,6 @@ import os
 import requests
 from dotenv import load_dotenv
 
-from models.rls import RlsResult, get_tasks_session
 
 load_dotenv()
 
@@ -63,106 +61,61 @@ def rls_search_async(scac_code: str, query_number: list[str]) -> list[dict]:
     return [_rls_search_async_request(scac_code, batch) for batch in batches]
 
 
-def _save_rls_results(task_id: str, task_payload: dict) -> None:
-    """把任务结果按提单号（query_number）落库到 rls_results 表。"""
-    items = ((task_payload.get("result") or {}).get("data")) or []
-    if not isinstance(items, list):
-        return
-
-    with get_tasks_session() as session:
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            query_number = item.get("query_number")
-            if not query_number:
-                continue
-
-            row = (
-                session.query(RlsResult)
-                .filter_by(task_id=task_id, query_number=str(query_number))
-                .first()
-            )
-            if row is None:
-                row = RlsResult(task_id=task_id, query_number=str(query_number))
-                session.add(row)
-
-            row.scac_code = item.get("SCAC_Code")
-            row.success = bool(item.get("success"))
-            release_status = (item.get("result") or {}).get("release_status") or {}
-            bl_type = release_status.get("bl_type")
-            row.result = json.dumps(bl_type, ensure_ascii=False) if bl_type is not None else None
-            row.error = item.get("error")
-
-        session.commit()
+def rls_create_result(payload: dict) -> dict:
+    """新增一条 RLS 结果（对接外部系统 POST /rlsSearch/result）。"""
+    url = f"{_base_url()}/rlsSearch/result"
+    resp = requests.post(
+        url,
+        json=payload,
+        headers={"accept": "application/json", "Content-Type": "application/json"},
+        timeout=_timeout(),
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
-def _safe_json_loads(value: str | None):
-    """兼容历史数据：老数据未做 JSON 编码，直接存了裸字符串。"""
-    if not value:
-        return None
-    try:
-        return json.loads(value)
-    except (TypeError, ValueError):
-        return value
+def rls_query_result(query_number: str) -> dict:
+    """按提单号查询 RLS 结果（对接外部系统 GET /rlsSearch/result）。"""
+    url = f"{_base_url()}/rlsSearch/result"
+    resp = requests.get(
+        url,
+        params={"query_number": query_number},
+        headers={"accept": "application/json"},
+        timeout=_timeout(),
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
-def _row_to_dict(row: RlsResult) -> dict:
-    return {
-        "task_id": row.task_id,
-        "scac_code": row.scac_code,
-        "query_number": row.query_number,
-        "success": row.success,
-        "result": _safe_json_loads(row.result),
-        "error": row.error,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
-        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-    }
+def rls_list_remote_results(params: dict) -> dict:
+    """列出 RLS 结果，支持过滤（对接外部系统 GET /rlsSearch/results）。"""
+    url = f"{_base_url()}/rlsSearch/results"
+    resp = requests.get(
+        url,
+        params=params,
+        headers={"accept": "application/json"},
+        timeout=_timeout(),
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
-def update_rls_result(task_id: str, query_number: str, result: str) -> dict:
-    """手动修正某条 RLS 结果的 release_status（用于自动检索失败时人工补录）。"""
-    with get_tasks_session() as session:
-        row = (
-            session.query(RlsResult)
-            .filter_by(task_id=task_id, query_number=str(query_number))
-            .first()
-        )
-        if row is None:
-            raise ValueError(f"未找到记录: task_id={task_id}, query_number={query_number}")
-
-        row.result = json.dumps(result, ensure_ascii=False)
-        row.success = True
-        row.error = None
-        session.commit()
-        session.refresh(row)
-        return _row_to_dict(row)
-
-
-def list_rls_results(limit: int = 100, offset: int = 0) -> list[dict]:
-    """列出本地库中的 RLS 结果，按更新时间倒序。"""
-    with get_tasks_session() as session:
-        rows = (
-            session.query(RlsResult)
-            .order_by(RlsResult.updated_at.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
-
-    return [_row_to_dict(row) for row in rows]
+def rls_update_remote_result(result_id: str, payload: dict) -> dict:
+    """更新一条 RLS 结果（对接外部系统 PATCH /rlsSearch/result/{result_id}）。"""
+    url = f"{_base_url()}/rlsSearch/result/{result_id}"
+    resp = requests.patch(
+        url,
+        json=payload,
+        headers={"accept": "application/json", "Content-Type": "application/json"},
+        timeout=_timeout(),
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
 def rls_get_task_result(task_id: str) -> dict:
-    """根据 task_id 获取 RLS 查询结果，任务完成时按提单号落库。"""
+    """根据 task_id 获取 RLS 查询结果。"""
     url = f"{_base_url()}/task/{task_id}"
     resp = requests.get(url, headers={"accept": "application/json"}, timeout=_timeout())
     resp.raise_for_status()
-    payload = resp.json()
-
-    if payload.get("status") == "completed":
-        try:
-            _save_rls_results(task_id, payload)
-        except Exception:
-            logger.exception("保存 RLS 结果到 tasks.db 失败, task_id=%s", task_id)
-
-    return payload
+    return resp.json()

@@ -62,6 +62,20 @@ const INTENT_LABEL = {
   OTHER_AGENT_REQUEST: '代理回复',
 };
 
+const EXCHANGE_INTENT = {
+  PRE_ALERT_NEW: '首次预报',
+  PRE_ALERT_UPDATE: '补充/更新预报',
+  PRE_ALERT_CANCEL: '预报作废',
+  OTHER: '其他',
+};
+
+const getSecondaryIntentLabel = (intent) => EXCHANGE_INTENT[intent] ?? intent;
+
+const EXCHANGE_INTENT_OPTIONS = Object.entries(EXCHANGE_INTENT).map(([value, label]) => ({
+  value,
+  label,
+}));
+
 const INTENT_OPTIONS = Object.keys(INTENT_COLOR).map((value) => ({
   label: INTENT_LABEL[value] ?? value,
   value,
@@ -266,15 +280,16 @@ const IntentDetailModal = ({ open, onClose, items1, items2, emailId, onSaved }) 
         options={INTENT_OPTIONS}
         style={{ width: '100%', marginBottom: 12 }}
       />
-      <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>二级意图（输入后回车添加）</div>
+      <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>二级意图</div>
       <Select
-        mode="tags"
+        mode={draftItems1.includes(EXCHANGE_OF_PORT) ? 'multiple' : 'tags'}
         value={draftItems2}
         onChange={setDraftItems2}
-        open={false}
+        options={draftItems1.includes(EXCHANGE_OF_PORT) ? EXCHANGE_INTENT_OPTIONS : undefined}
+        open={draftItems1.includes(EXCHANGE_OF_PORT) ? undefined : false}
         tokenSeparators={[]}
         style={{ width: '100%' }}
-        placeholder="输入后按回车添加"
+        placeholder={draftItems1.includes(EXCHANGE_OF_PORT) ? '请选择二级意图' : '输入后按回车添加'}
       />
     </Modal>
   );
@@ -311,7 +326,7 @@ const SecondaryIntent = ({ value, intentType1, emailId, onSaved }) => {
   return (
     <>
       <span style={{ cursor: 'pointer' }} onClick={() => setOpen(true)}>
-        <Tag>{items2[0]}</Tag>
+        <Tag>{getSecondaryIntentLabel(items2[0])}</Tag>
         {items2.length > 1 && <Tag>+{items2.length - 1}</Tag>}
       </span>
       <IntentDetailModal
@@ -643,8 +658,9 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
     width: 140,
     render: (v, record) => {
       const items = parseIntentType2(v);
+      const labels = items.map(getSecondaryIntentLabel);
       return (
-        <Tooltip title={items.length ? items.join('、') : ''} mouseEnterDelay={TIP_DELAY}>
+        <Tooltip title={labels.length ? labels.join('、') : ''} mouseEnterDelay={TIP_DELAY}>
           <div style={{ overflow: 'hidden', maxHeight: 28 }}>
             <SecondaryIntent value={v} intentType1={record.intent_type1} emailId={record.id} onSaved={(fields) => onIntentSaved(record.id, fields)} />
           </div>
@@ -727,7 +743,7 @@ const ParseResultView = ({ result }) => {
               {intents1.length || intents2.length ? (
                 <Space size={[4, 4]} wrap>
                   {intents1.map((i) => <Tag key={i} color={INTENT_COLOR[i] ?? 'blue'}>{INTENT_LABEL[i] ?? i}</Tag>)}
-                  {intents2.map((i) => <Tag key={i}>{i}</Tag>)}
+                  {intents2.map((i) => <Tag key={i}>{getSecondaryIntentLabel(i)}</Tag>)}
                 </Space>
               ) : <span style={{ color: '#ccc' }}>-</span>}
             </td>

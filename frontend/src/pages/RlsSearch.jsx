@@ -18,10 +18,14 @@ const copyText = (text) => {
   message.success("已复制");
 };
 
+const normalizeQueryNumber = (queryNumber) =>
+  queryNumber.startsWith("WHLC") ? queryNumber.slice(4) : queryNumber;
+
 const parseQueryNumbers = (text) =>
   String(text || "")
     .split(/[\r\n,]+/)
     .map((s) => s.trim())
+    .map(normalizeQueryNumber)
     .filter(Boolean);
 
 const formatLocalDate = (date) => {

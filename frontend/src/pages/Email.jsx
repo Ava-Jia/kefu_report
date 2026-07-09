@@ -25,6 +25,7 @@ const { Text } = Typography;
 
 // 悬浮提示统一延迟：比 antd 默认 0.1s 的呈现更跟手，浏览器原生 title 无法调速
 const TIP_DELAY = 0.1;
+const ROW_REMOVE_DELAY = 150;
 
 const EXCHANGE_OF_PORT = 'EXCHANGE_OF_PORT';
 
@@ -767,28 +768,57 @@ export default function Email() {
     }
   }, [selectedRowKeys.length]);
 
+  const reloadPageAfterRowsRemoved = (removedCount) => {
+    const remainingTotal = Math.max(total - removedCount, 0);
+    if (remainingTotal <= 0) return;
+
+    const maxPage = Math.ceil(remainingTotal / initPageSize);
+    const targetPage = Math.min(initPage, maxPage);
+    if (targetPage === initPage) {
+      loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initOrder);
+    } else {
+      pushParams(targetPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber);
+    }
+  };
+
+  const removeRowsOutsideCurrentCheckFilter = (ids, next) => {
+    if (initIsCheck !== null && initIsCheck !== undefined && next !== initIsCheck) {
+      const idSet = new Set(ids);
+      setFadingIds((prev) => new Set([...prev, ...idSet]));
+      setTimeout(() => {
+        const nextRows = tableData.filter((row) => !idSet.has(row.id));
+        const removedCount = tableData.length - nextRows.length;
+        setTableData(nextRows);
+        setFadingIds((prev) => {
+          const s = new Set(prev);
+          idSet.forEach((id) => s.delete(id));
+          return s;
+        });
+        if (nextRows.length === 0 && removedCount > 0) {
+          reloadPageAfterRowsRemoved(removedCount);
+        }
+      }, ROW_REMOVE_DELAY);
+    }
+  };
+
   const handleCheckChange = (id, next) => {
     setTableData((prev) => prev.map((row) => row.id === id ? { ...row, is_check: next } : row));
-    if (initIsCheck !== null && initIsCheck !== undefined && next !== initIsCheck) {
-      setFadingIds((prev) => new Set(prev).add(id));
-      setTimeout(() => {
-        setTableData((prev) => prev.filter((row) => row.id !== id));
-        setFadingIds((prev) => { const s = new Set(prev); s.delete(id); return s; });
-      }, 600);
-    }
+    removeRowsOutsideCurrentCheckFilter([id], next);
   };
 
   const [batchLoading, setBatchLoading] = useState(false);
 
   const handleBatchCheck = async (next) => {
     if (!selectedRowKeys.length) return;
+    const ids = selectedRowKeys;
     setBatchLoading(true);
     try {
-      await Promise.all(selectedRowKeys.map((id) => updateEmailCheck(id, next)));
+      await Promise.all(ids.map((id) => updateEmailCheck(id, next)));
       setTableData((prev) => prev.map((row) =>
-        selectedRowKeys.includes(row.id) ? { ...row, is_check: next } : row
+        ids.includes(row.id) ? { ...row, is_check: next } : row
       ));
-      message.success(`已将 ${selectedRowKeys.length} 条更新为「${CHECK_OPTIONS.find(o => o.value === next)?.label}」`);
+      removeRowsOutsideCurrentCheckFilter(ids, next);
+      message.success(`已将 ${ids.length} 条更新为「${CHECK_OPTIONS.find(o => o.value === next)?.label}」`);
       setSelectedRowKeys([]);
     } catch {
       message.error('批量更新失败');
@@ -1162,14 +1192,23 @@ export default function Email() {
           {CHECK_OPTIONS.map((o) => (
             <Button
               key={o.value}
+              type="text"
               size="small"
               loading={batchLoading}
+              style={{ padding: '0 4px' }}
               onClick={() => handleBatchCheck(o.value)}
             >
               <Tag color={o.color} style={{ margin: 0 }}>{o.label}</Tag>
             </Button>
           ))}
-          <Button size="small" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+          <Button
+            type="text"
+            size="small"
+            style={{ padding: '0 4px' }}
+            onClick={() => setSelectedRowKeys([])}
+          >
+            取消选择
+          </Button>
         </Space>
       )}
       <Table

@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
-  Button, Card, DatePicker, Dropdown, Input, Modal, Select, Space, Spin,
+  Button, Card, DatePicker, Dropdown, Flex, Input, Modal, Radio, Select, Space, Spin,
   Table, Tag, Typography, Upload, message,
 } from 'antd';
-import { CaretDownOutlined, CaretUpOutlined, EditOutlined, EyeOutlined, MailOutlined, SyncOutlined, UploadOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, CaretDownOutlined, CaretUpOutlined, CheckCircleOutlined, ClockCircleOutlined, EditOutlined, EyeOutlined, MailOutlined, SyncOutlined, UploadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { fetchEmailList, updateEmailCheck, updateEmail, uploadEmailEml, fetchEmailParseStatus } from '../api';
 
@@ -369,7 +369,7 @@ const PreviewButton = ({ row, listContext }) => {
     });
   };
   return (
-    <Button size="small" icon={<EyeOutlined />} onClick={handleClick}>
+    <Button size="small" onClick={handleClick}>
       预览
     </Button>
   );
@@ -1023,7 +1023,6 @@ export default function Email() {
             <Button size="large" danger onClick={handleClearAll}>清除</Button>
             <Button
               size="large"
-              icon={<UploadOutlined />}
               onClick={openUploadModal}
             >上传解析</Button>
           </Space>
@@ -1038,27 +1037,40 @@ export default function Email() {
               borderRadius: 8,
             }}
           >
-            {[
-              { label: '全部', value: null },
-              { label: '待处理', value: 0, color: 'gold' },
-              { label: '已处理', value: 1, color: 'green' },
-            ].map(({ label, value, color }) => {
-              const active = initIsCheck === value;
-              const hex = color === 'gold' ? '#faad14' : color === 'green' ? '#52c41a' : null;
-              return (
-                <Button
-                  key={String(value)}
-                  size="large"
-                  type={active ? 'primary' : 'default'}
-                  onClick={() => handleIsCheckChange(value)}
-                  style={hex ? (active
-                    ? { background: hex, borderColor: hex, color: '#fff' }
-                    : { color: hex, borderColor: hex }) : undefined}
-                >
-                  {label}
-                </Button>
-              );
-            })}
+          <Radio.Group
+            style={{ marginLeft: 'auto' }}
+            value={initIsCheck}
+            onChange={(e) => handleIsCheckChange(e.target.value)}
+            options={[
+              {
+                value: null,
+                label: (
+                  <div gap="small" justify="center" align="center" vertical>
+                    <span style={{ fontSize: 10 }} />
+                    全部
+                  </div>
+                ),
+              },
+              {
+                value: 0,
+                label: (
+                  <div gap="small" justify="center" align="center" vertical>
+                    <span style={{ fontSize: 10 }} />
+                    待处理
+                  </div>
+                ),
+              },
+              {
+                value: 1,
+                label: (
+                  <div gap="small" justify="center" align="center" vertical>
+                    <span style={{ fontSize: 10 }} />
+                    已处理
+                  </div>
+                ),
+              },
+            ]}
+          />
           </div>
         </div>
         <Modal

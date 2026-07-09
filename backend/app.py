@@ -26,6 +26,8 @@ load_dotenv()
 setup_logging()
 logger = logging.getLogger(__name__)
 
+# /api/email/create 是外部下单回调，无 token，单独放行；其余 /api/email/* 需鉴权，
+# 以便审计日志能记录操作人（operator）。
 _PUBLIC_PATHS = {"/api/auth/login", "/api/health", "/api/email/create"}
 _PUBLIC_PATH_PREFIXES = ("/api/companys", "/api/test", "/api/parser_result")
 

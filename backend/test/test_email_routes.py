@@ -32,7 +32,7 @@ def auth_headers():
 
 
 # ---------------------------------------------------------------------------
-# Auth
+# Auth：除 /api/email/create（外部回调）外，其余 /api/email/* 需鉴权
 # ---------------------------------------------------------------------------
 def test_requires_auth(client):
     resp = client.get("/api/email/list")
@@ -43,7 +43,8 @@ def test_requires_auth(client):
 # POST /api/email/create  (公开接口，无需 token)
 # ---------------------------------------------------------------------------
 def test_create_email_by_email_id(client, monkeypatch):
-    monkeypatch.setattr(er, "get_email_detail", lambda eid: {"id": eid})
+    # _create_by_email_id 从 Redis 取邮件用的是 get_email_result（非 get_email_detail）
+    monkeypatch.setattr(er, "get_email_result", lambda eid: {"id": eid})
     monkeypatch.setattr(er, "upsert_emails", lambda records: len(records))
 
     resp = client.post("/api/email/create", json={"email_id": "abc"})
@@ -64,7 +65,7 @@ def test_create_email_invalid_json(client):
 
 
 def test_create_email_not_found(client, monkeypatch):
-    monkeypatch.setattr(er, "get_email_detail", lambda eid: None)
+    monkeypatch.setattr(er, "get_email_result", lambda eid: None)
     resp = client.post("/api/email/create", json={"email_id": "missing"})
     assert resp.status_code == 404
 
@@ -72,7 +73,7 @@ def test_create_email_not_found(client, monkeypatch):
 def test_create_email_by_ordering_id_success(client, monkeypatch):
     monkeypatch.setattr(er, "get_email_id_by_ordering_id", lambda oid: "email-1")
     monkeypatch.setattr(er, "get_email_detail",
-                        lambda eid: {"mbl_number": "OLD", "brokerName": "Broker A"})
+                        lambda eid: {"mbl_number": "OLD", "broker_name": "Broker A"})
     monkeypatch.setattr(er, "get_order_result",
                         lambda oid: {"result": {"masterBillNo": "M1"}})
     monkeypatch.setattr(er, "compute_is_done", lambda result: 1)
@@ -168,16 +169,12 @@ def test_list_emails_defaults(client, auth_headers, monkeypatch):
 # GET /api/email/<id>/preview
 # ---------------------------------------------------------------------------
 def test_get_email_preview_success(client, auth_headers, monkeypatch):
-    detail = {
-        "html_content": "<p>hi</p>",
-        "attachments": [{"name": "a.pdf"}],
-        "parser_result": {"k": "v"},
-        "ordering_id": "order-preview",
-        "data_id": 12,
-        "is_check": 1,
-        "subject": "s",
-    }
-    monkeypatch.setattr(er, "get_email_full_detail", lambda eid: detail)
+    # 邮件元信息走 get_email_detail；html/附件走 email_html_attachment（Redis）；
+    # 解析结果走 parser 表 get_parser_result_by_ordering_id。
+    monkeypatch.setattr(er, "get_email_detail", lambda eid: {
+        "ordering_id": "order-preview", "data_id": 12, "is_check": 1, "subject": "s"})
+    monkeypatch.setattr(er, "email_html_attachment", lambda eid: {
+        "html_content": "<p>hi</p>", "attachments": [{"name": "a.pdf"}]})
     monkeypatch.setattr(
         er,
         "get_parser_result_by_ordering_id",
@@ -189,13 +186,14 @@ def test_get_email_preview_success(client, auth_headers, monkeypatch):
     assert resp.status_code == 200
     data = resp.get_json()["data"]
     assert data["html_content"] == "<p>hi</p>"
+    assert data["attachments"] == [{"name": "a.pdf"}]
     assert data["result"] == {"k": "v2"}
     assert data["data_id"] == 12
     assert data["subject"] == "s"
 
 
 def test_get_email_preview_not_found(client, auth_headers, monkeypatch):
-    monkeypatch.setattr(er, "get_email_full_detail", lambda eid: None)
+    monkeypatch.setattr(er, "get_email_detail", lambda eid: None)
     resp = client.get("/api/email/missing/preview", headers=auth_headers)
     assert resp.status_code == 404
 

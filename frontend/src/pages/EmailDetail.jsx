@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Button, Spin, Modal, message } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined, ZoomInOutlined, CheckOutlined } from '@ant-design/icons';
-import { fetchEmailPreview, updateEmail, updateEmailCheck, fetchAdjacentEmail } from '../api';
+import { ArrowLeftOutlined, SaveOutlined, ZoomInOutlined, CheckOutlined, DownloadOutlined } from '@ant-design/icons';
+import { fetchEmailPreview, updateEmail, updateEmailCheck, fetchAdjacentEmail, fetchEmailList } from '../api';
 
 function EditableText({ value, onChange, style, renderValue }) {
   const [editing, setEditing] = useState(false);
@@ -283,6 +283,9 @@ export default function EmailDetail() {
   const location = useLocation();
   const backTo = location.state?.from ?? '/email';
 
+  // 筛选结果列表上下文（来自列表页的预览跳转），用于在筛选集合内翻页 + 跨页续翻
+  const [listNav, setListNav] = useState(location.state?.list ?? null);
+
   const [html, setHtml] = useState('');
   const [htmlLoading, setHtmlLoading] = useState(true);
   const [subject, setSubject] = useState(location.state?.subject ?? '');
@@ -466,8 +469,74 @@ export default function EmailDetail() {
 
   const navLoadingRef = useRef(false);
 
+  const releaseNavLock = () => {
+    navLoadingRef.current = false;
+    setNavLoading(null);
+  };
+
+  // 列表模式翻页：跳转到目标 id，并透传（可能已更新的）列表上下文。
+  // 跳转后保持锁定，直到新邮件的 preview 数据加载完成（见下方 useEffect 的 finally）才释放。
+  const goToListId = (targetId, nav) => {
+    setListNav(nav);
+    navigate(`/email/${targetId}`, { state: { from: backTo, list: nav } });
+  };
+
+  // 跨页：用相同筛选条件拉取相邻页，跳到该页首/末条
+  const loadAdjacentPage = async (nav, targetPage, pos) => {
+    try {
+      const res = await fetchEmailList({ page: targetPage, page_size: nav.pageSize, ...nav.filters });
+      if (res?.code === 200 && res.data?.items?.length) {
+        const items = res.data.items;
+        const target = pos === 'first' ? items[0] : items[items.length - 1];
+        goToListId(target.id, {
+          ...nav,
+          ids: items.map((it) => it.id),
+          page: targetPage,
+          total: res.data.total ?? nav.total,
+        });
+        return;
+      }
+      message.info(pos === 'first' ? '已经是最后一条' : '已经是第一条');
+    } catch {
+      message.error('切换失败');
+    }
+    releaseNavLock();
+  };
+
   const navigateAdjacent = async (direction) => {
     if (navLoadingRef.current) return;
+
+    // 列表模式：在筛选结果集合内翻页（带跨页续翻）
+    if (listNav?.ids?.length) {
+      const ids = listNav.ids;
+      let idx = ids.findIndex((x) => String(x) === String(id));
+      if (idx === -1) idx = 0;
+      const target = idx + (direction === 'next' ? 1 : -1);
+
+      navLoadingRef.current = true;
+      setNavLoading(direction);
+
+      if (target >= 0 && target < ids.length) {
+        goToListId(ids[target], listNav);
+        return;
+      }
+      if (direction === 'next') {
+        if (listNav.page * listNav.pageSize < listNav.total) {
+          await loadAdjacentPage(listNav, listNav.page + 1, 'first');
+        } else {
+          message.info('已经是最后一条');
+          releaseNavLock();
+        }
+      } else if (listNav.page > 1) {
+        await loadAdjacentPage(listNav, listNav.page - 1, 'last');
+      } else {
+        message.info('已经是第一条');
+        releaseNavLock();
+      }
+      return;
+    }
+
+    // 回退模式：无列表上下文（直接访问 / 刷新），按 data_id 走后端相邻查询
     if (dataId === null || dataId === undefined) {
       message.info('缺少 data_id，无法定位上一条/下一条');
       return;
@@ -478,7 +547,6 @@ export default function EmailDetail() {
       const res = await fetchAdjacentEmail(id, dataId, direction);
       if (res?.code === 200) {
         if (res.data?.id) {
-          // 跳转后保持锁定，直到新邮件的 preview 数据加载完成（见下方 useEffect 的 finally）才释放
           navigate(`/email/${res.data.id}`, { state: { from: backTo } });
           return;
         }
@@ -489,8 +557,7 @@ export default function EmailDetail() {
     } catch {
       message.error('切换失败');
     }
-    navLoadingRef.current = false;
-    setNavLoading(null);
+    releaseNavLock();
   };
 
   const handleNav = (direction, e) => {
@@ -524,7 +591,8 @@ export default function EmailDetail() {
           setIsCheck(emailIsCheck ?? 0);
           setSubject(emailSubject ?? '');
 
-          let htmlStr = htmlContent || '';
+          // html_content 可能是字符串或字符串数组，统一拼成字符串
+          let htmlStr = Array.isArray(htmlContent) ? htmlContent.join('') : (htmlContent || '');
           (allAttachments ?? []).forEach((att) => {
             const url = resolveAttachmentUrl(att);
             if (att.content_id && url) {
@@ -567,6 +635,13 @@ export default function EmailDetail() {
         setNavLoading(null);
       });
   }, [id]);
+
+  // 列表模式下的首/尾边界（用于禁用对应翻页按钮）
+  const listIdx = listNav?.ids?.length ? listNav.ids.findIndex((x) => String(x) === String(id)) : -1;
+  const atListStart = !!listNav?.ids?.length && listNav.page <= 1 && listIdx <= 0;
+  const atListEnd = !!listNav?.ids?.length
+    && listNav.page * listNav.pageSize >= listNav.total
+    && listIdx >= listNav.ids.length - 1;
 
   const emailSrcDoc = `<style>
     ::-webkit-scrollbar{display:none}
@@ -624,7 +699,7 @@ export default function EmailDetail() {
             size="large"
             type="primary"
             loading={navLoading === 'prev'}
-            disabled={navLoading === 'next'}
+            disabled={navLoading === 'next' || atListStart}
             onClick={(e) => handleNav('prev', e)}
           >
             上一个
@@ -633,7 +708,7 @@ export default function EmailDetail() {
             size="large"
             type="primary"
             loading={navLoading === 'next'}
-            disabled={navLoading === 'prev'}
+            disabled={navLoading === 'prev' || atListEnd}
             onClick={(e) => handleNav('next', e)}
           >
             下一个
@@ -761,7 +836,7 @@ export default function EmailDetail() {
                   <div style={{ color: '#aaa', fontSize: 13 }}>
                     该附件暂不支持预览，
                     <a href={attachments[activeIdx].attachmentTypeUrl} target="_blank" rel="noreferrer">
-                      点击下载
+                      <DownloadOutlined /> 点击下载
                     </a>
                   </div>
                 )}

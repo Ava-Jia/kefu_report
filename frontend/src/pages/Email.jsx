@@ -1,14 +1,32 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
-  Button, Card, DatePicker, Dropdown, Input, Modal, Select, Space,
-  Table, Tag, Typography, message,
+  CaretDownOutlined,
+  CaretUpOutlined,
+  DownloadOutlined,
+  EditOutlined,
+  FileSearchOutlined,
+  UploadOutlined,
+} from '@ant-design/icons';
+import {
+  Button, DatePicker, Divider, Flex, Input, Modal, Radio, Select, Space, Spin,
+  Table, Tag, Tooltip, Typography, Upload, message,
 } from 'antd';
-import { EditOutlined, EyeOutlined, MailOutlined, SyncOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { fetchEmailList, updateEmailCheck, updateEmail } from '../api';
+import {
+  fetchEmailList,
+  updateEmailCheck,
+  updateEmail,
+  uploadEmailEml,
+  fetchEmailParseStatus,
+} from '../api';
 
 const { Text } = Typography;
+
+// 悬浮提示统一延迟：比 antd 默认 0.1s 的呈现更跟手，浏览器原生 title 无法调速
+const TIP_DELAY = 0.1;
+
+const EXCHANGE_OF_PORT = 'EXCHANGE_OF_PORT';
 
 const INTENT_COLOR = {
   CANCEL_IT: 'red',
@@ -40,23 +58,27 @@ const INTENT_LABEL = {
   EXCHANGE_OF_PORT: '预报/换单',
   OTHER: '其他',
   AGENT_REPLY: '代理回复',
-  OTHER_AGENT_REQUEST: '代理回复'
+  OTHER_AGENT_REQUEST: '代理回复',
 };
-
-const EXCHANGE_OF_PORT = 'EXCHANGE_OF_PORT';
 
 const INTENT_OPTIONS = Object.keys(INTENT_COLOR).map((value) => ({
   label: INTENT_LABEL[value] ?? value,
   value,
 }));
 
-const splitValues = (v) =>
-  v ? v.split(',').map((s) => s.trim()).filter(Boolean) : [];
+const splitValues = (v) => {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.map((s) => String(s).trim()).filter(Boolean);
+  return String(v).split(',').map((s) => s.trim()).filter(Boolean);
+};
 
 const parseIntentType2 = (v) => {
   if (!v) return [];
-  const trimmed = v.trim();
+  if (Array.isArray(v)) return v.map((s) => String(s).trim()).filter(Boolean);
+
+  const trimmed = String(v).trim();
   let items = [];
+
   if (trimmed.startsWith('[')) {
     try {
       items = JSON.parse(trimmed.replace(/'/g, '"'));
@@ -66,45 +88,94 @@ const parseIntentType2 = (v) => {
   } else {
     items = splitValues(trimmed);
   }
+
   return items.filter((s) => s && s.trim());
 };
 
 const copyText = (text) => {
   if (!text) return;
+
   if (navigator.clipboard) {
     navigator.clipboard.writeText(text).then(() => message.success('已复制'));
-  } else {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    message.success('已复制');
+    return;
   }
+
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  message.success('已复制');
 };
 
-const MultiMbl = ({ value, row, onSaved }) => {
+// 空值统一占位：与 MBL 号一致的灰色短横
+const EmptyDash = () => <span style={{ color: '#ccc' }}>-</span>;
+
+// 可复制文本：点击复制并高亮 2 秒
+const CopyableText = ({ text, copyValue, tooltip }) => {
+  const [highlight, setHighlight] = useState(false);
+  const timerRef = useRef();
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  const handleClick = () => {
+    copyText(copyValue ?? text);
+    setHighlight(true);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setHighlight(false), 2000);
+  };
+
+  return (
+    <Tooltip title={tooltip ?? text} mouseEnterDelay={TIP_DELAY}>
+      <Text
+        onClick={handleClick}
+        ellipsis
+        style={{
+          maxWidth: '100%',
+          cursor: 'pointer',
+          padding: '0 2px',
+          borderRadius: 4,
+          transition: 'background 0.2s, color 0.2s',
+          background: highlight ? '#e6f4ff' : 'transparent',
+          color: highlight ? '#1677ff' : undefined,
+        }}
+      >
+        {text}
+      </Text>
+    </Tooltip>
+  );
+};
+
+// 单元格右侧的修改图标：默认隐藏，hover 单元格时显示（见 index.css .row-edit-icon）
+const EditIcon = ({ onClick }) => (
+  <EditOutlined
+    className="row-edit-icon"
+    style={{ cursor: 'pointer', color: '#1677FF', fontSize: 16, marginLeft: 'auto', flexShrink: 0 }}
+    onClick={onClick}
+  />
+);
+
+// 可复制 + 可修改的文本单元格（代理名称、角色）
+const EditableTextField = ({ row, field, title, value, onSaved }) => {
   const [open, setOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
-  const items = splitValues(value);
 
-  const handleEditOpen = () => {
-    setDraft(items.join('\n'));
-    setEditOpen(true);
+  const openModal = () => {
+    setDraft(value || '');
+    setOpen(true);
   };
 
   const handleSave = async () => {
-    const nextValue = draft.split('\n').map((s) => s.trim()).filter(Boolean).join(',');
+    const nextValue = draft.trim();
     setSaving(true);
     try {
-      const res = await updateEmail(row.id, { mbl_number: nextValue });
+      const res = await updateEmail(row.id, { [field]: nextValue });
       if (res?.code === 200) {
         message.success('保存成功');
-        onSaved?.(row.id, { mbl_number: nextValue });
-        setEditOpen(false);
+        onSaved?.(row.id, { [field]: nextValue });
+        setOpen(false);
       } else {
         message.error(res?.message || '保存失败');
       }
@@ -116,62 +187,26 @@ const MultiMbl = ({ value, row, onSaved }) => {
   };
 
   return (
-    <>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-        {items.length > 0 ? (
-          <Button
-            size="small"
-            style={{ fontSize: 12, padding: '0 6px' }}
-            onClick={() => copyText(items.join('\n'))}
-          >
-            {items[0]}
-          </Button>
-        ) : (
-          <span style={{ color: '#ccc' }}>-</span>
-        )}
-        {items.length > 1 && (
-          <Tag style={{ margin: 0, cursor: 'pointer' }} onClick={() => setOpen(true)}>
-            +{items.length - 1}
-          </Tag>
-        )}
-        <EditOutlined
-          title="修改 MBL 号"
-          style={{ cursor: 'pointer', color: '#999', fontSize: 12 }}
-          onClick={handleEditOpen}
-        />
-      </span>
-      {items.length > 1 && (
-        <Modal
-          title={`全部 MBL（${items.length}）`}
-          open={open}
-          onCancel={() => setOpen(false)}
-          footer={null}
-          width={400}
-        >
-          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
-            <Space direction="vertical" size={6} style={{ width: '100%' }}>
-              {items.map((m) => <Text key={m} copyable>{m}</Text>)}
-            </Space>
-          </div>
-        </Modal>
-      )}
+    <span style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 4 }}>
+      {value ? <CopyableText text={value} /> : <EmptyDash />}
+      <EditIcon onClick={openModal} />
       <Modal
-        title="修改 MBL 号"
-        open={editOpen}
-        onCancel={() => setEditOpen(false)}
+        title={`修改${title}`}
+        open={open}
+        onCancel={() => setOpen(false)}
         onOk={handleSave}
         confirmLoading={saving}
         okText="保存"
         cancelText="取消"
       >
-        <Input.TextArea
-          rows={6}
+        <Input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="每行一个 MBL 号"
+          onPressEnter={handleSave}
+          placeholder={`请输入${title}`}
         />
       </Modal>
-    </>
+    </span>
   );
 };
 
@@ -248,7 +283,7 @@ const MultiIntent = ({ value, intentType2, emailId, onSaved }) => {
   const [open, setOpen] = useState(false);
   const items = splitValues(value);
   const items2 = parseIntentType2(intentType2);
-  if (!items.length) return '-';
+  if (!items.length) return <EmptyDash />;
   return (
     <>
       <span style={{ cursor: 'pointer' }} onClick={() => setOpen(true)}>
@@ -271,7 +306,7 @@ const SecondaryIntent = ({ value, intentType1, emailId, onSaved }) => {
   const [open, setOpen] = useState(false);
   const items2 = parseIntentType2(value);
   const items1 = splitValues(intentType1);
-  if (!items2.length) return '-';
+  if (!items2.length) return <EmptyDash />;
   return (
     <>
       <span style={{ cursor: 'pointer' }} onClick={() => setOpen(true)}>
@@ -308,6 +343,12 @@ const CHECK_OPTIONS = [
   { value: 0, label: '待处理', color: 'gold' },
   { value: 1, label: '已处理', color: 'green' },
   { value: 2, label: '待定',   color: 'warning' },
+];
+
+const CHECK_FILTER_OPTIONS = [
+  { value: null, label: '全部' },
+  { value: 0, label: '待处理' },
+  { value: 1, label: '已处理' },
 ];
 
 const CheckButton = ({ id, value, onChange }) => {
@@ -351,39 +392,47 @@ const CheckButton = ({ id, value, onChange }) => {
   );
 };
 
-const PreviewButton = ({ row }) => {
+const PreviewButton = ({ row, listContext }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const handleClick = () => {
-    navigate(`/email/${row.id}`, { state: { from: location.pathname + location.search, subject: row.subject } });
+    navigate(`/email/${row.id}`, {
+      state: {
+        from: location.pathname + location.search,
+        subject: row.subject,
+        // 携带当前筛选后的列表，用于详情页在筛选结果内翻页（上一条/下一条）
+        list: listContext,
+      },
+    });
   };
   return (
-    <Button size="small" icon={<EyeOutlined />} onClick={handleClick}>
-      预览
+    <Button size="small" icon={<FileSearchOutlined />} onClick={handleClick}>
     </Button>
   );
 };
 
-const EditableTextCell = ({ row, field, title, value, onSaved }) => {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(value || '');
+// MBL 号：只读展示，多个时显示首个 + “+N” 标签，点击查看全部
+const MblCell = ({ row, value, onSaved }) => {
+  const [viewOpen, setViewOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
-  const displayValue = value || '-';
+  const items = splitValues(value);
 
-  const handleOpen = () => {
-    setDraft(value || '');
-    setOpen(true);
+  const openEdit = () => {
+    setDraft(items.join('\n'));
+    setEditOpen(true);
   };
 
   const handleSave = async () => {
-    const nextValue = draft.trim();
+    const nextValue = draft.split('\n').map((s) => s.trim()).filter(Boolean).join(',');
     setSaving(true);
     try {
-      const res = await updateEmail(row.id, { [field]: nextValue });
+      const res = await updateEmail(row.id, { mbl_number: nextValue });
       if (res?.code === 200) {
         message.success('保存成功');
-        onSaved?.(row.id, { [field]: nextValue });
-        setOpen(false);
+        onSaved?.(row.id, { mbl_number: nextValue });
+        setEditOpen(false);
       } else {
         message.error(res?.message || '保存失败');
       }
@@ -395,44 +444,76 @@ const EditableTextCell = ({ row, field, title, value, onSaved }) => {
   };
 
   return (
-    <>
-      <Button
-        size="small"
-        title={value || `修改${title}`}
-        onClick={handleOpen}
-        style={{
-          fontSize: 12,
-          padding: '0 6px',
-          maxWidth: '100%',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {displayValue}
-      </Button>
+    <span style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 4 }}>
+      {items.length ? (
+        <span style={{ minWidth: 0, flexShrink: 1, display: 'flex' }}>
+          <CopyableText text={items[0]} copyValue={items.join('\n')} tooltip={items.join('\n')} />
+        </span>
+      ) : (
+        <EmptyDash />
+      )}
+      {items.length > 1 && (
+        <Tag style={{ margin: 0, cursor: 'pointer', flexShrink: 0 }} onClick={() => setViewOpen(true)}>
+          +{items.length - 1}
+        </Tag>
+      )}
+      <EditIcon onClick={openEdit} />
       <Modal
-        title={`修改${title}`}
-        open={open}
-        onCancel={() => setOpen(false)}
+        title={`全部 MBL（${items.length}）`}
+        open={viewOpen}
+        onCancel={() => setViewOpen(false)}
+        footer={null}
+        width={400}
+      >
+        <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+          <Space direction="vertical" size={6} style={{ width: '100%' }}>
+            {items.map((m) => <Text key={m} copyable>{m}</Text>)}
+          </Space>
+        </div>
+      </Modal>
+      <Modal
+        title="修改 MBL 号"
+        open={editOpen}
+        onCancel={() => setEditOpen(false)}
         onOk={handleSave}
         confirmLoading={saving}
         okText="保存"
         cancelText="取消"
       >
-        <Input
+        <Input.TextArea
+          rows={6}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onPressEnter={handleSave}
-          placeholder={`请输入${title}`}
+          placeholder="每行一个 MBL 号"
         />
       </Modal>
-    </>
+    </span>
   );
 };
 
-const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
+const DateSortHeader = ({ order, onOrderChange }) => (
+  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+    日期
+    <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: '9px' }}>
+      <Tooltip title="日期顺序（最早在前）" mouseEnterDelay={TIP_DELAY}>
+        <CaretUpOutlined
+          onClick={(e) => { e.stopPropagation(); onOrderChange('asc'); }}
+          style={{ fontSize: 14, cursor: 'pointer', color: order === 'asc' ? '#1677ff' : '#bbb' }}
+        />
+      </Tooltip>
+      <Tooltip title="日期倒序（最新在前）" mouseEnterDelay={TIP_DELAY}>
+        <CaretDownOutlined
+          onClick={(e) => { e.stopPropagation(); onOrderChange('desc'); }}
+          style={{ fontSize: 14, cursor: 'pointer', color: order === 'desc' ? '#1677ff' : '#bbb' }}
+        />
+      </Tooltip>
+    </span>
+  </span>
+);
+
+const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listContext, order, onOrderChange) => [
   {
-    title: '日期',
+    title: <DateSortHeader order={order} onOrderChange={onOrderChange} />,
     dataIndex: 'date',
     key: 'date',
     width: 150,
@@ -447,36 +528,21 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
     title: '代理名称',
     dataIndex: 'broker_name',
     key: 'broker_name',
-    width: 200,
-    ellipsis: true,
-    render: (v, record) => {
-      const text = v || record['broker-name'];
-      return (
-        <EditableTextCell
-          row={record}
-          field="broker_name"
-          title="代理名称"
-          value={text}
-          onSaved={onFieldSaved}
-        />
-      );
-    },
+    width: 220,
+    render: (v, record) => (
+      <EditableTextField row={record} field="broker_name" title="代理名称" value={v || record['broker-name']} onSaved={onFieldSaved} />
+    ),
   },
   {
     title: '发件人',
     dataIndex: 'from',
     key: 'from',
     width: 200,
-    ellipsis: true,
     render: (v) => {
-      if (!v) return '-';
+      if (!v) return <EmptyDash />;
       const m = v.match(/<([^>]+)>/);
       const text = m ? m[1] : v.trim();
-      return (
-        <span style={{ cursor: 'pointer' }} title={text} onClick={() => copyText(text)}>
-          {text}
-        </span>
-      );
+      return <CopyableText text={text} />;
     },
   },
   {
@@ -484,15 +550,8 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
     dataIndex: 'role',
     key: 'role',
     width: 100,
-    ellipsis: true,
     render: (v, record) => (
-      <EditableTextCell
-        row={record}
-        field="role"
-        title="角色"
-        value={v}
-        onSaved={onFieldSaved}
-      />
+      <EditableTextField row={record} field="role" title="角色" value={v} onSaved={onFieldSaved} />
     ),
   },
   {
@@ -501,21 +560,22 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
     key: 'subject',
     width: 150,
     render: (v) => (
-      <div
-        style={{
-          maxHeight: 22,
-          overflow: 'hidden',
-          fontSize: 13,
-          lineHeight: '22px',
-          whiteSpace: 'nowrap',
-          textOverflow: 'ellipsis',
-          cursor: v ? 'pointer' : 'default',
-        }}
-        title={v || '-'}
-        onClick={() => copyText(v)}
-      >
-        {v || '-'}
-      </div>
+      <Tooltip title={v || ''} mouseEnterDelay={TIP_DELAY}>
+        <div
+          style={{
+            maxHeight: 22,
+            overflow: 'hidden',
+            fontSize: 13,
+            lineHeight: '22px',
+            whiteSpace: 'nowrap',
+            textOverflow: 'ellipsis',
+            cursor: v ? 'pointer' : 'default',
+          }}
+          onClick={() => copyText(v)}
+        >
+          {v || <EmptyDash />}
+        </div>
+      </Tooltip>
     ),
   },
   {
@@ -523,14 +583,7 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
     dataIndex: 'mbl_number',
     key: 'mbl_number',
     width: 230,
-    render: (v, record) => {
-      const preview = v ? splitValues(v).join('\n') : '';
-      return (
-        <div style={{ overflow: 'hidden', maxHeight: 28 }} title={preview || '-'}>
-          <MultiMbl value={v} row={record} onSaved={onFieldSaved} />
-        </div>
-      );
-    },
+    render: (v, record) => <MblCell row={record} value={v} onSaved={onFieldSaved} />,
   },
   {
     title: 'Check',
@@ -549,42 +602,54 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
     key: 'email_summary',
     width: 180,
     render: (v) => (
-      <div
-        style={{
-          maxHeight: 22,
-          overflow: 'hidden',
-          fontSize: 13,
-          lineHeight: '22px',
-          whiteSpace: 'nowrap',
-          textOverflow: 'ellipsis',
-        }}
-        title={v || '-'}
-      >
-        {v || '-'}
-      </div>
+      <Tooltip title={v || ''} mouseEnterDelay={TIP_DELAY}>
+        <div
+          style={{
+            maxHeight: 22,
+            overflow: 'hidden',
+            fontSize: 13,
+            lineHeight: '22px',
+            whiteSpace: 'nowrap',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {v || <EmptyDash />}
+        </div>
+      </Tooltip>
     ),
   },
   {
+    
     title: '一级意图',
     dataIndex: 'intent_type1',
     key: 'intent_type1',
-    width: 130,
-    render: (v, record) => (
-      <div style={{ overflow: 'hidden', maxHeight: 28 }}>
-        <MultiIntent value={v} intentType2={record.intent_type2} emailId={record.id} onSaved={(fields) => onIntentSaved(record.id, fields)} />
-      </div>
-    ),
+    width: 150,
+    render: (v, record) => {
+      const labels = splitValues(v).map((code) => INTENT_LABEL[code] ?? code);
+      return (
+        <Tooltip title={labels.length ? labels.join('、') : ''} mouseEnterDelay={TIP_DELAY}>
+          <div style={{ overflow: 'hidden', maxHeight: 28 }}>
+            <MultiIntent value={v} intentType2={record.intent_type2} emailId={record.id} onSaved={(fields) => onIntentSaved(record.id, fields)} />
+          </div>
+        </Tooltip>
+      );
+    },
   },
   {
     title: '二级意图',
     dataIndex: 'intent_type2',
     key: 'intent_type2',
     width: 140,
-    render: (v, record) => (
-      <div style={{ overflow: 'hidden', maxHeight: 28 }}>
-        <SecondaryIntent value={v} intentType1={record.intent_type1} emailId={record.id} onSaved={(fields) => onIntentSaved(record.id, fields)} />
-      </div>
-    ),
+    render: (v, record) => {
+      const items = parseIntentType2(v);
+      return (
+        <Tooltip title={items.length ? items.join('、') : ''} mouseEnterDelay={TIP_DELAY}>
+          <div style={{ overflow: 'hidden', maxHeight: 28 }}>
+            <SecondaryIntent value={v} intentType1={record.intent_type1} emailId={record.id} onSaved={(fields) => onIntentSaved(record.id, fields)} />
+          </div>
+        </Tooltip>
+      );
+    },
   },
   {
     title: '下单状态',
@@ -615,19 +680,62 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved) => [
   {
     title: '操作',
     key: 'action',
+    fixed: 'right',
     width: 100,
     render: (_, row) => (
-      <Space size={4}>
-        <PreviewButton row={row} />
+      <Space size={8} split={<Divider type="vertical" style={{ margin: 0 }} />}>
+        <PreviewButton row={row} listContext={listContext} />
         {row.email_url && (
-          <a href={row.email_url} target="_blank" rel="noreferrer" title="原始邮件链接">
-            <MailOutlined style={{ fontSize: 16, color: '#1677ff' }} />
-          </a>
+          <Tooltip title="原始邮件链接" mouseEnterDelay={TIP_DELAY}>
+            <a href={row.email_url} target="_blank" rel="noreferrer">
+              <DownloadOutlined style={{ fontSize: 16, color: '#1677ff' }} />
+            </a>
+          </Tooltip>
         )}
       </Space>
     ),
   },
 ];
+
+// 展示 .eml 异步解析返回的关键字段
+const ParseResultView = ({ result }) => {
+  const intents1 = splitValues(result.intent_type1);
+  const intents2 = parseIntentType2(result.intent_type2);
+  const rows = [
+    ['邮件主题', result.subject],
+    ['发件人', result.from],
+    ['日期', result.date],
+    ['代理名称', result.brokerName],
+    ['MBL 号', result.mbl_number],
+    ['邮件摘要', result.email_summary],
+  ];
+  return (
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>解析结果</div>
+      <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+        <tbody>
+          {rows.map(([label, value]) => (
+            <tr key={label}>
+              <td style={{ padding: '4px 8px', color: '#999', width: 84, verticalAlign: 'top', whiteSpace: 'nowrap' }}>{label}</td>
+              <td style={{ padding: '4px 8px', wordBreak: 'break-all' }}>{value || <span style={{ color: '#ccc' }}>-</span>}</td>
+            </tr>
+          ))}
+          <tr>
+            <td style={{ padding: '4px 8px', color: '#999', verticalAlign: 'top' }}>意图</td>
+            <td style={{ padding: '4px 8px' }}>
+              {intents1.length || intents2.length ? (
+                <Space size={[4, 4]} wrap>
+                  {intents1.map((i) => <Tag key={i} color={INTENT_COLOR[i] ?? 'blue'}>{INTENT_LABEL[i] ?? i}</Tag>)}
+                  {intents2.map((i) => <Tag key={i}>{i}</Tag>)}
+                </Space>
+              ) : <span style={{ color: '#ccc' }}>-</span>}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+};
 
 export default function Email() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -641,6 +749,7 @@ export default function Email() {
     ? parseInt(searchParams.get('is_check'), 10)
     : null;
   const initMblNumber = searchParams.get('mbl_number') || '';
+  const initOrder = searchParams.get('order') === 'asc' ? 'asc' : 'desc';
 
   const [tableData, setTableData] = useState([]);
   const [tableLoading, setTableLoading] = useState(false);
@@ -657,12 +766,6 @@ export default function Email() {
       return () => clearTimeout(t);
     }
   }, [selectedRowKeys.length]);
-
-  const category = initCategory;
-  const dateRange = [
-    initDateFrom ? dayjs(initDateFrom) : null,
-    initDateTo ? dayjs(initDateTo) : null,
-  ];
 
   const handleCheckChange = (id, next) => {
     setTableData((prev) => prev.map((row) => row.id === id ? { ...row, is_check: next } : row));
@@ -694,17 +797,12 @@ export default function Email() {
     }
   };
 
-  const handleIntentSaved = (id, fields) => {
+  // 意图/字段保存后就地更新该行数据
+  const handleRowSaved = (id, fields) => {
     setTableData((prev) => prev.map((row) => row.id === id ? { ...row, ...fields } : row));
   };
 
-  const handleFieldSaved = (id, fields) => {
-    setTableData((prev) => prev.map((row) => row.id === id ? { ...row, ...fields } : row));
-  };
-
-  const tableColumns = buildTableColumns(handleCheckChange, handleIntentSaved, handleFieldSaved);
-
-  const pushParams = (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber) => {
+  const pushParams = (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber, order = initOrder) => {
     const p = {};
     if (page !== 1) p.page = page;
     if (pageSize !== 50) p.pageSize = pageSize;
@@ -713,10 +811,11 @@ export default function Email() {
     if (dateTo) p.date_to = dateTo;
     if (isCheck !== null && isCheck !== undefined) p.is_check = isCheck;
     if (mblNumber) p.mbl_number = mblNumber;
+    if (order === 'asc') p.order = 'asc';
     setSearchParams(p, { replace: false });
   };
 
-  const loadTable = async (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber) => {
+  const loadTable = async (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber, order) => {
     setTableLoading(true);
     try {
       const res = await fetchEmailList({
@@ -727,6 +826,7 @@ export default function Email() {
         date_to: dateTo,
         is_check: isCheck,
         mbl_number: mblNumber,
+        order,
       });
       if (res?.code === 200) {
         setTableData(res.data.items);
@@ -742,15 +842,33 @@ export default function Email() {
   };
 
   useEffect(() => {
-    loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber);
+    loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initOrder);
   }, [searchParams.toString()]);
+
+  const handleOrderChange = (value) => {
+    pushParams(1, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, value);
+  };
+
+  // 当前筛选后的列表上下文，随预览一起带入详情页，用于结果内翻页 + 跨页续翻
+  const listContext = {
+    ids: tableData.map((r) => r.id),
+    page: initPage,
+    pageSize: initPageSize,
+    total,
+    filters: {
+      intent_type1: initCategory,
+      date_from: initDateFrom,
+      date_to: initDateTo,
+      is_check: initIsCheck,
+      mbl_number: initMblNumber,
+      order: initOrder,
+    },
+  };
+
+  const tableColumns = buildTableColumns(handleCheckChange, handleRowSaved, handleRowSaved, listContext, initOrder, handleOrderChange);
 
   const handleCategoryChange = (value) => {
     pushParams(1, initPageSize, value || '', initDateFrom, initDateTo, initIsCheck, initMblNumber);
-  };
-
-  const handleClearAll = () => {
-    setSearchParams({}, { replace: false });
   };
 
   const handleIsCheckChange = (value) => {
@@ -762,16 +880,6 @@ export default function Email() {
   };
 
   const [customPickerOpen, setCustomPickerOpen] = useState(false);
-
-  const handleTodayOrder = () => {
-    const today = dayjs().format('YYYY-MM-DD');
-    pushParams(1, initPageSize, EXCHANGE_OF_PORT, today, today, initIsCheck, initMblNumber);
-  };
-
-  const isTodayOrderActive =
-    initCategory === EXCHANGE_OF_PORT &&
-    initDateFrom === dayjs().format('YYYY-MM-DD') &&
-    initDateTo === dayjs().format('YYYY-MM-DD');
 
   const handleCustomDateChange = (dates) => {
     if (!dates) {
@@ -788,139 +896,304 @@ export default function Email() {
 
   const hasDateFilter = !!(initDateFrom || initDateTo);
 
+  const handleQuickRange = (days) => {
+    const to = dayjs().format('YYYY-MM-DD');
+    const from = dayjs().subtract(days - 1, 'day').format('YYYY-MM-DD');
+    pushParams(1, initPageSize, initCategory, from, to, initIsCheck, initMblNumber);
+  };
+
+  const activeQuickRange = (() => {
+    if (initDateTo !== dayjs().format('YYYY-MM-DD')) return null;
+    return [1, 7, 15].find(
+      (d) => initDateFrom === dayjs().subtract(d - 1, 'day').format('YYYY-MM-DD'),
+    ) ?? null;
+  })();
+
   const handlePageChange = (page, pageSize) => {
     pushParams(page, pageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber);
   };
 
+  // 上传解析：idle -> uploading -> polling -> done | failed
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadPhase, setUploadPhase] = useState('idle');
+  const [parseResult, setParseResult] = useState(null);
+  const [parseError, setParseError] = useState('');
+  const [showRawResult, setShowRawResult] = useState(false);
+  const pollTokenRef = useRef(0); // 自增令牌，切换文件/关弹窗时使旧轮询失效
+
+  const POLL_INTERVAL = 10000;
+  const POLL_MAX = 90; // 最多轮询约 3 分钟
+
+  const terminalPhase = (status) => {
+    const v = (status || '').toLowerCase();
+    if (['completed', 'success', 'succeeded', 'done', 'finished'].includes(v)) return 'done';
+    if (['failed', 'failure', 'error', 'cancelled', 'canceled'].includes(v)) return 'failed';
+    return null;
+  };
+
+  const pollStatus = async (taskId, token, attempt) => {
+    if (pollTokenRef.current !== token) return;
+    try {
+      const res = await fetchEmailParseStatus(taskId);
+      if (pollTokenRef.current !== token) return;
+      if (res?.code === 200) {
+        const data = res.data || {};
+        const phase = terminalPhase(data.status);
+        if (phase === 'done') {
+          setParseResult(data.result || {});
+          setUploadPhase('done');
+          return;
+        }
+        if (phase === 'failed') {
+          setParseError(data.error || '解析失败');
+          setUploadPhase('failed');
+          return;
+        }
+      }
+    } catch {
+      // 单次查询失败忽略，继续重试
+    }
+    if (attempt + 1 >= POLL_MAX) {
+      if (pollTokenRef.current === token) {
+        setParseError('解析超时，请稍后重试');
+        setUploadPhase('failed');
+      }
+      return;
+    }
+    setTimeout(() => pollStatus(taskId, token, attempt + 1), POLL_INTERVAL);
+  };
+
+  const handleUploadEml = async (file) => {
+    const token = ++pollTokenRef.current;
+    setParseResult(null);
+    setParseError('');
+    setShowRawResult(false);
+    setUploadPhase('uploading');
+    try {
+      const res = await uploadEmailEml(file);
+      if (pollTokenRef.current !== token) return false;
+      if (res?.code === 200 && res.data?.task_id) {
+        setUploadPhase('polling');
+        pollStatus(res.data.task_id, token, 0);
+      } else {
+        setParseError(res?.message || '上传失败');
+        setUploadPhase('failed');
+      }
+    } catch (e) {
+      if (pollTokenRef.current !== token) return false;
+      setParseError(e.message || '上传失败');
+      setUploadPhase('failed');
+    }
+    return false;
+  };
+
+  const closeUploadModal = () => {
+    pollTokenRef.current += 1; // 让进行中的轮询失效
+    setUploadModalOpen(false);
+  };
+
+  const openUploadModal = () => {
+    pollTokenRef.current += 1;
+    setUploadPhase('idle');
+    setParseResult(null);
+    setParseError('');
+    setShowRawResult(false);
+    setUploadModalOpen(true);
+  };
+
+  const uploadBusy = uploadPhase === 'uploading' || uploadPhase === 'polling';
+
   return (
     <div>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            marginBottom: 12,
-            flexWrap: 'wrap',
-          }}
-        >
-          <Space wrap>
-            <Select
-              allowClear
-              size="large"
-              value={initCategory || undefined}
-              placeholder="全部类别"
-              options={INTENT_OPTIONS}
-              style={{ width: 200 }}
-              onChange={(value) => handleCategoryChange(value || '')}
-            />
-            <Input.Search
-              size="large"
-              placeholder="搜索 MBL 号"
-              defaultValue={initMblNumber}
-              allowClear
-              style={{ width: 200 }}
-              onSearch={handleMblSearch}
-            />
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          marginBottom: 12,
+          flexWrap: 'wrap',
+        }}
+      >
+        <Space wrap>
+          <Select
+            allowClear
+            size="middle"
+            value={initCategory || undefined}
+            placeholder="全部类别"
+            options={INTENT_OPTIONS}
+            style={{ width: 200 }}
+            onChange={(value) => handleCategoryChange(value || '')}
+          />
+          <Input.Search
+            size="middle"
+            placeholder="搜索 MBL 号"
+            defaultValue={initMblNumber}
+            allowClear
+            style={{ width: 200 }}
+            onSearch={handleMblSearch}
+          />
+          <DatePicker.RangePicker
+            open={customPickerOpen}
+            onOpenChange={setCustomPickerOpen}
+            value={hasDateFilter ? [dayjs(initDateFrom), dayjs(initDateTo)] : null}
+            onChange={handleCustomDateChange}
+            allowClear
+            disabledDate={(d) => d && d > dayjs().endOf('day')}
+            style={{ width: 0, padding: 0, border: 'none', overflow: 'hidden', position: 'absolute' }}
+          />
+
+          <Flex gap="small" wrap>
             <Button
-              size="large"
-              onClick={handleTodayOrder}
-              style={isTodayOrderActive ? { background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' } : {}}
-            >今日预报/换单</Button>
-            <DatePicker.RangePicker
-              open={customPickerOpen}
-              onOpenChange={setCustomPickerOpen}
-              value={hasDateFilter ? [dayjs(initDateFrom), dayjs(initDateTo)] : null}
-              onChange={handleCustomDateChange}
-              allowClear
-              disabledDate={(d) => d && d > dayjs().endOf('day')}
-              style={{ width: 0, padding: 0, border: 'none', overflow: 'hidden', position: 'absolute' }}
-            />
-            <Button size="large" type={hasDateFilter ? 'primary' : 'default'} onClick={() => setCustomPickerOpen(true)}>
-              {hasDateFilter ? `${initDateFrom} ~ ${initDateTo}` : '自定义日期'}
+              size="middle"
+              type={!hasDateFilter ? 'primary' : 'default'}
+              onClick={() => handleCustomDateChange(null)}
+            >
+              全部
             </Button>
-            <Button size="large" danger onClick={handleClearAll}>清除</Button>
-          </Space>
-          <div
-            style={{
-              marginLeft: 'auto',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '4px 12px',
-              border: '1px solid #d9d9d9',
-              borderRadius: 8,
-            }}
-          >
-            {[
-              { label: '全部', value: null },
-              { label: '待处理', value: 0, color: 'gold' },
-              { label: '已处理', value: 1, color: 'green' },
-            ].map(({ label, value, color }) => {
-              const active = initIsCheck === value;
-              const hex = color === 'gold' ? '#faad14' : color === 'green' ? '#52c41a' : null;
-              return (
-                <Button
-                  key={String(value)}
-                  size="large"
-                  type={active ? 'primary' : 'default'}
-                  onClick={() => handleIsCheckChange(value)}
-                  style={hex ? (active
-                    ? { background: hex, borderColor: hex, color: '#fff' }
-                    : { color: hex, borderColor: hex }) : undefined}
-                >
-                  {label}
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-        {batchBarMounted && (
-          <Space
-            style={{
-              marginBottom: 8,
-              opacity: selectedRowKeys.length > 0 ? 1 : 0,
-              transform: selectedRowKeys.length > 0 ? 'translateY(0)' : 'translateY(-6px)',
-              transition: 'opacity 0.2s ease, transform 0.2s ease',
-            }}
-          >
-            <span style={{ fontSize: 15, color: 'rgba(0,0,0,0.85)', fontWeight: 500 }}>
-              已选 {selectedRowKeys.length} 条，批量标记为：
-            </span>
-            {CHECK_OPTIONS.map((o) => (
+            {[1, 7].map((days) => (
               <Button
-                key={o.value}
-                size="small"
-                loading={batchLoading}
-                onClick={() => handleBatchCheck(o.value)}
+                key={days}
+                size="middle"
+                type={activeQuickRange === days ? 'primary' : 'default'}
+                onClick={() => handleQuickRange(days)}
               >
-                <Tag color={o.color} style={{ margin: 0 }}>{o.label}</Tag>
+                近 {days} 天
               </Button>
             ))}
-            <Button size="small" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
-          </Space>
-        )}
-        <Table
-          rowKey="id"
-          columns={tableColumns}
-          dataSource={tableData}
-          loading={tableLoading}
-          size="small"
-          bordered
-          className="email-table"
-          rowClassName={(row) => fadingIds.has(row.id) ? 'row-fading' : ''}
-          rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
-          pagination={{
-            current: initPage,
-            pageSize: initPageSize,
-            total,
-            showSizeChanger: true,
-            pageSizeOptions: ['10', '50', '100'],
-            showTotal: (t) => `共 ${t} 条`,
-            onChange: handlePageChange,
+          </Flex>
+
+          <Button size="middle" onClick={openUploadModal}>
+            上传解析
+          </Button>
+        </Space>
+        <div
+          style={{
+            marginLeft: 'auto',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '4px 12px',
+            border: '1px solid #d9d9d9',
+            borderRadius: 8,
           }}
-          tableLayout="fixed"
-          scroll={{ x: 1660, y: 'calc(100vh - 160px)' }}
-        />
+        >
+          <Radio.Group
+            style={{ marginLeft: 'auto' }}
+            value={initIsCheck}
+            onChange={(e) => handleIsCheckChange(e.target.value)}
+            options={CHECK_FILTER_OPTIONS}
+          />
+        </div>
+      </div>
+      <Modal
+        title="上传 .eml 解析"
+        open={uploadModalOpen}
+        onCancel={closeUploadModal}
+        footer={null}
+        width={560}
+      >
+        <Upload.Dragger
+          accept=".eml"
+          showUploadList={false}
+          disabled={uploadBusy}
+          beforeUpload={handleUploadEml}
+        >
+          <p style={{ fontSize: 32, color: '#1677ff', margin: '8px 0' }}><UploadOutlined /></p>
+          <p style={{ margin: 0 }}>
+            {uploadPhase === 'uploading' ? '上传中...'
+              : uploadPhase === 'polling' ? '解析中...'
+              : '点击或拖拽 .eml 文件到此区域上传'}
+          </p>
+        </Upload.Dragger>
+
+        {uploadBusy && (
+          <div style={{ marginTop: 16, textAlign: 'center' }}>
+            <Spin />
+            <span style={{ marginLeft: 8, color: '#999' }}>
+              {uploadPhase === 'uploading' ? '正在上传文件…' : '正在解析邮件，请稍候…'}
+            </span>
+          </div>
+        )}
+
+        {uploadPhase === 'failed' && (
+          <div style={{ marginTop: 16, color: '#cf1322' }}>
+            {parseError || '解析失败'}
+          </div>
+        )}
+
+        {uploadPhase === 'done' && parseResult && (
+          <div style={{ marginTop: 16 }}>
+            <ParseResultView result={parseResult} />
+            <div style={{ marginTop: 12 }}>
+              <Button size="small" onClick={() => setShowRawResult((v) => !v)}>
+                {showRawResult ? '隐藏原始数据' : '查看原始数据'}
+              </Button>
+              <Button
+                size="small"
+                style={{ marginLeft: 8 }}
+                onClick={() => copyText(JSON.stringify(parseResult, null, 2))}
+              >
+                复制完整结果
+              </Button>
+            </div>
+            {showRawResult && (
+              <pre
+                style={{
+                  marginTop: 8, maxHeight: 260, overflow: 'auto',
+                  background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12,
+                }}
+              >{JSON.stringify(parseResult, null, 2)}</pre>
+            )}
+          </div>
+        )}
+      </Modal>
+      {batchBarMounted && (
+        <Space
+          style={{
+            marginBottom: 8,
+            opacity: selectedRowKeys.length > 0 ? 1 : 0,
+            transform: selectedRowKeys.length > 0 ? 'translateY(0)' : 'translateY(-6px)',
+            transition: 'opacity 0.2s ease, transform 0.2s ease',
+          }}
+        >
+          <span style={{ fontSize: 15, color: 'rgba(0,0,0,0.85)', fontWeight: 500 }}>
+            已选 {selectedRowKeys.length} 条，批量标记为：
+          </span>
+          {CHECK_OPTIONS.map((o) => (
+            <Button
+              key={o.value}
+              size="small"
+              loading={batchLoading}
+              onClick={() => handleBatchCheck(o.value)}
+            >
+              <Tag color={o.color} style={{ margin: 0 }}>{o.label}</Tag>
+            </Button>
+          ))}
+          <Button size="small" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+        </Space>
+      )}
+      <Table
+        rowKey="id"
+        columns={tableColumns}
+        dataSource={tableData}
+        loading={tableLoading}
+        size="small"
+        bordered
+        className="email-table"
+        rowClassName={(row) => fadingIds.has(row.id) ? 'row-fading' : ''}
+        rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
+        pagination={{
+          current: initPage,
+          pageSize: 50,
+          total,
+          showSizeChanger: false,
+          showTotal: (t) => `共 ${t} 条`,
+          onChange: handlePageChange,
+          position: ['bottomCenter'],
+        }}
+        tableLayout="fixed"
+        scroll={{ x: 1660, y: 'calc(100vh - 160px)' }}
+      />
     </div>
   );
 }

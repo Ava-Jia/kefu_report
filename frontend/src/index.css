@@ -108,6 +108,27 @@ body {
   z-index: 1;
 }
 
+/* 单元格修改图标：默认隐藏，hover 该单元格时才显示 */
+.email-table .row-edit-icon {
+  opacity: 0;
+  transition: opacity 0.15s;
+  font-size: 16px;
+}
+.email-table .ant-table-cell:hover .row-edit-icon {
+  opacity: 1;
+}
+
+/* 邮件列表分页：居中并加大页码项间隔 */
+.email-table .ant-pagination {
+  margin-top: 20px;
+  gap: 10px;
+}
+.email-table .ant-pagination .ant-pagination-item,
+.email-table .ant-pagination .ant-pagination-prev,
+.email-table .ant-pagination .ant-pagination-next {
+  margin-inline-end: 0;
+}
+
 .app-content {
   padding: 28px 40px 40px;
   width: 100%;
@@ -330,14 +351,6 @@ body {
 }
 .scrollbar-hidden::-webkit-scrollbar {
   display: none; /* Chrome/Safari */
-}
-
-/* Email 表格列线薄荷绿 */
-.email-table.ant-table-wrapper .ant-table-bordered .ant-table-container,
-.email-table.ant-table-wrapper .ant-table-bordered .ant-table-container table,
-.email-table.ant-table-wrapper .ant-table-bordered .ant-table-container .ant-table-thead > tr > th,
-.email-table.ant-table-wrapper .ant-table-bordered .ant-table-container .ant-table-tbody > tr > td {
-  border-color: #3eb489 !important;
 }
 
 .wechat-bot-page .ant-tag {

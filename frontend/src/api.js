@@ -17,7 +17,11 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    // 登录接口自身的 401（用户名/密码错误）交给登录页展示错误，不做全局跳转，
+    // 否则会直接刷新页面、吞掉 “用户名或密码错误” 的提示。
+    const url = err.config?.url || "";
+    const isLoginRequest = url.includes("/auth/login");
+    if (err.response?.status === 401 && !isLoginRequest) {
       localStorage.removeItem("token");
       localStorage.removeItem("username");
       window.location.href = "/";
@@ -256,8 +260,32 @@ export const updateEmail = async (email_id, fields) => {
   }
 };
 
+/** 上传 .eml 文件到 OSS 并提交异步解析，返回 task_id */
+export const uploadEmailEml = async (file) => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await client.post('/email/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
+/** 查询 .eml 异步解析任务状态/结果 */
+export const fetchEmailParseStatus = async (taskId) => {
+  try {
+    const { data } = await client.get(`/email/status/${encodeURIComponent(taskId)}`);
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
 /** 获取本地邮件列表 */
-export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = '', date_from = '', date_to = '', is_check = null, mbl_number = '' } = {}) => {
+export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = '', date_from = '', date_to = '', is_check = null, mbl_number = '', order = '' } = {}) => {
   try {
     const params = { page, page_size };
     if (intent_type1) params.intent_type1 = intent_type1;
@@ -265,6 +293,7 @@ export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = 
     if (date_to) params.date_to = date_to;
     if (is_check !== null && is_check !== undefined) params.is_check = is_check;
     if (mbl_number) params.mbl_number = mbl_number;
+    if (order === 'asc') params.order = 'asc';
     const { data } = await client.get('/email/list', { params });
     return data;
   } catch (error) {

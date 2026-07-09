@@ -306,7 +306,10 @@ export default function RlsSearch() {
           columns={dbColumns}
           dataSource={filteredResults}
           loading={dbLoading}
-          pagination={{ pageSize: 50 }}
+          pagination={{ 
+            pageSize: 50,
+            showSizeChanger: false,
+          }}
           tableLayout="fixed"
           scroll={{ x: "max-content" }}
           locale={{

@@ -195,9 +195,10 @@ def test_email_create_by_email_id_writes_local_email_and_computes_status(client,
         "email_url": "https://example.com/email-create-1",
     }
 
+    # _create_by_email_id 从 Redis 取邮件用的是 get_email_result（非 get_email_detail）
     monkeypatch.setattr(
         email_routes,
-        "get_email_detail",
+        "get_email_result",
         lambda email_id: record if email_id == "email-create-1" else None,
     )
     monkeypatch.setattr(
@@ -212,7 +213,11 @@ def test_email_create_by_email_id_writes_local_email_and_computes_status(client,
     saved = get_email_values("email-create-1")
     assert saved["ordering_id"] == "ord-create-1"
     assert saved["is_done"] == IS_DONE_CREATED
-    assert saved["parser_result"]["masterBillNo"] == "MBL-CREATE"
+    # 解析结果已改存到 parser 表，email 行的 parser_result 恒为 None
+    assert saved["parser_result"] is None
+    saved_parser = get_parser_row("ord-create-1", "MBL-CREATE")
+    assert saved_parser["master_bill_no"] == "MBL-CREATE"
+    assert saved_parser["is_done"] == IS_DONE_CREATED
 
 
 def test_email_create_ordering_callback_updates_email_and_parser_result(client, monkeypatch):
@@ -227,7 +232,7 @@ def test_email_create_ordering_callback_updates_email_and_parser_result(client, 
     monkeypatch.setattr(
         email_routes,
         "get_email_detail",
-        lambda email_id: {"mbl_number": "MBL-OLD", "brokerName": "Broker Callback"},
+        lambda email_id: {"mbl_number": "MBL-OLD", "broker_name": "Broker Callback"},
     )
     monkeypatch.setattr(
         email_routes,
@@ -257,17 +262,13 @@ def test_email_create_ordering_callback_updates_email_and_parser_result(client, 
     assert saved_parser["is_done"] == IS_DONE_CREATED
 
 
-def test_email_preview_reads_parser_result_table_instead_of_stale_email_json(client, auth_headers):
+def test_email_preview_reads_parser_result_table_instead_of_stale_email_json(
+    client, auth_headers, monkeypatch
+):
     add_email(
         "email-preview-1",
         ordering_id="ord-preview-1",
         parser_result=json.dumps({"masterBillNo": "STALE"}),
-        attachments=json.dumps(
-            [
-                {"name": "visible.pdf"},
-                {"name": "inline.png", "content_id": "cid-inline"},
-            ]
-        ),
     )
     upsert_parser_result_by_ordering_id(
         "ord-preview-1",
@@ -276,11 +277,18 @@ def test_email_preview_reads_parser_result_table_instead_of_stale_email_json(cli
         is_done=IS_DONE_CREATED,
         master_bill_no="FRESH",
     )
+    # html/附件现从 Redis 经 email_html_attachment 获取（内部已按 content_id 过滤内联附件）
+    monkeypatch.setattr(
+        email_routes,
+        "email_html_attachment",
+        lambda eid: {"html_content": "<p>Hello</p>", "attachments": [{"name": "visible.pdf"}]},
+    )
 
     resp = client.get("/api/email/email-preview-1/preview", headers=auth_headers)
 
     assert resp.status_code == 200
     data = resp.get_json()["data"]
+    # 解析结果取自 parser 表（FRESH），而非 email 行里过期的 STALE JSON
     assert data["result"]["masterBillNo"] == "FRESH"
     assert data["attachments"] == [{"name": "visible.pdf"}]
 
@@ -323,6 +331,7 @@ def test_email_update_parser_result_patch_updates_parser_table_and_email_status(
     }
     assert parser_logs["gross_weight"]["old_value"] == ""
     assert parser_logs["gross_weight"]["new_value"] == "1000 KG"
+    # auth_headers 的 token 用户名为 tester，鉴权后 operator 应记录为 tester
     assert parser_logs["gross_weight"]["operator"] == "tester"
     assert parser_logs["is_done"]["old_value"] == str(IS_DONE_CREATE_FAILED)
     assert parser_logs["is_done"]["new_value"] == str(IS_DONE_CREATED)
@@ -415,6 +424,7 @@ def test_email_list_filters_by_date_check_intent_and_mbl(client, auth_headers):
 
 
 def test_email_list_requires_auth(client):
+    # 除 /api/email/create 外，/api/email/* 需鉴权
     resp = client.get("/api/email/list")
 
     assert resp.status_code == 401

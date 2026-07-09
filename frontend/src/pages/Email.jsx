@@ -1,11 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
-  Button, Card, DatePicker, Dropdown, Flex, Input, Modal, Radio, Select, Space, Spin,
-  Table, Tag, Typography, Upload, message,
+  Button, Card, DatePicker, Divider, Dropdown, Flex, Input, Modal, Radio, Select, Space, Spin,
+  Table, Tag, Tooltip, Typography, Upload, message,
 } from 'antd';
 
-import { AppstoreOutlined, CaretDownOutlined, CaretUpOutlined, CheckCircleOutlined, ClockCircleOutlined, EditOutlined, EyeOutlined, MailOutlined, SyncOutlined, UploadOutlined } from '@ant-design/icons';
+// 悬浮提示统一延迟：比 antd 默认 0.1s 的呈现更跟手，浏览器原生 title 无法调速
+const TIP_DELAY = 0.1;
+
+// 空值统一占位：与 MBL 号一致的灰色短横
+const EmptyDash = () => <span style={{ color: '#ccc' }}>-</span>;
+
+import { CaretDownOutlined, CaretUpOutlined, DownloadOutlined, FileSearchOutlined, UploadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { fetchEmailList, updateEmailCheck, updateEmail, uploadEmailEml, fetchEmailParseStatus } from '../api';
 
@@ -89,96 +95,6 @@ const copyText = (text) => {
   }
 };
 
-const MultiMbl = ({ value, row, onSaved }) => {
-  const [open, setOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [draft, setDraft] = useState('');
-  const [saving, setSaving] = useState(false);
-  const items = splitValues(value);
-
-  const handleEditOpen = () => {
-    setDraft(items.join('\n'));
-    setEditOpen(true);
-  };
-
-  const handleSave = async () => {
-    const nextValue = draft.split('\n').map((s) => s.trim()).filter(Boolean).join(',');
-    setSaving(true);
-    try {
-      const res = await updateEmail(row.id, { mbl_number: nextValue });
-      if (res?.code === 200) {
-        message.success('保存成功');
-        onSaved?.(row.id, { mbl_number: nextValue });
-        setEditOpen(false);
-      } else {
-        message.error(res?.message || '保存失败');
-      }
-    } catch {
-      message.error('保存失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <>
-      <span style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 4 }}>
-        {items.length > 0 ? (
-          <Button
-            size="small"
-            style={{ fontSize: 12, padding: '0 6px' }}
-            onClick={() => copyText(items.join('\n'))}
-          >
-            {items[0]}
-          </Button>
-        ) : (
-          <span style={{ color: '#ccc' }}>-</span>
-        )}
-        {items.length > 1 && (
-          <Tag style={{ margin: 0, cursor: 'pointer' }} onClick={() => setOpen(true)}>
-            +{items.length - 1}
-          </Tag>
-        )}
-        <EditOutlined
-          title="修改 MBL 号"
-          style={{ cursor: 'pointer', color: '#999', fontSize: 12, marginLeft: 'auto' }}
-          onClick={handleEditOpen}
-        />
-      </span>
-      {items.length > 1 && (
-        <Modal
-          title={`全部 MBL（${items.length}）`}
-          open={open}
-          onCancel={() => setOpen(false)}
-          footer={null}
-          width={400}
-        >
-          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
-            <Space direction="vertical" size={6} style={{ width: '100%' }}>
-              {items.map((m) => <Text key={m} copyable>{m}</Text>)}
-            </Space>
-          </div>
-        </Modal>
-      )}
-      <Modal
-        title="修改 MBL 号"
-        open={editOpen}
-        onCancel={() => setEditOpen(false)}
-        onOk={handleSave}
-        confirmLoading={saving}
-        okText="保存"
-        cancelText="取消"
-      >
-        <Input.TextArea
-          rows={6}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="每行一个 MBL 号"
-        />
-      </Modal>
-    </>
-  );
-};
 
 const IntentDetailModal = ({ open, onClose, items1, items2, emailId, onSaved }) => {
   const [draftItems1, setDraftItems1] = useState(items1);
@@ -253,7 +169,7 @@ const MultiIntent = ({ value, intentType2, emailId, onSaved }) => {
   const [open, setOpen] = useState(false);
   const items = splitValues(value);
   const items2 = parseIntentType2(intentType2);
-  if (!items.length) return '-';
+  if (!items.length) return <EmptyDash />;
   return (
     <>
       <span style={{ cursor: 'pointer' }} onClick={() => setOpen(true)}>
@@ -276,7 +192,7 @@ const SecondaryIntent = ({ value, intentType1, emailId, onSaved }) => {
   const [open, setOpen] = useState(false);
   const items2 = parseIntentType2(value);
   const items1 = splitValues(intentType1);
-  if (!items2.length) return '-';
+  if (!items2.length) return <EmptyDash />;
   return (
     <>
       <span style={{ cursor: 'pointer' }} onClick={() => setOpen(true)}>
@@ -370,97 +286,33 @@ const PreviewButton = ({ row, listContext }) => {
     });
   };
   return (
-    <Button size="small" onClick={handleClick}>
-      预览
+    <Button size="small" icon={<FileSearchOutlined />} onClick={handleClick}>
     </Button>
   );
 };
 
-const EditableTextCell = ({ row, field, title, value, onSaved }) => {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(value || '');
-  const [saving, setSaving] = useState(false);
-  const displayValue = value || '-';
-
-  const handleOpen = () => {
-    setDraft(value || '');
-    setOpen(true);
-  };
-
-  const handleSave = async () => {
-    const nextValue = draft.trim();
-    setSaving(true);
-    try {
-      const res = await updateEmail(row.id, { [field]: nextValue });
-      if (res?.code === 200) {
-        message.success('保存成功');
-        onSaved?.(row.id, { [field]: nextValue });
-        setOpen(false);
-      } else {
-        message.error(res?.message || '保存失败');
-      }
-    } catch {
-      message.error('保存失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <>
-      <Button
-        size="small"
-        title={value || `修改${title}`}
-        onClick={handleOpen}
-        style={{
-          fontSize: 12,
-          padding: '0 6px',
-          maxWidth: '100%',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {displayValue}
-      </Button>
-      <Modal
-        title={`修改${title}`}
-        open={open}
-        onCancel={() => setOpen(false)}
-        onOk={handleSave}
-        confirmLoading={saving}
-        okText="保存"
-        cancelText="取消"
-      >
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onPressEnter={handleSave}
-          placeholder={`请输入${title}`}
-        />
-      </Modal>
-    </>
-  );
-};
 
 const DateSortHeader = ({ order, onOrderChange }) => (
   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
     日期
     <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: '9px' }}>
-      <CaretUpOutlined
-        title="日期顺序（最早在前）"
-        onClick={(e) => { e.stopPropagation(); onOrderChange('asc'); }}
-        style={{ fontSize: 11, cursor: 'pointer', color: order === 'asc' ? '#1677ff' : '#bbb' }}
-      />
-      <CaretDownOutlined
-        title="日期倒序（最新在前）"
-        onClick={(e) => { e.stopPropagation(); onOrderChange('desc'); }}
-        style={{ fontSize: 11, cursor: 'pointer', color: order === 'desc' ? '#1677ff' : '#bbb' }}
-      />
+      <Tooltip title="日期顺序（最早在前）" mouseEnterDelay={TIP_DELAY}>
+        <CaretUpOutlined
+          onClick={(e) => { e.stopPropagation(); onOrderChange('asc'); }}
+          style={{ fontSize: 11, cursor: 'pointer', color: order === 'asc' ? '#1677ff' : '#bbb' }}
+        />
+      </Tooltip>
+      <Tooltip title="日期倒序（最新在前）" mouseEnterDelay={TIP_DELAY}>
+        <CaretDownOutlined
+          onClick={(e) => { e.stopPropagation(); onOrderChange('desc'); }}
+          style={{ fontSize: 11, cursor: 'pointer', color: order === 'desc' ? '#1677ff' : '#bbb' }}
+        />
+      </Tooltip>
     </span>
   </span>
 );
 
-const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listContext, order, onOrderChange) => [
+const buildTableColumns = (onCheckChange, onIntentSaved, listContext, order, onOrderChange) => [
   {
     title: <DateSortHeader order={order} onOrderChange={onOrderChange} />,
     dataIndex: 'date',
@@ -478,18 +330,11 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
     dataIndex: 'broker_name',
     key: 'broker_name',
     width: 200,
-    ellipsis: true,
     render: (v, record) => {
       const text = v || record['broker-name'];
-      return (
-        <EditableTextCell
-          row={record}
-          field="broker_name"
-          title="代理名称"
-          value={text}
-          onSaved={onFieldSaved}
-        />
-      );
+      return text
+        ? <Text style={{ maxWidth: '100%' }} ellipsis={{ tooltip: text }}>{text}</Text>
+        : <EmptyDash />;
     },
   },
   {
@@ -497,16 +342,11 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
     dataIndex: 'from',
     key: 'from',
     width: 200,
-    ellipsis: true,
     render: (v) => {
-      if (!v) return '-';
+      if (!v) return <EmptyDash />;
       const m = v.match(/<([^>]+)>/);
       const text = m ? m[1] : v.trim();
-      return (
-        <span style={{ cursor: 'pointer' }} title={text} onClick={() => copyText(text)}>
-          {text}
-        </span>
-      );
+      return <Text style={{ maxWidth: '100%' }} ellipsis={{ tooltip: text }}>{text}</Text>;
     },
   },
   {
@@ -514,15 +354,8 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
     dataIndex: 'role',
     key: 'role',
     width: 100,
-    ellipsis: true,
-    render: (v, record) => (
-      <EditableTextCell
-        row={record}
-        field="role"
-        title="角色"
-        value={v}
-        onSaved={onFieldSaved}
-      />
+    render: (v) => (
+      v ? <Text style={{ maxWidth: '100%' }} ellipsis={{ tooltip: v }}>{v}</Text> : <EmptyDash />
     ),
   },
   {
@@ -531,21 +364,22 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
     key: 'subject',
     width: 150,
     render: (v) => (
-      <div
-        style={{
-          maxHeight: 22,
-          overflow: 'hidden',
-          fontSize: 13,
-          lineHeight: '22px',
-          whiteSpace: 'nowrap',
-          textOverflow: 'ellipsis',
-          cursor: v ? 'pointer' : 'default',
-        }}
-        title={v || '-'}
-        onClick={() => copyText(v)}
-      >
-        {v || '-'}
-      </div>
+      <Tooltip title={v || ''} mouseEnterDelay={TIP_DELAY}>
+        <div
+          style={{
+            maxHeight: 22,
+            overflow: 'hidden',
+            fontSize: 13,
+            lineHeight: '22px',
+            whiteSpace: 'nowrap',
+            textOverflow: 'ellipsis',
+            cursor: v ? 'pointer' : 'default',
+          }}
+          onClick={() => copyText(v)}
+        >
+          {v || <EmptyDash />}
+        </div>
+      </Tooltip>
     ),
   },
   {
@@ -553,13 +387,11 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
     dataIndex: 'mbl_number',
     key: 'mbl_number',
     width: 230,
-    render: (v, record) => {
-      const preview = v ? splitValues(v).join('\n') : '';
-      return (
-        <div style={{ overflow: 'hidden', maxHeight: 28 }} title={preview || '-'}>
-          <MultiMbl value={v} row={record} onSaved={onFieldSaved} />
-        </div>
-      );
+    render: (v) => {
+      const items = splitValues(v);
+      return items.length
+        ? <Text style={{ maxWidth: '100%' }} ellipsis={{ tooltip: items.join('\n') }}>{items.join(', ')}</Text>
+        : <EmptyDash />;
     },
   },
   {
@@ -579,42 +411,54 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
     key: 'email_summary',
     width: 180,
     render: (v) => (
-      <div
-        style={{
-          maxHeight: 22,
-          overflow: 'hidden',
-          fontSize: 13,
-          lineHeight: '22px',
-          whiteSpace: 'nowrap',
-          textOverflow: 'ellipsis',
-        }}
-        title={v || '-'}
-      >
-        {v || '-'}
-      </div>
+      <Tooltip title={v || ''} mouseEnterDelay={TIP_DELAY}>
+        <div
+          style={{
+            maxHeight: 22,
+            overflow: 'hidden',
+            fontSize: 13,
+            lineHeight: '22px',
+            whiteSpace: 'nowrap',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {v || <EmptyDash />}
+        </div>
+      </Tooltip>
     ),
   },
   {
+    
     title: '一级意图',
     dataIndex: 'intent_type1',
     key: 'intent_type1',
-    width: 130,
-    render: (v, record) => (
-      <div style={{ overflow: 'hidden', maxHeight: 28 }}>
-        <MultiIntent value={v} intentType2={record.intent_type2} emailId={record.id} onSaved={(fields) => onIntentSaved(record.id, fields)} />
-      </div>
-    ),
+    width: 150,
+    render: (v, record) => {
+      const labels = splitValues(v).map((code) => INTENT_LABEL[code] ?? code);
+      return (
+        <Tooltip title={labels.length ? labels.join('、') : ''} mouseEnterDelay={TIP_DELAY}>
+          <div style={{ overflow: 'hidden', maxHeight: 28 }}>
+            <MultiIntent value={v} intentType2={record.intent_type2} emailId={record.id} onSaved={(fields) => onIntentSaved(record.id, fields)} />
+          </div>
+        </Tooltip>
+      );
+    },
   },
   {
     title: '二级意图',
     dataIndex: 'intent_type2',
     key: 'intent_type2',
     width: 140,
-    render: (v, record) => (
-      <div style={{ overflow: 'hidden', maxHeight: 28 }}>
-        <SecondaryIntent value={v} intentType1={record.intent_type1} emailId={record.id} onSaved={(fields) => onIntentSaved(record.id, fields)} />
-      </div>
-    ),
+    render: (v, record) => {
+      const items = parseIntentType2(v);
+      return (
+        <Tooltip title={items.length ? items.join('、') : ''} mouseEnterDelay={TIP_DELAY}>
+          <div style={{ overflow: 'hidden', maxHeight: 28 }}>
+            <SecondaryIntent value={v} intentType1={record.intent_type1} emailId={record.id} onSaved={(fields) => onIntentSaved(record.id, fields)} />
+          </div>
+        </Tooltip>
+      );
+    },
   },
   {
     title: '下单状态',
@@ -645,14 +489,17 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
   {
     title: '操作',
     key: 'action',
+    fixed: 'right',
     width: 100,
     render: (_, row) => (
-      <Space size={4}>
+      <Space size={8} split={<Divider type="vertical" style={{ margin: 0 }} />}>
         <PreviewButton row={row} listContext={listContext} />
         {row.email_url && (
-          <a href={row.email_url} target="_blank" rel="noreferrer" title="原始邮件链接">
-            <MailOutlined style={{ fontSize: 16, color: '#1677ff' }} />
-          </a>
+          <Tooltip title="原始邮件链接" mouseEnterDelay={TIP_DELAY}>
+            <a href={row.email_url} target="_blank" rel="noreferrer">
+              <DownloadOutlined style={{ fontSize: 16, color: '#1677ff' }} />
+            </a>
+          </Tooltip>
         )}
       </Space>
     ),
@@ -769,10 +616,6 @@ export default function Email() {
     setTableData((prev) => prev.map((row) => row.id === id ? { ...row, ...fields } : row));
   };
 
-  const handleFieldSaved = (id, fields) => {
-    setTableData((prev) => prev.map((row) => row.id === id ? { ...row, ...fields } : row));
-  };
-
   const pushParams = (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber, order = initOrder) => {
     const p = {};
     if (page !== 1) p.page = page;
@@ -836,7 +679,7 @@ export default function Email() {
     },
   };
 
-  const tableColumns = buildTableColumns(handleCheckChange, handleIntentSaved, handleFieldSaved, listContext, initOrder, handleOrderChange);
+  const tableColumns = buildTableColumns(handleCheckChange, handleIntentSaved, listContext, initOrder, handleOrderChange);
 
   const handleCategoryChange = (value) => {
     pushParams(1, initPageSize, value || '', initDateFrom, initDateTo, initIsCheck, initMblNumber);
@@ -1026,36 +869,26 @@ export default function Email() {
               disabledDate={(d) => d && d > dayjs().endOf('day')}
               style={{ width: 0, padding: 0, border: 'none', overflow: 'hidden', position: 'absolute' }}
             />
-            <div
-            style={{
-              marginLeft: 'auto',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '4px 12px',
-              border: '1px solid #d9d9d9',
-              borderRadius: 8,
-            }}
-            >
+            
             <Flex gap="small" wrap>
               <Button
-                size="large"
+                size="middle"
                 type={!hasDateFilter ? 'primary' : 'default'}
                 onClick={() => handleCustomDateChange(null)}
               >全部</Button>
               {[1, 7].map((days) => (
                 <Button
                   key={days}
-                  size="large"
+                  size="middle"
                   type={activeQuickRange === days ? 'primary' : 'default'}
                   onClick={() => handleQuickRange(days)}
                 >近 {days} 天</Button>
               ))}
-            </Flex> 
-            </div>
+            </Flex>
+
 
             <Button
-              size="small"
+              size="middle"
               onClick={openUploadModal}
             >上传解析</Button>
           </Space>
@@ -1078,7 +911,7 @@ export default function Email() {
               {
                 value: null,
                 label: (
-                  <div gap="small" justify="center" align="center" vertical>
+                  <div gap="middle" justify="center" align="center" vertical>
                     <span style={{ fontSize: 10 }} />
                     全部
                   </div>
@@ -1087,7 +920,7 @@ export default function Email() {
               {
                 value: 0,
                 label: (
-                  <div gap="small" justify="center" align="center" vertical>
+                  <div gap="middle" justify="center" align="center" vertical>
                     <span style={{ fontSize: 10 }} />
                     待处理
                   </div>
@@ -1096,7 +929,7 @@ export default function Email() {
               {
                 value: 1,
                 label: (
-                  <div gap="small" justify="center" align="center" vertical>
+                  <div gap="middle" justify="center" align="center" vertical>
                     <span style={{ fontSize: 10 }} />
                     已处理
                   </div>
@@ -1197,6 +1030,7 @@ export default function Email() {
           dataSource={tableData}
           loading={tableLoading}
           size="small"
+          bordered
           className="email-table"
           rowClassName={(row) => fadingIds.has(row.id) ? 'row-fading' : ''}
           rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
@@ -1207,7 +1041,7 @@ export default function Email() {
             showSizeChanger: false,
             showTotal: (t) => `共 ${t} 条`,
             onChange: handlePageChange,
-            
+            position: ['bottomCenter'],
           }}
           tableLayout="fixed"
           scroll={{ x: 1660, y: 'calc(100vh - 160px)' }}

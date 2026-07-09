@@ -108,6 +108,17 @@ body {
   z-index: 1;
 }
 
+/* 邮件列表分页：居中并加大页码项间隔 */
+.email-table .ant-pagination {
+  margin-top: 20px;
+  gap: 10px;
+}
+.email-table .ant-pagination .ant-pagination-item,
+.email-table .ant-pagination .ant-pagination-prev,
+.email-table .ant-pagination .ant-pagination-next {
+  margin-inline-end: 0;
+}
+
 .app-content {
   padding: 28px 40px 40px;
   width: 100%;

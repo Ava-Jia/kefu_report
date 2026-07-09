@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Button, Spin, Modal, message } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined, ZoomInOutlined, CheckOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, SaveOutlined, ZoomInOutlined, CheckOutlined, DownloadOutlined } from '@ant-design/icons';
 import { fetchEmailPreview, updateEmail, updateEmailCheck, fetchAdjacentEmail, fetchEmailList } from '../api';
 
 function EditableText({ value, onChange, style, renderValue }) {
@@ -836,7 +836,7 @@ export default function EmailDetail() {
                   <div style={{ color: '#aaa', fontSize: 13 }}>
                     该附件暂不支持预览，
                     <a href={attachments[activeIdx].attachmentTypeUrl} target="_blank" rel="noreferrer">
-                      点击下载
+                      <DownloadOutlined /> 点击下载
                     </a>
                   </div>
                 )}

@@ -1,21 +1,32 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
-  Button, Card, DatePicker, Divider, Dropdown, Flex, Input, Modal, Radio, Select, Space, Spin,
+  CaretDownOutlined,
+  CaretUpOutlined,
+  DownloadOutlined,
+  EditOutlined,
+  FileSearchOutlined,
+  UploadOutlined,
+} from '@ant-design/icons';
+import {
+  Button, DatePicker, Divider, Flex, Input, Modal, Radio, Select, Space, Spin,
   Table, Tag, Tooltip, Typography, Upload, message,
 } from 'antd';
+import dayjs from 'dayjs';
+import {
+  fetchEmailList,
+  updateEmailCheck,
+  updateEmail,
+  uploadEmailEml,
+  fetchEmailParseStatus,
+} from '../api';
+
+const { Text } = Typography;
 
 // 悬浮提示统一延迟：比 antd 默认 0.1s 的呈现更跟手，浏览器原生 title 无法调速
 const TIP_DELAY = 0.1;
 
-// 空值统一占位：与 MBL 号一致的灰色短横
-const EmptyDash = () => <span style={{ color: '#ccc' }}>-</span>;
-
-import { CaretDownOutlined, CaretUpOutlined, DownloadOutlined, FileSearchOutlined, UploadOutlined } from '@ant-design/icons';
-import dayjs from 'dayjs';
-import { fetchEmailList, updateEmailCheck, updateEmail, uploadEmailEml, fetchEmailParseStatus } from '../api';
-
-const { Text } = Typography;
+const EXCHANGE_OF_PORT = 'EXCHANGE_OF_PORT';
 
 const INTENT_COLOR = {
   CANCEL_IT: 'red',
@@ -47,10 +58,8 @@ const INTENT_LABEL = {
   EXCHANGE_OF_PORT: '预报/换单',
   OTHER: '其他',
   AGENT_REPLY: '代理回复',
-  OTHER_AGENT_REQUEST: '代理回复'
+  OTHER_AGENT_REQUEST: '代理回复',
 };
-
-const EXCHANGE_OF_PORT = 'EXCHANGE_OF_PORT';
 
 const INTENT_OPTIONS = Object.keys(INTENT_COLOR).map((value) => ({
   label: INTENT_LABEL[value] ?? value,
@@ -66,8 +75,10 @@ const splitValues = (v) => {
 const parseIntentType2 = (v) => {
   if (!v) return [];
   if (Array.isArray(v)) return v.map((s) => String(s).trim()).filter(Boolean);
+
   const trimmed = String(v).trim();
   let items = [];
+
   if (trimmed.startsWith('[')) {
     try {
       items = JSON.parse(trimmed.replace(/'/g, '"'));
@@ -77,24 +88,127 @@ const parseIntentType2 = (v) => {
   } else {
     items = splitValues(trimmed);
   }
+
   return items.filter((s) => s && s.trim());
 };
 
 const copyText = (text) => {
   if (!text) return;
+
   if (navigator.clipboard) {
     navigator.clipboard.writeText(text).then(() => message.success('已复制'));
-  } else {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    message.success('已复制');
+    return;
   }
+
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  message.success('已复制');
 };
 
+// 空值统一占位：与 MBL 号一致的灰色短横
+const EmptyDash = () => <span style={{ color: '#ccc' }}>-</span>;
+
+// 可复制文本：点击复制并高亮 2 秒
+const CopyableText = ({ text, copyValue, tooltip }) => {
+  const [highlight, setHighlight] = useState(false);
+  const timerRef = useRef();
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  const handleClick = () => {
+    copyText(copyValue ?? text);
+    setHighlight(true);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setHighlight(false), 2000);
+  };
+
+  return (
+    <Tooltip title={tooltip ?? text} mouseEnterDelay={TIP_DELAY}>
+      <Text
+        onClick={handleClick}
+        ellipsis
+        style={{
+          maxWidth: '100%',
+          cursor: 'pointer',
+          padding: '0 2px',
+          borderRadius: 4,
+          transition: 'background 0.2s, color 0.2s',
+          background: highlight ? '#e6f4ff' : 'transparent',
+          color: highlight ? '#1677ff' : undefined,
+        }}
+      >
+        {text}
+      </Text>
+    </Tooltip>
+  );
+};
+
+// 单元格右侧的修改图标：默认隐藏，hover 单元格时显示（见 index.css .row-edit-icon）
+const EditIcon = ({ onClick }) => (
+  <EditOutlined
+    className="row-edit-icon"
+    style={{ cursor: 'pointer', color: '#1677FF', fontSize: 16, marginLeft: 'auto', flexShrink: 0 }}
+    onClick={onClick}
+  />
+);
+
+// 可复制 + 可修改的文本单元格（代理名称、角色）
+const EditableTextField = ({ row, field, title, value, onSaved }) => {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const openModal = () => {
+    setDraft(value || '');
+    setOpen(true);
+  };
+
+  const handleSave = async () => {
+    const nextValue = draft.trim();
+    setSaving(true);
+    try {
+      const res = await updateEmail(row.id, { [field]: nextValue });
+      if (res?.code === 200) {
+        message.success('保存成功');
+        onSaved?.(row.id, { [field]: nextValue });
+        setOpen(false);
+      } else {
+        message.error(res?.message || '保存失败');
+      }
+    } catch {
+      message.error('保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <span style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 4 }}>
+      {value ? <CopyableText text={value} /> : <EmptyDash />}
+      <EditIcon onClick={openModal} />
+      <Modal
+        title={`修改${title}`}
+        open={open}
+        onCancel={() => setOpen(false)}
+        onOk={handleSave}
+        confirmLoading={saving}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onPressEnter={handleSave}
+          placeholder={`请输入${title}`}
+        />
+      </Modal>
+    </span>
+  );
+};
 
 const IntentDetailModal = ({ open, onClose, items1, items2, emailId, onSaved }) => {
   const [draftItems1, setDraftItems1] = useState(items1);
@@ -231,6 +345,12 @@ const CHECK_OPTIONS = [
   { value: 2, label: '待定',   color: 'warning' },
 ];
 
+const CHECK_FILTER_OPTIONS = [
+  { value: null, label: '全部' },
+  { value: 0, label: '待处理' },
+  { value: 1, label: '已处理' },
+];
+
 const CheckButton = ({ id, value, onChange }) => {
   const [loading, setLoading] = useState(false);
   const done = value === 1;
@@ -291,6 +411,85 @@ const PreviewButton = ({ row, listContext }) => {
   );
 };
 
+// MBL 号：只读展示，多个时显示首个 + “+N” 标签，点击查看全部
+const MblCell = ({ row, value, onSaved }) => {
+  const [viewOpen, setViewOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const items = splitValues(value);
+
+  const openEdit = () => {
+    setDraft(items.join('\n'));
+    setEditOpen(true);
+  };
+
+  const handleSave = async () => {
+    const nextValue = draft.split('\n').map((s) => s.trim()).filter(Boolean).join(',');
+    setSaving(true);
+    try {
+      const res = await updateEmail(row.id, { mbl_number: nextValue });
+      if (res?.code === 200) {
+        message.success('保存成功');
+        onSaved?.(row.id, { mbl_number: nextValue });
+        setEditOpen(false);
+      } else {
+        message.error(res?.message || '保存失败');
+      }
+    } catch {
+      message.error('保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <span style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 4 }}>
+      {items.length ? (
+        <span style={{ minWidth: 0, flexShrink: 1, display: 'flex' }}>
+          <CopyableText text={items[0]} copyValue={items.join('\n')} tooltip={items.join('\n')} />
+        </span>
+      ) : (
+        <EmptyDash />
+      )}
+      {items.length > 1 && (
+        <Tag style={{ margin: 0, cursor: 'pointer', flexShrink: 0 }} onClick={() => setViewOpen(true)}>
+          +{items.length - 1}
+        </Tag>
+      )}
+      <EditIcon onClick={openEdit} />
+      <Modal
+        title={`全部 MBL（${items.length}）`}
+        open={viewOpen}
+        onCancel={() => setViewOpen(false)}
+        footer={null}
+        width={400}
+      >
+        <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+          <Space direction="vertical" size={6} style={{ width: '100%' }}>
+            {items.map((m) => <Text key={m} copyable>{m}</Text>)}
+          </Space>
+        </div>
+      </Modal>
+      <Modal
+        title="修改 MBL 号"
+        open={editOpen}
+        onCancel={() => setEditOpen(false)}
+        onOk={handleSave}
+        confirmLoading={saving}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Input.TextArea
+          rows={6}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="每行一个 MBL 号"
+        />
+      </Modal>
+    </span>
+  );
+};
 
 const DateSortHeader = ({ order, onOrderChange }) => (
   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -299,20 +498,20 @@ const DateSortHeader = ({ order, onOrderChange }) => (
       <Tooltip title="日期顺序（最早在前）" mouseEnterDelay={TIP_DELAY}>
         <CaretUpOutlined
           onClick={(e) => { e.stopPropagation(); onOrderChange('asc'); }}
-          style={{ fontSize: 11, cursor: 'pointer', color: order === 'asc' ? '#1677ff' : '#bbb' }}
+          style={{ fontSize: 14, cursor: 'pointer', color: order === 'asc' ? '#1677ff' : '#bbb' }}
         />
       </Tooltip>
       <Tooltip title="日期倒序（最新在前）" mouseEnterDelay={TIP_DELAY}>
         <CaretDownOutlined
           onClick={(e) => { e.stopPropagation(); onOrderChange('desc'); }}
-          style={{ fontSize: 11, cursor: 'pointer', color: order === 'desc' ? '#1677ff' : '#bbb' }}
+          style={{ fontSize: 14, cursor: 'pointer', color: order === 'desc' ? '#1677ff' : '#bbb' }}
         />
       </Tooltip>
     </span>
   </span>
 );
 
-const buildTableColumns = (onCheckChange, onIntentSaved, listContext, order, onOrderChange) => [
+const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listContext, order, onOrderChange) => [
   {
     title: <DateSortHeader order={order} onOrderChange={onOrderChange} />,
     dataIndex: 'date',
@@ -329,13 +528,10 @@ const buildTableColumns = (onCheckChange, onIntentSaved, listContext, order, onO
     title: '代理名称',
     dataIndex: 'broker_name',
     key: 'broker_name',
-    width: 200,
-    render: (v, record) => {
-      const text = v || record['broker-name'];
-      return text
-        ? <Text style={{ maxWidth: '100%' }} ellipsis={{ tooltip: text }}>{text}</Text>
-        : <EmptyDash />;
-    },
+    width: 220,
+    render: (v, record) => (
+      <EditableTextField row={record} field="broker_name" title="代理名称" value={v || record['broker-name']} onSaved={onFieldSaved} />
+    ),
   },
   {
     title: '发件人',
@@ -346,7 +542,7 @@ const buildTableColumns = (onCheckChange, onIntentSaved, listContext, order, onO
       if (!v) return <EmptyDash />;
       const m = v.match(/<([^>]+)>/);
       const text = m ? m[1] : v.trim();
-      return <Text style={{ maxWidth: '100%' }} ellipsis={{ tooltip: text }}>{text}</Text>;
+      return <CopyableText text={text} />;
     },
   },
   {
@@ -354,8 +550,8 @@ const buildTableColumns = (onCheckChange, onIntentSaved, listContext, order, onO
     dataIndex: 'role',
     key: 'role',
     width: 100,
-    render: (v) => (
-      v ? <Text style={{ maxWidth: '100%' }} ellipsis={{ tooltip: v }}>{v}</Text> : <EmptyDash />
+    render: (v, record) => (
+      <EditableTextField row={record} field="role" title="角色" value={v} onSaved={onFieldSaved} />
     ),
   },
   {
@@ -387,12 +583,7 @@ const buildTableColumns = (onCheckChange, onIntentSaved, listContext, order, onO
     dataIndex: 'mbl_number',
     key: 'mbl_number',
     width: 230,
-    render: (v) => {
-      const items = splitValues(v);
-      return items.length
-        ? <Text style={{ maxWidth: '100%' }} ellipsis={{ tooltip: items.join('\n') }}>{items.join(', ')}</Text>
-        : <EmptyDash />;
-    },
+    render: (v, record) => <MblCell row={record} value={v} onSaved={onFieldSaved} />,
   },
   {
     title: 'Check',
@@ -576,12 +767,6 @@ export default function Email() {
     }
   }, [selectedRowKeys.length]);
 
-  const category = initCategory;
-  const dateRange = [
-    initDateFrom ? dayjs(initDateFrom) : null,
-    initDateTo ? dayjs(initDateTo) : null,
-  ];
-
   const handleCheckChange = (id, next) => {
     setTableData((prev) => prev.map((row) => row.id === id ? { ...row, is_check: next } : row));
     if (initIsCheck !== null && initIsCheck !== undefined && next !== initIsCheck) {
@@ -612,7 +797,8 @@ export default function Email() {
     }
   };
 
-  const handleIntentSaved = (id, fields) => {
+  // 意图/字段保存后就地更新该行数据
+  const handleRowSaved = (id, fields) => {
     setTableData((prev) => prev.map((row) => row.id === id ? { ...row, ...fields } : row));
   };
 
@@ -679,14 +865,10 @@ export default function Email() {
     },
   };
 
-  const tableColumns = buildTableColumns(handleCheckChange, handleIntentSaved, listContext, initOrder, handleOrderChange);
+  const tableColumns = buildTableColumns(handleCheckChange, handleRowSaved, handleRowSaved, listContext, initOrder, handleOrderChange);
 
   const handleCategoryChange = (value) => {
     pushParams(1, initPageSize, value || '', initDateFrom, initDateTo, initIsCheck, initMblNumber);
-  };
-
-  const handleClearAll = () => {
-    setSearchParams({}, { replace: false });
   };
 
   const handleIsCheckChange = (value) => {
@@ -698,16 +880,6 @@ export default function Email() {
   };
 
   const [customPickerOpen, setCustomPickerOpen] = useState(false);
-
-  const handleTodayOrder = () => {
-    const today = dayjs().format('YYYY-MM-DD');
-    pushParams(1, initPageSize, EXCHANGE_OF_PORT, today, today, initIsCheck, initMblNumber);
-  };
-
-  const isTodayOrderActive =
-    initCategory === EXCHANGE_OF_PORT &&
-    initDateFrom === dayjs().format('YYYY-MM-DD') &&
-    initDateTo === dayjs().format('YYYY-MM-DD');
 
   const handleCustomDateChange = (dates) => {
     if (!dates) {
@@ -833,219 +1005,195 @@ export default function Email() {
 
   return (
     <div>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            marginBottom: 12,
-            flexWrap: 'wrap',
-          }}
-        >
-          <Space wrap>
-            <Select
-              allowClear
-              size="middle  "
-              value={initCategory || undefined}
-              placeholder="全部类别"
-              options={INTENT_OPTIONS}
-              style={{ width: 200 }}
-              onChange={(value) => handleCategoryChange(value || '')}
-            />
-            <Input.Search
-              size="middle"
-              placeholder="搜索 MBL 号"
-              defaultValue={initMblNumber}
-              allowClear
-              style={{ width: 200 }}
-              onSearch={handleMblSearch}
-            />
-            <DatePicker.RangePicker
-              open={customPickerOpen}
-              onOpenChange={setCustomPickerOpen}
-              value={hasDateFilter ? [dayjs(initDateFrom), dayjs(initDateTo)] : null}
-              onChange={handleCustomDateChange}
-              allowClear
-              disabledDate={(d) => d && d > dayjs().endOf('day')}
-              style={{ width: 0, padding: 0, border: 'none', overflow: 'hidden', position: 'absolute' }}
-            />
-            
-            <Flex gap="small" wrap>
-              <Button
-                size="middle"
-                type={!hasDateFilter ? 'primary' : 'default'}
-                onClick={() => handleCustomDateChange(null)}
-              >全部</Button>
-              {[1, 7].map((days) => (
-                <Button
-                  key={days}
-                  size="middle"
-                  type={activeQuickRange === days ? 'primary' : 'default'}
-                  onClick={() => handleQuickRange(days)}
-                >近 {days} 天</Button>
-              ))}
-            </Flex>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          marginBottom: 12,
+          flexWrap: 'wrap',
+        }}
+      >
+        <Space wrap>
+          <Select
+            allowClear
+            size="middle"
+            value={initCategory || undefined}
+            placeholder="全部类别"
+            options={INTENT_OPTIONS}
+            style={{ width: 200 }}
+            onChange={(value) => handleCategoryChange(value || '')}
+          />
+          <Input.Search
+            size="middle"
+            placeholder="搜索 MBL 号"
+            defaultValue={initMblNumber}
+            allowClear
+            style={{ width: 200 }}
+            onSearch={handleMblSearch}
+          />
+          <DatePicker.RangePicker
+            open={customPickerOpen}
+            onOpenChange={setCustomPickerOpen}
+            value={hasDateFilter ? [dayjs(initDateFrom), dayjs(initDateTo)] : null}
+            onChange={handleCustomDateChange}
+            allowClear
+            disabledDate={(d) => d && d > dayjs().endOf('day')}
+            style={{ width: 0, padding: 0, border: 'none', overflow: 'hidden', position: 'absolute' }}
+          />
 
-
+          <Flex gap="small" wrap>
             <Button
               size="middle"
-              onClick={openUploadModal}
-            >上传解析</Button>
-          </Space>
-          <div
-            style={{
-              marginLeft: 'auto',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '4px 12px',
-              border: '1px solid #d9d9d9',
-              borderRadius: 8,
-            }}
-          >
+              type={!hasDateFilter ? 'primary' : 'default'}
+              onClick={() => handleCustomDateChange(null)}
+            >
+              全部
+            </Button>
+            {[1, 7].map((days) => (
+              <Button
+                key={days}
+                size="middle"
+                type={activeQuickRange === days ? 'primary' : 'default'}
+                onClick={() => handleQuickRange(days)}
+              >
+                近 {days} 天
+              </Button>
+            ))}
+          </Flex>
+
+          <Button size="middle" onClick={openUploadModal}>
+            上传解析
+          </Button>
+        </Space>
+        <div
+          style={{
+            marginLeft: 'auto',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '4px 12px',
+            border: '1px solid #d9d9d9',
+            borderRadius: 8,
+          }}
+        >
           <Radio.Group
             style={{ marginLeft: 'auto' }}
             value={initIsCheck}
             onChange={(e) => handleIsCheckChange(e.target.value)}
-            options={[
-              {
-                value: null,
-                label: (
-                  <div gap="middle" justify="center" align="center" vertical>
-                    <span style={{ fontSize: 10 }} />
-                    全部
-                  </div>
-                ),
-              },
-              {
-                value: 0,
-                label: (
-                  <div gap="middle" justify="center" align="center" vertical>
-                    <span style={{ fontSize: 10 }} />
-                    待处理
-                  </div>
-                ),
-              },
-              {
-                value: 1,
-                label: (
-                  <div gap="middle" justify="center" align="center" vertical>
-                    <span style={{ fontSize: 10 }} />
-                    已处理
-                  </div>
-                ),
-              },
-            ]}
+            options={CHECK_FILTER_OPTIONS}
           />
-          </div>
         </div>
-        <Modal
-          title="上传 .eml 解析"
-          open={uploadModalOpen}
-          onCancel={closeUploadModal}
-          footer={null}
-          width={560}
+      </div>
+      <Modal
+        title="上传 .eml 解析"
+        open={uploadModalOpen}
+        onCancel={closeUploadModal}
+        footer={null}
+        width={560}
+      >
+        <Upload.Dragger
+          accept=".eml"
+          showUploadList={false}
+          disabled={uploadBusy}
+          beforeUpload={handleUploadEml}
         >
-          <Upload.Dragger
-            accept=".eml"
-            showUploadList={false}
-            disabled={uploadBusy}
-            beforeUpload={handleUploadEml}
-          >
-            <p style={{ fontSize: 32, color: '#1677ff', margin: '8px 0' }}><UploadOutlined /></p>
-            <p style={{ margin: 0 }}>
-              {uploadPhase === 'uploading' ? '上传中...'
-                : uploadPhase === 'polling' ? '解析中...'
-                : '点击或拖拽 .eml 文件到此区域上传'}
-            </p>
-          </Upload.Dragger>
+          <p style={{ fontSize: 32, color: '#1677ff', margin: '8px 0' }}><UploadOutlined /></p>
+          <p style={{ margin: 0 }}>
+            {uploadPhase === 'uploading' ? '上传中...'
+              : uploadPhase === 'polling' ? '解析中...'
+              : '点击或拖拽 .eml 文件到此区域上传'}
+          </p>
+        </Upload.Dragger>
 
-          {uploadBusy && (
-            <div style={{ marginTop: 16, textAlign: 'center' }}>
-              <Spin />
-              <span style={{ marginLeft: 8, color: '#999' }}>
-                {uploadPhase === 'uploading' ? '正在上传文件…' : '正在解析邮件，请稍候…'}
-              </span>
-            </div>
-          )}
-
-          {uploadPhase === 'failed' && (
-            <div style={{ marginTop: 16, color: '#cf1322' }}>
-              {parseError || '解析失败'}
-            </div>
-          )}
-
-          {uploadPhase === 'done' && parseResult && (
-            <div style={{ marginTop: 16 }}>
-              <ParseResultView result={parseResult} />
-              <div style={{ marginTop: 12 }}>
-                <Button size="small" onClick={() => setShowRawResult((v) => !v)}>
-                  {showRawResult ? '隐藏原始数据' : '查看原始数据'}
-                </Button>
-                <Button
-                  size="small"
-                  style={{ marginLeft: 8 }}
-                  onClick={() => copyText(JSON.stringify(parseResult, null, 2))}
-                >复制完整结果</Button>
-              </div>
-              {showRawResult && (
-                <pre
-                  style={{
-                    marginTop: 8, maxHeight: 260, overflow: 'auto',
-                    background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12,
-                  }}
-                >{JSON.stringify(parseResult, null, 2)}</pre>
-              )}
-            </div>
-          )}
-        </Modal>
-        {batchBarMounted && (
-          <Space
-            style={{
-              marginBottom: 8,
-              opacity: selectedRowKeys.length > 0 ? 1 : 0,
-              transform: selectedRowKeys.length > 0 ? 'translateY(0)' : 'translateY(-6px)',
-              transition: 'opacity 0.2s ease, transform 0.2s ease',
-            }}
-          >
-            <span style={{ fontSize: 15, color: 'rgba(0,0,0,0.85)', fontWeight: 500 }}>
-              已选 {selectedRowKeys.length} 条，批量标记为：
+        {uploadBusy && (
+          <div style={{ marginTop: 16, textAlign: 'center' }}>
+            <Spin />
+            <span style={{ marginLeft: 8, color: '#999' }}>
+              {uploadPhase === 'uploading' ? '正在上传文件…' : '正在解析邮件，请稍候…'}
             </span>
-            {CHECK_OPTIONS.map((o) => (
-              <Button
-                key={o.value}
-                size="small"
-                loading={batchLoading}
-                onClick={() => handleBatchCheck(o.value)}
-              >
-                <Tag color={o.color} style={{ margin: 0 }}>{o.label}</Tag>
-              </Button>
-            ))}
-            <Button size="small" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
-          </Space>
+          </div>
         )}
-        <Table
-          rowKey="id"
-          columns={tableColumns}
-          dataSource={tableData}
-          loading={tableLoading}
-          size="small"
-          bordered
-          className="email-table"
-          rowClassName={(row) => fadingIds.has(row.id) ? 'row-fading' : ''}
-          rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
-          pagination={{
-            current: initPage,
-            pageSize: 50,
-            total,
-            showSizeChanger: false,
-            showTotal: (t) => `共 ${t} 条`,
-            onChange: handlePageChange,
-            position: ['bottomCenter'],
+
+        {uploadPhase === 'failed' && (
+          <div style={{ marginTop: 16, color: '#cf1322' }}>
+            {parseError || '解析失败'}
+          </div>
+        )}
+
+        {uploadPhase === 'done' && parseResult && (
+          <div style={{ marginTop: 16 }}>
+            <ParseResultView result={parseResult} />
+            <div style={{ marginTop: 12 }}>
+              <Button size="small" onClick={() => setShowRawResult((v) => !v)}>
+                {showRawResult ? '隐藏原始数据' : '查看原始数据'}
+              </Button>
+              <Button
+                size="small"
+                style={{ marginLeft: 8 }}
+                onClick={() => copyText(JSON.stringify(parseResult, null, 2))}
+              >
+                复制完整结果
+              </Button>
+            </div>
+            {showRawResult && (
+              <pre
+                style={{
+                  marginTop: 8, maxHeight: 260, overflow: 'auto',
+                  background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12,
+                }}
+              >{JSON.stringify(parseResult, null, 2)}</pre>
+            )}
+          </div>
+        )}
+      </Modal>
+      {batchBarMounted && (
+        <Space
+          style={{
+            marginBottom: 8,
+            opacity: selectedRowKeys.length > 0 ? 1 : 0,
+            transform: selectedRowKeys.length > 0 ? 'translateY(0)' : 'translateY(-6px)',
+            transition: 'opacity 0.2s ease, transform 0.2s ease',
           }}
-          tableLayout="fixed"
-          scroll={{ x: 1660, y: 'calc(100vh - 160px)' }}
-        />
+        >
+          <span style={{ fontSize: 15, color: 'rgba(0,0,0,0.85)', fontWeight: 500 }}>
+            已选 {selectedRowKeys.length} 条，批量标记为：
+          </span>
+          {CHECK_OPTIONS.map((o) => (
+            <Button
+              key={o.value}
+              size="small"
+              loading={batchLoading}
+              onClick={() => handleBatchCheck(o.value)}
+            >
+              <Tag color={o.color} style={{ margin: 0 }}>{o.label}</Tag>
+            </Button>
+          ))}
+          <Button size="small" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+        </Space>
+      )}
+      <Table
+        rowKey="id"
+        columns={tableColumns}
+        dataSource={tableData}
+        loading={tableLoading}
+        size="small"
+        bordered
+        className="email-table"
+        rowClassName={(row) => fadingIds.has(row.id) ? 'row-fading' : ''}
+        rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
+        pagination={{
+          current: initPage,
+          pageSize: 50,
+          total,
+          showSizeChanger: false,
+          showTotal: (t) => `共 ${t} 条`,
+          onChange: handlePageChange,
+          position: ['bottomCenter'],
+        }}
+        tableLayout="fixed"
+        scroll={{ x: 1660, y: 'calc(100vh - 160px)' }}
+      />
     </div>
   );
 }

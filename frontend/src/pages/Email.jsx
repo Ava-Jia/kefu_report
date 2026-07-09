@@ -4,6 +4,7 @@ import {
   Button, Card, DatePicker, Dropdown, Flex, Input, Modal, Radio, Select, Space, Spin,
   Table, Tag, Typography, Upload, message,
 } from 'antd';
+
 import { AppstoreOutlined, CaretDownOutlined, CaretUpOutlined, CheckCircleOutlined, ClockCircleOutlined, EditOutlined, EyeOutlined, MailOutlined, SyncOutlined, UploadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { fetchEmailList, updateEmailCheck, updateEmail, uploadEmailEml, fetchEmailParseStatus } from '../api';
@@ -121,7 +122,7 @@ const MultiMbl = ({ value, row, onSaved }) => {
 
   return (
     <>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <span style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 4 }}>
         {items.length > 0 ? (
           <Button
             size="small"
@@ -140,7 +141,7 @@ const MultiMbl = ({ value, row, onSaved }) => {
         )}
         <EditOutlined
           title="修改 MBL 号"
-          style={{ cursor: 'pointer', color: '#999', fontSize: 12 }}
+          style={{ cursor: 'pointer', color: '#999', fontSize: 12, marginLeft: 'auto' }}
           onClick={handleEditOpen}
         />
       </span>
@@ -880,6 +881,19 @@ export default function Email() {
 
   const hasDateFilter = !!(initDateFrom || initDateTo);
 
+  const handleQuickRange = (days) => {
+    const to = dayjs().format('YYYY-MM-DD');
+    const from = dayjs().subtract(days - 1, 'day').format('YYYY-MM-DD');
+    pushParams(1, initPageSize, initCategory, from, to, initIsCheck, initMblNumber);
+  };
+
+  const activeQuickRange = (() => {
+    if (initDateTo !== dayjs().format('YYYY-MM-DD')) return null;
+    return [1, 7, 15].find(
+      (d) => initDateFrom === dayjs().subtract(d - 1, 'day').format('YYYY-MM-DD'),
+    ) ?? null;
+  })();
+
   const handlePageChange = (page, pageSize) => {
     pushParams(page, pageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber);
   };
@@ -988,7 +1002,7 @@ export default function Email() {
           <Space wrap>
             <Select
               allowClear
-              size="large"
+              size="middle  "
               value={initCategory || undefined}
               placeholder="全部类别"
               options={INTENT_OPTIONS}
@@ -996,18 +1010,13 @@ export default function Email() {
               onChange={(value) => handleCategoryChange(value || '')}
             />
             <Input.Search
-              size="large"
+              size="middle"
               placeholder="搜索 MBL 号"
               defaultValue={initMblNumber}
               allowClear
               style={{ width: 200 }}
               onSearch={handleMblSearch}
             />
-            <Button
-              size="large"
-              onClick={handleTodayOrder}
-              style={isTodayOrderActive ? { background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' } : {}}
-            >今日预报/换单</Button>
             <DatePicker.RangePicker
               open={customPickerOpen}
               onOpenChange={setCustomPickerOpen}
@@ -1017,12 +1026,36 @@ export default function Email() {
               disabledDate={(d) => d && d > dayjs().endOf('day')}
               style={{ width: 0, padding: 0, border: 'none', overflow: 'hidden', position: 'absolute' }}
             />
-            <Button size="large" type={hasDateFilter ? 'primary' : 'default'} onClick={() => setCustomPickerOpen(true)}>
-              {hasDateFilter ? `${initDateFrom} ~ ${initDateTo}` : '自定义日期'}
-            </Button>
-            <Button size="large" danger onClick={handleClearAll}>清除</Button>
+            <div
+            style={{
+              marginLeft: 'auto',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '4px 12px',
+              border: '1px solid #d9d9d9',
+              borderRadius: 8,
+            }}
+            >
+            <Flex gap="small" wrap>
+              <Button
+                size="large"
+                type={!hasDateFilter ? 'primary' : 'default'}
+                onClick={() => handleCustomDateChange(null)}
+              >全部</Button>
+              {[1, 7].map((days) => (
+                <Button
+                  key={days}
+                  size="large"
+                  type={activeQuickRange === days ? 'primary' : 'default'}
+                  onClick={() => handleQuickRange(days)}
+                >近 {days} 天</Button>
+              ))}
+            </Flex> 
+            </div>
+
             <Button
-              size="large"
+              size="small"
               onClick={openUploadModal}
             >上传解析</Button>
           </Space>
@@ -1164,7 +1197,6 @@ export default function Email() {
           dataSource={tableData}
           loading={tableLoading}
           size="small"
-          bordered
           className="email-table"
           rowClassName={(row) => fadingIds.has(row.id) ? 'row-fading' : ''}
           rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
@@ -1175,6 +1207,7 @@ export default function Email() {
             showSizeChanger: false,
             showTotal: (t) => `共 ${t} 条`,
             onChange: handlePageChange,
+            
           }}
           tableLayout="fixed"
           scroll={{ x: 1660, y: 'calc(100vh - 160px)' }}

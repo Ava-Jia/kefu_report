@@ -1,3 +1,4 @@
+import re 
 from flask import Blueprint, jsonify, request, g
 from services.email_parser import (
     get_email_id, _json_get, _get_redis, get_email_result, get_order_result,
@@ -18,7 +19,7 @@ import logging
 bp = Blueprint("email", __name__, url_prefix="/api")
 logger = logging.getLogger(__name__)
 
-# POST /api/email/create：按 email_id 或 ordering_id 写入/更新本地邮件记录。
+
 @bp.route("/email/create", methods=["POST"])
 def create_email():
     """
@@ -50,7 +51,7 @@ def create_email():
                            request_body=body if isinstance(body, dict) else None)
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-# POST /api/email/upload：上传 .eml 文件到 OSS，返回可公开访问的 URL（不做任何解析）。
+
 @bp.route("/email/upload", methods=["POST"])
 def upload_eml():
     """把上传的 .eml 文件传到 OSS，返回 OSS URL。"""
@@ -69,7 +70,7 @@ def upload_eml():
         logger.exception("upload_eml error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-# GET /api/email/status/<task_id>：查询 .eml 异步解析任务的状态/结果。
+
 @bp.route("/email/status/<task_id>", methods=["GET"])
 def status_eml(task_id):
     try:
@@ -83,7 +84,7 @@ def status_eml(task_id):
         logger.exception("status_eml error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-# GET /api/email/list：分页查询本地邮件解析结果，支持条件过滤。
+
 @bp.route("/email/list", methods=["GET"])
 def list_emails():
     """分页返回本地 SQLite 中的邮件解析结果。"""
@@ -110,7 +111,8 @@ def list_emails():
         logger.exception("list_emails error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-# GET /api/email/<email_id>/preview：获取邮件预览所需的 html、附件和解析结果。
+
+
 @bp.route("/email/<email_id>/preview", methods=["GET"])
 def get_email_preview(email_id):
     try:
@@ -124,13 +126,18 @@ def get_email_preview(email_id):
         ordering_id = detail.get("ordering_id")
         parser_row = get_parser_result_by_ordering_id(ordering_id) if ordering_id else None
         result = parser_row.get("parser_result") if parser_row else None
+        html_content = email_result["html_content"]
+        attachments = email_result["attachments"]
+        # 先用全量附件（含带 content_id 的内联图片）替换 cid，再过滤给前端
+        html_content = _attachment_in_html(html_content, attachments)
+        attachments = _attachment_filter(attachments)
 
         return jsonify({
             "code": 200,
             "message": "查询成功",
             "data": {
-                "html_content": email_result["html_content"],
-                "attachments": email_result["attachments"],
+                "html_content": html_content,
+                "attachments": attachments,
                 "result": result,
                 "data_id": detail["data_id"],
                 "is_check": detail["is_check"],
@@ -141,7 +148,7 @@ def get_email_preview(email_id):
         logger.exception("get_email_preview error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-# GET /api/email/<email_id>/adjacent：根据 data_id 获取上一条或下一条邮件 id。
+
 @bp.route("/email/<email_id>/adjacent", methods=["GET"])
 def get_adjacent_email(email_id):
     try:
@@ -161,7 +168,7 @@ def get_adjacent_email(email_id):
         logger.exception("get_adjacent_email error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-# PUT /api/email/<email_id>：更新指定邮件的可编辑字段，并记录操作人。
+
 @bp.route("/email/<email_id>", methods=["PUT"])
 def update_email_route(email_id):
     try:
@@ -213,7 +220,7 @@ def update_email_route(email_id):
         logger.exception("update_email error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-# GET /api/email/<email_id>/logs：查询指定邮件的审计日志。
+
 @bp.route("/email/<email_id>/logs", methods=["GET"])
 def get_email_logs(email_id):
     try:
@@ -229,7 +236,7 @@ def get_email_logs(email_id):
         logger.exception("get_email_logs error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-# PATCH /api/email/<email_id>/check：更新指定邮件的审核状态 is_check。
+
 @bp.route("/email/<email_id>/check", methods=["PATCH"])
 def update_check(email_id):
     try:
@@ -247,7 +254,6 @@ def update_check(email_id):
         logger.exception("update_check error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-# GET /api/test/<ordering_id>/order：测试查询指定 ordering_id 的订单解析结果。
 @bp.route("/test/<ordering_id>/order", methods=["GET"])
 def get_order_result_route(ordering_id):
     """用于测试 ordering_id 的解析结果。"""
@@ -260,7 +266,6 @@ def get_order_result_route(ordering_id):
         logger.exception("get_order_result_route error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-# GET /api/test/<email_id>/email：测试查询指定 email_id 的原始邮件结果。
 @bp.route("/test/<email_id>/email", methods=["GET"])
 def get_email_result_route(email_id):
     """用于测试：获取指定 email_id 的结果。"""
@@ -358,3 +363,38 @@ def _create_by_email_id(body, email_id):
         return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
     upsert_emails([record])
     return jsonify({"code": 200, "message": "写入成功", "data": {"id": record.get("id", email_id)}})
+
+
+def _attachment_in_html(html_content, attachments):
+    if isinstance(html_content, list):
+        html_content = "".join(html_content)
+    if not html_content:
+        return html_content
+    cids = re.findall(r'<img[^>]+src=["\']cid:([^"\']+)["\']', html_content, re.I)
+    for cid in cids:
+        oss_url = None
+        # 查找对应的oss
+        for attachment in attachments:
+            content_id = (attachment.get("content_id") or "").strip("<>")
+            if content_id == cid:
+                oss_url = attachment.get("oss_url") or ""
+                break
+        if oss_url:
+            # 替换 html_content 内容
+            html_content = re.sub(
+                rf'src=["\']cid:{re.escape(cid)}["\']',
+                f'src="{oss_url}"',
+                html_content,
+                flags=re.I
+            )
+    return html_content
+
+
+def _attachment_filter(attachments: list[dict]) -> list[dict]:
+    """如果 attachment 中record_id是空，则展示"""
+    results = []
+    for attachment in attachments:
+
+        if not attachment.get("content_id"):
+            results.append(attachment)
+    return results

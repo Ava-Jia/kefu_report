@@ -1239,6 +1239,7 @@ export default function Email() {
         rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
         pagination={{
           current: initPage,
+          size: 'large',
           pageSize: 50,
           total,
           showSizeChanger: false,
@@ -1247,7 +1248,11 @@ export default function Email() {
           position: ['bottomCenter'],
         }}
         tableLayout="fixed"
-        scroll={{ x: 1660, y: 'calc(100vh - 160px)' }}
+        scroll={{
+          x: 1660,
+          y: 'calc(100vh - 220px)',
+        }}
+        sticky
       />
     </div>
   );

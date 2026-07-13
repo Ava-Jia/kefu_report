@@ -101,6 +101,7 @@ class EmailParserResult(Base):
     consignee_address: Mapped[str | None] = mapped_column(Text, nullable=True)
     consignee_tel: Mapped[str | None] = mapped_column(String(100), nullable=True)
     consignee_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    consignee_from_email: Mapped[str | None] = mapped_column(Text, nullable=True)
     notify_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     notify_address: Mapped[str | None] = mapped_column(Text, nullable=True)
     notify_tel: Mapped[str | None] = mapped_column(String(100), nullable=True)

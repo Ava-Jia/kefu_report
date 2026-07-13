@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Button, Spin, Modal, message } from 'antd';
+import { Button, Spin, Modal, message, Pagination } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined, ZoomInOutlined, CheckOutlined, DownloadOutlined } from '@ant-design/icons';
 import { fetchEmailPreview, updateEmail, updateEmailCheck, fetchAdjacentEmail, fetchEmailList } from '../api';
 
@@ -59,7 +59,7 @@ const numberList = (str) => {
 const RESULT_TEMPLATE = {
   agentEmail: '', agentName: '',
   collectAmountUSD: '', collectItem: '',
-  consigneeAddress: '', consigneeEmail: '', consigneeName: '', consigneeTel: '',
+  consigneeAddress: '', consigneeEmail: '', consigneeFromEmail: '', consigneeName: '', consigneeTel: '',
   containerType: '', ctrNumber: '',
   customerType: '', descriptionOfGoods: '',
   expenseItem: {
@@ -93,7 +93,7 @@ const FIELD_LABEL = {
   agentEmail: '代理邮箱', agentName: '代理名称',
   collectAmountUSD: '到付金额(USD)', collectItem: '到付项目',
   consigneeAddress: '收货人地址', consigneeEmail: '收货人邮箱',
-  consigneeName: '收货人名称', consigneeTel: '收货人电话',
+  consigneeFromEmail: '收货人(邮件)', consigneeName: '收货人名称', consigneeTel: '收货人电话',
   containerType: 'COC/SOC', ctrNumber: '箱号',
   customerType: '客户类型', descriptionOfGoods: '货物描述',
   grossWeight: '毛重', houseBillNo: 'HBL Number',
@@ -377,20 +377,34 @@ export default function EmailDetail() {
   const [resultDirty, setResultDirty] = useState(false);
   const [resultSaving, setResultSaving] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
+  // 一封邮件可能有多条解析结果，按「条」翻页展示
+  const [resultPage, setResultPage] = useState(0);
   const savedSnapshotRef = useRef({ result: null, rawResult: null });
-  // 只记录本次编辑改动过的顶层字段，保存时只回传这些字段（而非整个解析结果）
+  // 按页记录本次编辑改动过的顶层字段：{ [pageIdx]: { field: val } }，保存时按页分别回传
   const changedFieldsRef = useRef({});
 
   const onFieldChange = (path, val) => {
+    const page = resultPage;
     setResult((prev) => {
-      if (Array.isArray(prev)) return [setDeep(prev[0] ?? {}, path, val), ...prev.slice(1)];
+      if (Array.isArray(prev)) {
+        const next = prev.slice();
+        next[page] = setDeep(next[page] ?? {}, path, val);
+        return next;
+      }
       return setDeep(prev, path, val);
     });
     setRawResult((prev) => {
-      const base = Array.isArray(prev) ? (prev[0] ?? {}) : (prev ?? {});
+      const isArr = Array.isArray(prev);
+      const base = isArr ? (prev[page] ?? {}) : (prev ?? {});
       const nextBase = setDeep(base, path, val);
-      changedFieldsRef.current = { ...changedFieldsRef.current, [path[0]]: nextBase[path[0]] };
-      return Array.isArray(prev) ? [nextBase, ...prev.slice(1)] : nextBase;
+      const pageChanges = { ...(changedFieldsRef.current[page] || {}), [path[0]]: nextBase[path[0]] };
+      changedFieldsRef.current = { ...changedFieldsRef.current, [page]: pageChanges };
+      if (isArr) {
+        const next = prev.slice();
+        next[page] = nextBase;
+        return next;
+      }
+      return nextBase;
     });
     setResultDirty(true);
   };
@@ -450,15 +464,29 @@ export default function EmailDetail() {
   const handleSaveResult = async () => {
     setResultSaving(true);
     try {
-      // 只回传本次编辑改动过的字段，而非整个解析结果
-      const res = await updateEmail(id, { parser_result: JSON.stringify(changedFieldsRef.current) });
-      if (res?.code === 200) {
+      const rawList = Array.isArray(rawResult) ? rawResult : (rawResult ? [rawResult] : [{}]);
+      // 逐条保存改动过的解析结果，带上改动前的提单号让后端定位到具体那条记录
+      let ok = true;
+      for (const key of Object.keys(changedFieldsRef.current)) {
+        const patch = changedFieldsRef.current[key];
+        if (!patch || Object.keys(patch).length === 0) continue;
+        const original = rawList[Number(key)] ?? {};
+        const res = await updateEmail(id, {
+          parser_result: JSON.stringify(patch),
+          parser_master_bill_no: original.masterBillNo ?? null,
+          parser_house_bill_no: original.houseBillNo ?? null,
+        });
+        if (res?.code !== 200) {
+          ok = false;
+          message.error(res?.message || '保存失败');
+          break;
+        }
+      }
+      if (ok) {
         message.success('保存成功');
         savedSnapshotRef.current = { result, rawResult };
         changedFieldsRef.current = {};
         setResultDirty(false);
-      } else {
-        message.error(res?.message || '保存失败');
       }
     } catch {
       message.error('保存失败');
@@ -576,11 +604,13 @@ export default function EmailDetail() {
     }
   };
 
-  const resultObj = result ? (Array.isArray(result) ? result[0] ?? {} : result) : null;
+  const resultList = Array.isArray(result) ? result : (result ? [result] : []);
+  const resultObj = resultList[resultPage] ?? resultList[0] ?? {};
 
   useEffect(() => {
     setResultLoading(true);
     setResultDirty(false);
+    setResultPage(0);
     changedFieldsRef.current = {};
     setSubject(location.state?.subject ?? '');
     fetchEmailPreview(id)
@@ -852,6 +882,19 @@ export default function EmailDetail() {
           解析信息
           {resultLoading && <Spin size="small" />}
         </div>
+        {resultList.length > 1 && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+            <Pagination
+              size="small"
+              simple
+              current={resultPage + 1}
+              total={resultList.length}
+              pageSize={1}
+              showSizeChanger={false}
+              onChange={(page) => setResultPage(page - 1)}
+            />
+          </div>
+        )}
         {sortedEntries(resultObj).map(([k, v, path]) => (
           <ResultField key={path.join('.')} label={k} value={v}
             onChange={(v === null || typeof v !== 'object') && !isUrl(String(v ?? '')) ? (val) => onFieldChange(path, val) : undefined}

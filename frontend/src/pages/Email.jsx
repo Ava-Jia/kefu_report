@@ -9,7 +9,7 @@ import {
   UploadOutlined,
 } from '@ant-design/icons';
 import {
-  Button, DatePicker, Divider, Flex, Input, Modal, Radio, Select, Space, Spin,
+  Button, Col, DatePicker, Divider, Flex, Form, Input, Modal, Radio, Row, Select, Space, Spin,
   Table, Tag, Tooltip, Typography, Upload, message,
 } from 'antd';
 import dayjs from 'dayjs';
@@ -75,6 +75,25 @@ const EXCHANGE_INTENT_OPTIONS = Object.entries(EXCHANGE_INTENT).map(([value, lab
   value,
   label,
 }));
+
+const INTENT_SECONDARY_OPTIONS = {
+  [EXCHANGE_OF_PORT]: EXCHANGE_INTENT_OPTIONS,
+};
+
+// 按已选的一级意图合并生成二级候选
+const getSecondaryOptions = (items1) => {
+  const seen = new Set();
+  const opts = [];
+  for (const p of items1) {
+    for (const o of (INTENT_SECONDARY_OPTIONS[p] || [])) {
+      if (!seen.has(o.value)) {
+        seen.add(o.value);
+        opts.push(o);
+      }
+    }
+  }
+  return opts;
+};
 
 const INTENT_OPTIONS = Object.keys(INTENT_COLOR).map((value) => ({
   label: INTENT_LABEL[value] ?? value,
@@ -171,8 +190,8 @@ const EditIcon = ({ onClick }) => (
   />
 );
 
-// 可复制 + 可修改的文本单元格（代理名称、角色）
-const EditableTextField = ({ row, field, title, value, onSaved }) => {
+// 可复制 + 可修改的单元格（代理名称、角色等）；type='select' 时改用下拉
+const EditableField = ({ row, field, title, value, onSaved, type = 'text', options }) => {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
@@ -183,7 +202,7 @@ const EditableTextField = ({ row, field, title, value, onSaved }) => {
   };
 
   const handleSave = async () => {
-    const nextValue = draft.trim();
+    const nextValue = typeof draft === 'string' ? draft.trim() : draft;
     setSaving(true);
     try {
       const res = await updateEmail(row.id, { [field]: nextValue });
@@ -214,12 +233,22 @@ const EditableTextField = ({ row, field, title, value, onSaved }) => {
         okText="保存"
         cancelText="取消"
       >
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onPressEnter={handleSave}
-          placeholder={`请输入${title}`}
-        />
+        {type === 'select' ? (
+          <Select
+            value={draft || undefined}
+            options={options}
+            onChange={setDraft}
+            style={{ width: '100%' }}
+            placeholder={`请选择${title}`}
+          />
+        ) : (
+          <Input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onPressEnter={handleSave}
+            placeholder={`请输入${title}`}
+          />
+        )}
       </Modal>
     </span>
   );
@@ -260,37 +289,59 @@ const IntentDetailModal = ({ open, onClose, items1, items2, emailId, onSaved }) 
     }
   };
 
+  const secondaryOptions = getSecondaryOptions(draftItems1);
+
+  const toggleItem2 = (value, checked) => {
+    setDraftItems2((prev) => checked ? [...prev, value] : prev.filter((v) => v !== value));
+  };
+
   return (
     <Modal
       title="意图详情"
       open={open}
       onCancel={onClose}
-      width={400}
+      width={560}
       centered
       footer={[
         <Button key="cancel" onClick={onClose} disabled={saving}>取消</Button>,
         <Button key="save" type="primary" loading={saving} onClick={handleSave}>保存</Button>,
       ]}
     >
-      <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>一级意图</div>
-      <Select
-        mode="multiple"
-        value={draftItems1}
-        onChange={setDraftItems1}
-        options={INTENT_OPTIONS}
-        style={{ width: '100%', marginBottom: 12 }}
-      />
-      <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>二级意图</div>
-      <Select
-        mode={draftItems1.includes(EXCHANGE_OF_PORT) ? 'multiple' : 'tags'}
-        value={draftItems2}
-        onChange={setDraftItems2}
-        options={draftItems1.includes(EXCHANGE_OF_PORT) ? EXCHANGE_INTENT_OPTIONS : undefined}
-        open={draftItems1.includes(EXCHANGE_OF_PORT) ? undefined : false}
-        tokenSeparators={[]}
-        style={{ width: '100%' }}
-        placeholder={draftItems1.includes(EXCHANGE_OF_PORT) ? '请选择二级意图' : '输入后按回车添加'}
-      />
+      <Form layout="vertical">
+        <Row gutter={16} align="top">
+          <Col span={12}>
+            <Form.Item label="一级意图" style={{ marginBottom: 0 }}>
+              <Select
+                mode="multiple"
+                value={draftItems1}
+                onChange={setDraftItems1}
+                options={INTENT_OPTIONS}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item label="二级意图" style={{ marginBottom: 0 }}>
+              {secondaryOptions.length ? (
+                <Space size={[8, 8]} wrap>
+                  {secondaryOptions.map((o) => (
+                    <Tag.CheckableTag
+                      key={o.value}
+                      checked={draftItems2.includes(o.value)}
+                      onChange={(checked) => toggleItem2(o.value, checked)}
+                      style={{ cursor: 'pointer', border: '1px solid #d9d9d9', padding: '2px 10px' }}
+                    >
+                      {o.label}
+                    </Tag.CheckableTag>
+                  ))}
+                </Space>
+              ) : (
+                <Text type="secondary">请选择左侧一级意图</Text>
+              )}
+            </Form.Item>
+          </Col>
+        </Row>
+      </Form>
     </Modal>
   );
 };
@@ -507,6 +558,16 @@ const MblCell = ({ row, value, onSaved }) => {
   );
 };
 
+const ROLE_OPTIONS = [
+  { label: '船公司', value: '船公司' },
+  { label: '上层代理', value: '上层代理' },
+  { label: '主单发货人', value: '主单发货人'},
+  { label: '换单代理', value: '换单代理' },
+  { label: '其他', value: '其他' },
+  { label: '分单收货人', value: '分单收货人'},
+];
+
+
 const DateSortHeader = ({ order, onOrderChange }) => (
   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
     日期
@@ -546,7 +607,7 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
     key: 'broker_name',
     width: 220,
     render: (v, record) => (
-      <EditableTextField row={record} field="broker_name" title="代理名称" value={v || record['broker-name']} onSaved={onFieldSaved} />
+      <EditableField row={record} field="broker_name" title="代理名称" value={v || record['broker-name']} onSaved={onFieldSaved} />
     ),
   },
   {
@@ -567,8 +628,15 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
     key: 'role',
     width: 100,
     render: (v, record) => (
-      <EditableTextField row={record} field="role" title="角色" value={v} onSaved={onFieldSaved} />
-    ),
+      <EditableField
+        row={record}
+        field="role"
+        title="角色"
+        type="select"
+        options={ROLE_OPTIONS}
+        value={v}
+        onSaved={onFieldSaved} />
+      ),
   },
   {
     title: '邮件主题',
@@ -1239,6 +1307,7 @@ export default function Email() {
         rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
         pagination={{
           current: initPage,
+          size: 'large',
           pageSize: 50,
           total,
           showSizeChanger: false,
@@ -1247,7 +1316,11 @@ export default function Email() {
           position: ['bottomCenter'],
         }}
         tableLayout="fixed"
-        scroll={{ x: 1660, y: 'calc(100vh - 160px)' }}
+        scroll={{
+          x: 1660,
+          y: 'calc(100vh - 220px)',
+        }}
+        sticky
       />
     </div>
   );

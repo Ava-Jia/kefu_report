@@ -44,6 +44,13 @@ def normalize_parser_result(parser_result: dict | list | None) -> dict | None:
     return parser_result or None
 
 
+def normalize_parser_results(parser_result: dict | list | None) -> list[dict]:
+    """把 Redis 里的 result 统一成 dict 列表：一个 ordering 可能解析出多份结果。"""
+    if isinstance(parser_result, list):
+        return [r for r in parser_result if isinstance(r, dict)]
+    return [parser_result] if isinstance(parser_result, dict) else []
+
+
 def _is_field_present(value) -> bool:
     if value is None:
         return False
@@ -57,6 +64,13 @@ def compute_is_done(parser_result: dict | list | None) -> int:
         return IS_DONE_PENDING
     ok = all(_is_field_present(parser_result.get(f)) for f in _IS_DONE_REQUIRED_FIELDS)
     return IS_DONE_CREATED if ok else IS_DONE_CREATE_FAILED
+
+
+def compute_is_done_multi(results: list[dict]) -> int:
+    """多条解析结果汇总到 email 表单行：无结果=待处理，全部齐全=成功，否则失败。"""
+    if not results:
+        return IS_DONE_PENDING
+    return IS_DONE_CREATED if all(compute_is_done(r) == IS_DONE_CREATED for r in results) else IS_DONE_CREATE_FAILED
 
 
 def _to_bjt(date_str: str | None) -> str | None:
@@ -150,23 +164,25 @@ def upsert_emails(records: list[dict]) -> int:
             # attachments = r.get("attachments")
             # 获取 parser_result
             raw = r.get("ordering_id") or ""
-            ordering_id = raw[12:] or None          # 裸 UUID
+            ordering_id = raw[12:] or None          # 裸 UUID，移除 ordeing_id:
             if ordering_id:
                 parser_result = get_order_result(ordering_id)
                 parser_result = parser_result.get("result") if parser_result else None
-                parser_result = normalize_parser_result(parser_result)
+                results = normalize_parser_results(parser_result)  # 一个 ordering 可能有多份结果
             else:
-                parser_result = None
-            is_done = compute_is_done(parser_result)
+                results = []
+            # email 表单行的 is_done 由多条结果汇总
+            is_done = compute_is_done_multi(results)
             broker_name = r.get("brokerName")
-            # 因为识别到了parser-result，因此将其也入库；如果没有识别到，就不入库
-            if ordering_id and parser_result:
+            # 每份解析结果单独入库；同一 ordering 下按 (mbl, hbl) 区分为多行
+            for one in results:
                 parser_result_rows.append({
                     "ordering_id": ordering_id,
-                    "parser_result": parser_result,
+                    "parser_result": one,
                     "broker_name": broker_name,
-                    "is_done": is_done,
-                    "master_bill_no": parser_result.get("masterBillNo"),
+                    "is_done": compute_is_done(one),
+                    "master_bill_no": one.get("masterBillNo"),
+                    "house_bill_no": one.get("houseBillNo"),
                 })
             session.merge(Email(
                 id=r["id"],
@@ -180,15 +196,11 @@ def upsert_emails(records: list[dict]) -> int:
                 html_content=None,
                 attachments=None,
                 parser_result=None,
-                # html_content=_normalize_html_content(r.get("html_content")),
-                # attachments=json.dumps(attachments, ensure_ascii=False) if attachments else None,
-                # parser_result=json.dumps(parser_result, ensure_ascii=False) if parser_result else None,
                 intent_type2=str(r.get("intent_type2")) if r.get("intent_type2") else None,
                 ordering_id=ordering_id,
                 email_url=r.get("email_url") or None,
                 is_done=is_done,
             ))
-        # 与 email 写入共享同一事务，保证「email 与 parser_result 要么一起成功、要么一起回滚」。
         for row in parser_result_rows:
             upsert_parser_result_in_session(
                 session,
@@ -197,6 +209,7 @@ def upsert_emails(records: list[dict]) -> int:
                 broker_name=row["broker_name"],
                 is_done=row["is_done"],
                 master_bill_no=row["master_bill_no"],
+                house_bill_no=row["house_bill_no"],
                 operator="email_create",
             )
         session.commit()
@@ -302,10 +315,30 @@ def get_audit_logs(record_id: str, table_name: str = "email") -> list[dict]:
         ]
 
 
-def get_email_id_by_ordering_id(ordering_id: str) -> str | None:
+def get_email_id_by_ordering_id(ordering_id: str):
+    """从order-id找到其email解析结果"""
     with get_session() as session:
         row = session.query(Email).filter(Email.ordering_id == ordering_id).first()
-        return row.id if row else None
+        if row is None:
+            return None
+        return {
+            "id": row.id,
+            "data_id": row.data_id,
+            "date": row.date,
+            "role": row.role,
+            "from": row.from_addr,
+            "mbl_number": row.mbl_number,
+            "intent_type1": row.intent_type1,
+            "subject": row.subject,
+            "intent_type2": row.intent_type2,
+            "ordering_id": row.ordering_id,
+            "email_summary": row.email_summary,
+            "is_done": row.is_done,
+            "is_check": row.is_check,
+            "email_url": row.email_url,
+            "status": row.status,
+            "broker_name": row.broker_name,
+        }
 
 
 def get_email_detail(email_id: str) -> dict | None:
@@ -327,7 +360,6 @@ def get_email_detail(email_id: str) -> dict | None:
             "email_summary": row.email_summary,
             "is_done": row.is_done,
             "is_check": row.is_check,
-            "data_id": row.data_id,
             "email_url": row.email_url,
             "status": row.status,
             "broker_name": row.broker_name,

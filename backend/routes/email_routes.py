@@ -8,7 +8,8 @@ from services.email_service import (
     upsert_emails, get_local_emails, update_email_check, update_email,
     get_email_id_by_ordering_id, get_audit_logs,
     get_email_detail,
-    get_next_email_id, compute_is_done, normalize_parser_result,
+    get_next_email_id, compute_is_done, compute_is_done_multi,
+    normalize_parser_result, normalize_parser_results,
     log_create_failure,
 )
 
@@ -23,8 +24,9 @@ logger = logging.getLogger(__name__)
 @bp.route("/email/create", methods=["POST"])
 def create_email():
     """
-    从 Redis 获取指定 email_id 的邮件详情，并写入本地 SQLite。
-    如果传的是 ordering_id, 则不仅要拿解析结果，还要将order_id写到对应的email_id的记录中。
+    整个创建顺序：
+    1. 先判断是不是ordering-id，如果是，就去调用ordering解析并保存
+    2. 如果是email-id，则先获取email解析的内容并保存；如果有ordering-id，则再调用获取附件解析的结果并保存。
     """
     body = None
     try:
@@ -203,12 +205,13 @@ def update_email_route(email_id):
                 if is_done is None:
                     is_done = compute_is_done(merged)
                     body["is_done"] = is_done
-                # 按 (ordering_id, masterBillNo) 匹配到具体那条记录（masterBillNo 取改动前的值，避免定位错行）
+                # 按 (ordering_id, masterBillNo, houseBillNo) 匹配到具体那条记录（提单号取改动前的值，避免定位错行/新增重复）
                 upsert_parser_result_by_ordering_id(
                     ordering_id, patch,
                     broker_name=detail.get("broker_name"),
                     is_done=is_done,
                     master_bill_no=existing_result.get("masterBillNo") or patch.get("masterBillNo"),
+                    house_bill_no=existing_result.get("houseBillNo") or patch.get("houseBillNo"),
                     operator=operator,
                 )
 
@@ -288,8 +291,8 @@ _SCAC_CODES = {
 }
 
 
-def _merge_mbl_number(email_id, parser_mbl):
-    """将 parser 中的 mbl 追加到该邮件原有 mbl_number 并去重（逗号分隔，保序）。
+def _merge_mbl_numbers(email_id, parser_mbls):
+    """将 parser 中的多个 mbl 追加到该邮件原有 mbl_number 并去重（逗号分隔，保序）。
     旧 mbl 若缺失 SCAC（前四位不属于已知船公司代码），且与 parser_mbl 去掉前四位后相同，
     说明是同一个提单号，用带 SCAC 的 parser_mbl 替换掉旧的那一条。
     """
@@ -297,7 +300,9 @@ def _merge_mbl_number(email_id, parser_mbl):
     old_mbl = detail.get("mbl_number") or ""
     mbls = [m.strip() for m in old_mbl.split(",") if m.strip()]
 
-    if parser_mbl:
+    for parser_mbl in parser_mbls:
+        if not parser_mbl:
+            continue
         matched = False
         for i, m in enumerate(mbls):
             if m[:4].upper() not in _SCAC_CODES and m == parser_mbl[4:]:
@@ -315,14 +320,14 @@ def _create_by_ordering_id(body, ordering_id):
     # 去数据库里面查哪个 email 中是这个 ordering_id
     data_email_id = get_email_id_by_ordering_id(ordering_id)
     email_result = get_email_detail(data_email_id) if data_email_id else None
-    brokerName = email_result.get("broker_name") if email_result else None
+
+    brokerName = email_result.get("broker_name") if email_result else None # 获取brokerName
     status = body.get("status")
     # 获取解析结果
     parser_result = get_order_result(ordering_id)
     parser_result = parser_result.get("result") if parser_result else None
-    results = normalize_parser_result(parser_result) # 解析结果标准化
+    results = normalize_parser_results(parser_result) # 一个 ordering 可能有多份结果
 
-    parser_mbl = results.get("masterBillNo") if results else None # 解析结果中的 mbl
     if not status:
         log_create_failure("缺少 status 参数", status_code=400,
                            ordering_id=ordering_id, email_id=data_email_id, request_body=body)
@@ -336,22 +341,28 @@ def _create_by_ordering_id(body, ordering_id):
                            ordering_id=ordering_id, request_body=body)
         return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
 
-    is_done = compute_is_done(results)
+    # email 表单行：is_done 由多条结果汇总，mbl_number 合并所有 MBL
+    is_done = compute_is_done_multi(results)
     payload = {
         "status": status,
         "is_done": is_done,
     }
-    if parser_mbl:
-        payload["mbl_number"] = _merge_mbl_number(data_email_id, parser_mbl)
+    parser_mbls = [r.get("masterBillNo") for r in results if r.get("masterBillNo")]
+    if parser_mbls:
+        payload["mbl_number"] = _merge_mbl_numbers(data_email_id, parser_mbls)
+
     update_email(data_email_id, payload, operator="order_callback") # 写入email表（无parser_result字段）
-    # 解析结果 + brokerName + is_done 写入 email_parser_result 表
-    # 按 (ordering_id, masterBillNo) 匹配，避免同一 ordering_id 下不同提单号的解析结果互相覆盖
-    upsert_parser_result_by_ordering_id(
-        ordering_id, results, broker_name=brokerName, is_done=is_done, master_bill_no=parser_mbl,
-        operator="order_callback",
-    )
+
+    # 每份解析结果单独入库；按 ordering_id, mbl, hbl，避免同一 ordering_id 下不同提单互相覆盖
+    for one in results:
+        upsert_parser_result_by_ordering_id(
+            ordering_id, one, broker_name=brokerName, is_done=compute_is_done(one),
+            master_bill_no=one.get("masterBillNo"), house_bill_no=one.get("houseBillNo"),
+            operator="order_callback",
+        )
     return jsonify({"code": 200, "message": "写入成功",
-                    "data": {"ordering_id": ordering_id, "email_id": data_email_id, "status": status}})
+                    "data": {"ordering_id": ordering_id, "email_id": data_email_id,
+                             "status": status, "count": len(results)}})
 
 
 def _create_by_email_id(body, email_id):

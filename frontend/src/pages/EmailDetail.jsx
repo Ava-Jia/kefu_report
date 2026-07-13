@@ -59,7 +59,7 @@ const numberList = (str) => {
 const RESULT_TEMPLATE = {
   agentEmail: '', agentName: '',
   collectAmountUSD: '', collectItem: '',
-  consigneeAddress: '', consigneeEmail: '', consigneeName: '', consigneeTel: '',
+  consigneeAddress: '', consigneeEmail: '', consigneeFromEmail: '', consigneeName: '', consigneeTel: '',
   containerType: '', ctrNumber: '',
   customerType: '', descriptionOfGoods: '',
   expenseItem: {
@@ -93,7 +93,7 @@ const FIELD_LABEL = {
   agentEmail: '代理邮箱', agentName: '代理名称',
   collectAmountUSD: '到付金额(USD)', collectItem: '到付项目',
   consigneeAddress: '收货人地址', consigneeEmail: '收货人邮箱',
-  consigneeName: '收货人名称', consigneeTel: '收货人电话',
+  consigneeFromEmail: '收货人(邮件)', consigneeName: '收货人名称', consigneeTel: '收货人电话',
   containerType: 'COC/SOC', ctrNumber: '箱号',
   customerType: '客户类型', descriptionOfGoods: '货物描述',
   grossWeight: '毛重', houseBillNo: 'HBL Number',

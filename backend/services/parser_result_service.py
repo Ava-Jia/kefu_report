@@ -26,6 +26,7 @@ FIELD_MAP = {
     "consigneeAddress": "consignee_address",
     "consigneeTel": "consignee_tel",
     "consigneeEmail": "consignee_email",
+    "consigneeFromEmail": "consignee_from_email",
     "notifyName": "notify_name",
     "notifyAddress": "notify_address",
     "notifyTel": "notify_tel",

@@ -190,8 +190,8 @@ const EditIcon = ({ onClick }) => (
   />
 );
 
-// 可复制 + 可修改的文本单元格（代理名称、角色）
-const EditableTextField = ({ row, field, title, value, onSaved }) => {
+// 可复制 + 可修改的单元格（代理名称、角色等）；type='select' 时改用下拉
+const EditableField = ({ row, field, title, value, onSaved, type = 'text', options }) => {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
@@ -202,7 +202,7 @@ const EditableTextField = ({ row, field, title, value, onSaved }) => {
   };
 
   const handleSave = async () => {
-    const nextValue = draft.trim();
+    const nextValue = typeof draft === 'string' ? draft.trim() : draft;
     setSaving(true);
     try {
       const res = await updateEmail(row.id, { [field]: nextValue });
@@ -233,12 +233,22 @@ const EditableTextField = ({ row, field, title, value, onSaved }) => {
         okText="保存"
         cancelText="取消"
       >
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onPressEnter={handleSave}
-          placeholder={`请输入${title}`}
-        />
+        {type === 'select' ? (
+          <Select
+            value={draft || undefined}
+            options={options}
+            onChange={setDraft}
+            style={{ width: '100%' }}
+            placeholder={`请选择${title}`}
+          />
+        ) : (
+          <Input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onPressEnter={handleSave}
+            placeholder={`请输入${title}`}
+          />
+        )}
       </Modal>
     </span>
   );
@@ -548,6 +558,16 @@ const MblCell = ({ row, value, onSaved }) => {
   );
 };
 
+const ROLE_OPTIONS = [
+  { label: '船公司', value: '船公司' },
+  { label: '上层代理', value: '上层代理' },
+  { label: '主单发货人', value: '主单发货人'},
+  { label: '换单代理', value: '换单代理' },
+  { label: '其他', value: '其他' },
+  { label: '分单收货人', value: '分单收货人'},
+];
+
+
 const DateSortHeader = ({ order, onOrderChange }) => (
   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
     日期
@@ -587,7 +607,7 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
     key: 'broker_name',
     width: 220,
     render: (v, record) => (
-      <EditableTextField row={record} field="broker_name" title="代理名称" value={v || record['broker-name']} onSaved={onFieldSaved} />
+      <EditableField row={record} field="broker_name" title="代理名称" value={v || record['broker-name']} onSaved={onFieldSaved} />
     ),
   },
   {
@@ -608,8 +628,15 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
     key: 'role',
     width: 100,
     render: (v, record) => (
-      <EditableTextField row={record} field="role" title="角色" value={v} onSaved={onFieldSaved} />
-    ),
+      <EditableField
+        row={record}
+        field="role"
+        title="角色"
+        type="select"
+        options={ROLE_OPTIONS}
+        value={v}
+        onSaved={onFieldSaved} />
+      ),
   },
   {
     title: '邮件主题',

@@ -3,9 +3,12 @@ email_parser_result 表的数据库操作层（增删改查）。
 解析结果的每个字段独立成列，出入库时在 camelCase JSON 与列之间做映射。
 """
 import json
+import logging
 
 from models.email import EmailParserResult, get_session
-from services.email_service import write_audit_logs
+from services.email_service import write_audit_logs, IS_DONE_VOIDED
+
+logger = logging.getLogger(__name__)
 
 
 # JSON key（camelCase） -> ORM 列属性（snake_case）
@@ -124,48 +127,53 @@ def get_parser_result_by_ordering_id(ordering_id: str) -> list[dict]:
         return _serialize(rows) if rows else None
 
 
+def _filter_by_bill(query, master_bill_no: str | None, house_bill_no: str | None):
+    """给查询追加 mbl/hbl 过滤：有值精确匹配，无值匹配 NULL/空串。"""
+    if master_bill_no:
+        query = query.filter(EmailParserResult.master_bill_no == master_bill_no)
+    else:
+        query = query.filter((EmailParserResult.master_bill_no.is_(None)) | (EmailParserResult.master_bill_no == ""))
+    if house_bill_no:
+        query = query.filter(EmailParserResult.house_bill_no == house_bill_no)
+    else:
+        query = query.filter((EmailParserResult.house_bill_no.is_(None)) | (EmailParserResult.house_bill_no == ""))
+    return query
+
+
+def _apply_field_changes(session, row: EmailParserResult, fields: dict, record_id: str, operator: str | None):
+    """把 fields 写入 row，仅对有变化的列记审计日志。"""
+    changes = []
+    for column, value in fields.items():
+        old_v = getattr(row, column)
+        if old_v == value:
+            continue
+        changes.append((column, old_v, value))
+        setattr(row, column, value)
+    if changes:
+        write_audit_logs(session, "email_parser_result", record_id, changes, operator)
+
+
 def upsert_parser_result_in_session(
     session, ordering_id: str, parser_result, broker_name: str | None, is_done: int,
     master_bill_no: str | None = None, house_bill_no: str | None = None, operator: str | None = None,
 ) -> EmailParserResult:
     """在调用方给定的 session 内执行 upsert（不 commit），便于与其它写入共享同一事务。"""
-    query = session.query(EmailParserResult).filter(EmailParserResult.ordering_id == ordering_id)
-
-    # MBL
-    if master_bill_no:
-        query = query.filter(EmailParserResult.master_bill_no == master_bill_no)
-    else:
-        query = query.filter(
-            (EmailParserResult.master_bill_no.is_(None)) | (EmailParserResult.master_bill_no == "")
-        )
-
-    # HBL
-    if house_bill_no:
-        query = query.filter(EmailParserResult.house_bill_no == house_bill_no)
-    else:
-        query = query.filter(
-            (EmailParserResult.house_bill_no.is_(None)) | (EmailParserResult.house_bill_no == "")
-        )
+    query = _filter_by_bill(
+        session.query(EmailParserResult).filter(EmailParserResult.ordering_id == ordering_id),
+        master_bill_no, house_bill_no,
+    )
     row = query.order_by(EmailParserResult.id.desc()).first()
 
     fields = _parse_result_input(parser_result)
     fields.setdefault("master_bill_no", master_bill_no)
-    fields.setdefault("house_bill_no", house_bill_no)   
+    fields.setdefault("house_bill_no", house_bill_no)
     fields["broker_name"] = broker_name
     fields["is_done"] = is_done
     if row is None:
         row = EmailParserResult(ordering_id=ordering_id, **fields)
         session.add(row)
     else:
-        changes = []
-        for column, value in fields.items():
-            old_v = getattr(row, column)
-            if old_v == value:
-                continue
-            changes.append((column, old_v, value))
-            setattr(row, column, value)
-        if changes:
-            write_audit_logs(session, "email_parser_result", f"{ordering_id}_{master_bill_no}_{house_bill_no}", changes, operator)
+        _apply_field_changes(session, row, fields, f"{ordering_id}_{master_bill_no}_{house_bill_no}", operator)
     return row
 
 
@@ -178,6 +186,91 @@ def upsert_parser_result_by_ordering_id(
         row = upsert_parser_result_in_session(
             session, ordering_id, parser_result, broker_name, is_done,
             master_bill_no = master_bill_no, house_bill_no = house_bill_no, operator = operator,
+        )
+        session.commit()
+        return _serialize(row)
+
+def create_parser_result_by_ordering_id(
+    ordering_id, parser_result, broker_name: str | None = None, is_done: int = 0,
+    master_bill_no: str | None = None, house_bill_no: str | None = None,
+    operator: str | None = None,
+):
+    """如果二级意图是新建下单，就要写入一条parser-result"""
+    with get_session() as session:
+        fields = _parse_result_input(parser_result)
+        fields.setdefault("master_bill_no", master_bill_no)
+        fields.setdefault("house_bill_no", house_bill_no)
+        fields["broker_name"] = broker_name
+        fields["is_done"] = is_done
+        row = EmailParserResult(ordering_id=ordering_id, **fields)
+        session.add(row)
+        session.commit()
+        return _serialize(row)
+
+
+def find_parser_result_by_bill(master_bill_no: str | None, house_bill_no: str | None) -> dict | None:
+    """新建单前要找是否以前存过该mbl、hbl的订单"""
+    if not master_bill_no and not house_bill_no:
+        return None
+    with get_session() as session:
+        row = (
+            _filter_by_bill(session.query(EmailParserResult), master_bill_no, house_bill_no)
+            .order_by(EmailParserResult.id.desc())
+            .first()
+        )
+        return _serialize(row) if row else None
+
+
+def update_parser_result_by_bill(
+    master_bill_no: str | None, house_bill_no: str | None, parser_result,
+    broker_name: str | None, is_done: int, operator: str | None = None,
+) -> dict | None:
+    """修改单，需要根据mbl和hbl找到其新建单的解析结果"""
+    if not master_bill_no and not house_bill_no:
+        return None
+    with get_session() as session:
+        row = (
+            _filter_by_bill(session.query(EmailParserResult), master_bill_no, house_bill_no)
+            .order_by(EmailParserResult.id.desc())
+            .first()
+        )
+        if row is None:
+            logger.warning(
+                "update_parser_result_by_bill: 未找到对应新建单，修改内容被丢弃 "
+                "master_bill_no=%s house_bill_no=%s", master_bill_no, house_bill_no,
+            )
+            return None
+        fields = _parse_result_input(parser_result)
+        fields["broker_name"] = broker_name
+        fields["is_done"] = is_done
+        _apply_field_changes(
+            session, row, fields, f"{row.ordering_id}_{master_bill_no}_{house_bill_no}", operator,
+        )
+        session.commit()
+        return _serialize(row)
+
+
+def void_parser_result_by_bill(
+    master_bill_no: str | None, house_bill_no: str | None, operator: str | None = None,
+) -> dict | None:
+    """作废单，需要根据mbl和hbl找到新建单的解析结果"""
+    if not master_bill_no and not house_bill_no:
+        return None
+    with get_session() as session:
+        row = (
+            _filter_by_bill(session.query(EmailParserResult), master_bill_no, house_bill_no)
+            .order_by(EmailParserResult.id.desc())
+            .first()
+        )
+        if row is None:
+            logger.warning(
+                "void_parser_result_by_bill: 未找到对应新建单，作废操作被丢弃 "
+                "master_bill_no=%s house_bill_no=%s", master_bill_no, house_bill_no,
+            )
+            return None
+        _apply_field_changes(
+            session, row, {"is_done": IS_DONE_VOIDED},
+            f"{row.ordering_id}_{master_bill_no}_{house_bill_no}", operator,
         )
         session.commit()
         return _serialize(row)

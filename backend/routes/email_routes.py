@@ -10,10 +10,14 @@ from services.email_service import (
     get_email_detail,
     get_next_email_id, compute_is_done, compute_is_done_multi,
     normalize_parser_result, normalize_parser_results,
-    log_create_failure,
+    log_create_failure, IS_DONE_MODIFIED, IS_DONE_VOIDED,
 )
 
-from services.parser_result_service import upsert_parser_result_by_ordering_id, get_parser_result_by_ordering_id
+from services.parser_result_service import (
+    upsert_parser_result_by_ordering_id, get_parser_result_by_ordering_id,
+    create_parser_result_by_ordering_id, find_parser_result_by_bill,
+    update_parser_result_by_bill, void_parser_result_by_bill,
+)
 import json
 import logging
 
@@ -332,33 +336,81 @@ def _merge_mbl_numbers(email_id, parser_mbls):
 
 
 def _create_by_ordering_id(body, ordering_id):
-    """按 ordering_id 回填 email 的 status/mbl，并把解析结果写入 email_parser_result 表。"""
-    # 去数据库里面查哪个 email 中是这个 ordering_id
-    data_email_id = get_email_id_by_ordering_id(ordering_id)
-    email_result = get_email_detail(data_email_id) if data_email_id else None
-
-    brokerName = email_result.get("broker_name") if email_result else None # 获取brokerName
+    """按 ordering_id 回填 email 的 status/mbl，并把解析结果写入 email_parser_result 表。
+    将写入parser-result分为多个1
+    1. 新建单——判断mbl、hbl是否已经写入，如果写入（当前版本pass）；如果没有写入，就新建一条数据（基于mbl和hbl）
+    2. 修改单——找到该mbl、hbl已经写入的数据，将修改后的结果写入进去，包括is_done（是否下单）
+    3. 作废单——找到该mbl、hbl已经写入的数据，将其is_done赋值为4（作废）
+    """
     status = body.get("status")
-    # 获取解析结果
-    parser_result = get_order_result(ordering_id)
-    parser_result = parser_result.get("result") if parser_result else None
-    results = normalize_parser_results(parser_result) # 一个 ordering 可能有多份结果
-
     if not status:
         log_create_failure("缺少 status 参数", status_code=400,
-                           ordering_id=ordering_id, email_id=data_email_id, request_body=body)
+                           ordering_id=ordering_id, request_body=body)
         return jsonify({"code": 400, "message": "缺少 status 参数"}), 400
-    if not results:
-        log_create_failure("缺少 result 参数", status_code=400,
-                           ordering_id=ordering_id, email_id=data_email_id, request_body=body)
-        return jsonify({"code": 400, "message": "缺少 result 参数"}), 400
+    # 找到 ordering-id 对应的 email 解析结果
+    email_result = get_email_id_by_ordering_id(ordering_id)
+    data_email_id = email_result.get("id") if email_result else None
     if not data_email_id:
         log_create_failure("未找到对应邮件", status_code=404,
                            ordering_id=ordering_id, request_body=body)
         return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
+    
+    intentType1 = email_result.get("intent_type1")
+    intentType2 = email_result.get("intent_type2")
+    brokerName = email_result.get("broker_name") if email_result else None # 获取brokerName
 
-    # email 表单行：is_done 由多条结果汇总，mbl_number 合并所有 MBL
-    is_done = compute_is_done_multi(results)
+    # 获取解析结果
+    parser_result = get_order_result(ordering_id)
+    parser_result = parser_result.get("result") if parser_result else None
+    results = normalize_parser_results(parser_result) # 一个 ordering 可能有多份结果
+    if not results:
+        log_create_failure("缺少 result 参数", status_code=400,
+                           ordering_id=ordering_id, email_id=data_email_id, request_body=body)
+        return jsonify({"code": 400, "message": "缺少 result 参数"}), 400
+
+    # 依据换港意图的二级意图分流：new=新建 update=修改 cancel=作废 other=不操作
+    intent_action = _classify_exchange_intent(intentType1, intentType2)
+
+    # 每份解析结果按意图分别入库：以 mbl+hbl 判断是否已存在，避免不同提单互相覆盖
+    # TODO: 循环内每条结果各开独立事务，非原子；中途失败会留下部分写入，后续可改为共享 session 统一 commit
+    for one in results:
+        mbl = one.get("masterBillNo")
+        hbl = one.get("houseBillNo")
+        if intent_action == "new":
+            if find_parser_result_by_bill(mbl, hbl):
+                # 同一 mbl+hbl 已存在，暂不处理（后续补充去重逻辑）
+                pass
+            else:
+                # 创建新的解析结果
+                create_parser_result_by_ordering_id(
+                    ordering_id, one, broker_name=brokerName, is_done=compute_is_done(one),
+                    master_bill_no=mbl, house_bill_no=hbl, operator="order_callback",
+                )
+        # 更新之前的数据
+        elif intent_action == "update":
+            if update_parser_result_by_bill(
+                mbl, hbl, one, broker_name=brokerName, is_done=IS_DONE_MODIFIED,
+                operator="order_callback",
+            ) is None:
+                log_create_failure(
+                    f"修改单未找到对应新建单，修改被丢弃 mbl={mbl} hbl={hbl}",
+                    ordering_id=ordering_id, email_id=data_email_id, request_body=one,
+                )
+        elif intent_action == "cancel":
+            if void_parser_result_by_bill(mbl, hbl, operator="order_callback") is None:
+                log_create_failure(
+                    f"作废单未找到对应新建单，作废被丢弃 mbl={mbl} hbl={hbl}",
+                    ordering_id=ordering_id, email_id=data_email_id, request_body=one,
+                )
+        # other: 不操作
+
+    # 写入email表数据，包括is-done、status
+    if intent_action == "update":
+        is_done = IS_DONE_MODIFIED
+    elif intent_action == "cancel":
+        is_done = IS_DONE_VOIDED
+    else:
+        is_done = compute_is_done_multi(results)
     payload = {
         "status": status,
         "is_done": is_done,
@@ -369,13 +421,6 @@ def _create_by_ordering_id(body, ordering_id):
 
     update_email(data_email_id, payload, operator="order_callback") # 写入email表（无parser_result字段）
 
-    # 每份解析结果单独入库；按 ordering_id, mbl, hbl，避免同一 ordering_id 下不同提单互相覆盖
-    for one in results:
-        upsert_parser_result_by_ordering_id(
-            ordering_id, one, broker_name=brokerName, is_done=compute_is_done(one),
-            master_bill_no=one.get("masterBillNo"), house_bill_no=one.get("houseBillNo"),
-            operator="order_callback",
-        )
     return jsonify({"code": 200, "message": "写入成功",
                     "data": {"ordering_id": ordering_id, "email_id": data_email_id,
                              "status": status, "count": len(results)}})
@@ -425,3 +470,17 @@ def _attachment_filter(attachments: list[dict]) -> list[dict]:
         if not attachment.get("content_id"):
             results.append(attachment)
     return results
+
+def _classify_exchange_intent(intent_type1, intent_type2):
+    """把换港意图映射"""
+    intent1 = intent_type1 or ""
+    intent2 = intent_type2 or ""
+    if "EXCHANGE_OF_PORT" not in intent1:
+        return "other"
+    if "PRE_ALERT_NEW" in intent2:
+        return "new"
+    if "PRE_ALERT_UPDATE" in intent2:
+        return "update"
+    if "PRE_ALERT_CANCEL" in intent2:
+        return "cancel"
+    return "other"

@@ -315,10 +315,30 @@ def get_audit_logs(record_id: str, table_name: str = "email") -> list[dict]:
         ]
 
 
-def get_email_id_by_ordering_id(ordering_id: str) -> str | None:
+def get_email_id_by_ordering_id(ordering_id: str):
+    """从order-id找到其email解析结果"""
     with get_session() as session:
         row = session.query(Email).filter(Email.ordering_id == ordering_id).first()
-        return row.id if row else None
+        if row is None:
+            return None
+        return {
+            "id": row.id,
+            "data_id": row.data_id,
+            "date": row.date,
+            "role": row.role,
+            "from": row.from_addr,
+            "mbl_number": row.mbl_number,
+            "intent_type1": row.intent_type1,
+            "subject": row.subject,
+            "intent_type2": row.intent_type2,
+            "ordering_id": row.ordering_id,
+            "email_summary": row.email_summary,
+            "is_done": row.is_done,
+            "is_check": row.is_check,
+            "email_url": row.email_url,
+            "status": row.status,
+            "broker_name": row.broker_name,
+        }
 
 
 def get_email_detail(email_id: str) -> dict | None:
@@ -340,7 +360,6 @@ def get_email_detail(email_id: str) -> dict | None:
             "email_summary": row.email_summary,
             "is_done": row.is_done,
             "is_check": row.is_check,
-            "data_id": row.data_id,
             "email_url": row.email_url,
             "status": row.status,
             "broker_name": row.broker_name,

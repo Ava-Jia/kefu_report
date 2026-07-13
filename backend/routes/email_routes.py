@@ -123,16 +123,17 @@ def get_email_preview(email_id):
             return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
         # 从redis获取html和attachment
         email_result = email_html_attachment(email_id)
-
-        # 解析结果改从 email_parser_result 表按 ordering_id 获取
-        ordering_id = detail.get("ordering_id")
-        parser_row = get_parser_result_by_ordering_id(ordering_id) if ordering_id else None
-        result = parser_row.get("parser_result") if parser_row else None
         html_content = email_result["html_content"]
         attachments = email_result["attachments"]
         # 先用全量附件（含带 content_id 的内联图片）替换 cid，再过滤给前端
         html_content = _attachment_in_html(html_content, attachments)
         attachments = _attachment_filter(attachments)
+
+        # 解析结果改从 email_parser_result 表按 ordering_id 获取，需要适配有多个解析结果
+        ordering_id = detail.get("ordering_id")
+        parser_rows = get_parser_result_by_ordering_id(ordering_id) if ordering_id else None
+        results = [row.get("parser_result") for row in (parser_rows or [])]
+
 
         return jsonify({
             "code": 200,
@@ -140,7 +141,7 @@ def get_email_preview(email_id):
             "data": {
                 "html_content": html_content,
                 "attachments": attachments,
-                "result": result,
+                "result": results,
                 "data_id": detail["data_id"],
                 "is_check": detail["is_check"],
                 "subject": detail["subject"],
@@ -181,8 +182,11 @@ def update_email_route(email_id):
         operator = getattr(g, "user", None)
         operator = operator.get("username") if operator else None
 
-        # parser_result 只作为「改动字段的局部补丁」写入 email_parser_result 表，不再写入 email 表
+        # parser_result 写入 email_parser_result 表，不再写入 email 表
         patch = body.pop("parser_result", None)
+        # 一封邮件可能有多条解析结果，前端带上改动前的提单号用于定位到具体那条记录
+        row_mbl = body.pop("parser_master_bill_no", None)
+        row_hbl = body.pop("parser_house_bill_no", None)
         if patch is not None:
             if isinstance(patch, str):
                 try:
@@ -197,21 +201,33 @@ def update_email_route(email_id):
                 ordering_id = detail.get("ordering_id")
                 if not ordering_id:
                     return jsonify({"code": 400, "message": "该邮件未关联 ordering_id，无法保存解析结果"}), 400
-                # 与已存的解析结果合并后计算 is_done，但只把本次改动的字段写回表里
-                existing = get_parser_result_by_ordering_id(ordering_id)
-                existing_result = (existing or {}).get("parser_result") or {}
-                merged = {**existing_result, **patch}
-                is_done = body.get("is_done")
-                if is_done is None:
-                    is_done = compute_is_done(merged)
-                    body["is_done"] = is_done
-                # 按 (ordering_id, masterBillNo, houseBillNo) 匹配到具体那条记录（提单号取改动前的值，避免定位错行/新增重复）
+                # 用改动前的提单号定位到本次编辑的那条解析结果（未指定时回退到 patch 自身的提单号）
+                target_mbl = row_mbl if row_mbl not in (None, "") else patch.get("masterBillNo")
+                target_hbl = row_hbl if row_hbl not in (None, "") else patch.get("houseBillNo")
+                existing_list = get_parser_result_by_ordering_id(ordering_id) or []
+                existing_result = {}
+                all_results = []
+                for item in existing_list:
+                    pr = item.get("parser_result") or {}
+                    if (not existing_result
+                            and (pr.get("masterBillNo") or None) == (target_mbl or None)
+                            and (pr.get("houseBillNo") or None) == (target_hbl or None)):
+                        existing_result = pr
+                        all_results.append({**pr, **patch})
+                    else:
+                        all_results.append(pr)
+                if not existing_result:
+                    all_results.append(patch)
+                # email 表单行的 is_done 汇总全部解析结果；单条记录的 is_done 只看合并后的自身
+                if body.get("is_done") is None:
+                    body["is_done"] = compute_is_done_multi(all_results)
+                # 按 (ordering_id, masterBillNo, houseBillNo) 匹配到具体那条记录，避免定位错行/新增重复
                 upsert_parser_result_by_ordering_id(
                     ordering_id, patch,
                     broker_name=detail.get("broker_name"),
-                    is_done=is_done,
-                    master_bill_no=existing_result.get("masterBillNo") or patch.get("masterBillNo"),
-                    house_bill_no=existing_result.get("houseBillNo") or patch.get("houseBillNo"),
+                    is_done=compute_is_done({**existing_result, **patch}),
+                    master_bill_no=target_mbl,
+                    house_bill_no=target_hbl,
                     operator=operator,
                 )
 

@@ -68,18 +68,21 @@ def _parse_result_input(parser_result) -> dict:
         fields[column] = value
     return fields
 
-
-def _serialize(row: EmailParserResult) -> dict:
-    """把 ORM 行还原成 {ordering_id, parser_result(camelCase 对象), ...}。"""
+def _serialize_one(row: EmailParserResult) -> dict:
+    """单条 ORM 转 dict。"""
     parser_result = {}
+
     for json_key, column in FIELD_MAP.items():
         value = getattr(row, column)
+
         if column in _JSON_COLUMNS and isinstance(value, str):
             try:
                 value = json.loads(value)
             except (TypeError, ValueError):
                 pass
+
         parser_result[json_key] = value
+
     return {
         "id": row.id,
         "ordering_id": row.ordering_id,
@@ -90,6 +93,13 @@ def _serialize(row: EmailParserResult) -> dict:
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
 
+
+def _serialize(rows):
+    """兼容单条和多条 ORM。"""
+    if isinstance(rows, list):
+        return [_serialize_one(row) for row in rows]
+
+    return _serialize_one(rows)
 
 def create_parser_result(ordering_id: str | None, parser_result) -> dict:
     with get_session() as session:
@@ -102,16 +112,16 @@ def create_parser_result(ordering_id: str | None, parser_result) -> dict:
         return _serialize(row)
 
 
-def get_parser_result_by_ordering_id(ordering_id: str) -> dict | None:
-    """按 ordering_id 查询解析结果，取最新一条；不存在返回 None。"""
+def get_parser_result_by_ordering_id(ordering_id: str) -> list[dict]:
+    """按 ordering_id 查询解析结果；不存在返回 None。"""
     with get_session() as session:
-        row = (
+        rows = (
             session.query(EmailParserResult)
             .filter(EmailParserResult.ordering_id == ordering_id)
             .order_by(EmailParserResult.id.desc())
-            .first()
+            .all()
         )
-        return _serialize(row) if row else None
+        return _serialize(rows) if rows else None
 
 
 def upsert_parser_result_in_session(

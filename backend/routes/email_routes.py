@@ -103,6 +103,7 @@ def list_emails():
         is_check_raw = request.args.get("is_check")
         is_check = int(is_check_raw) if is_check_raw is not None and is_check_raw != "" else None
         mbl_number = (request.args.get("mbl_number") or "").strip() or None
+        broker_name = (request.args.get("broker_name") or "").strip() or None
         order = "asc" if (request.args.get("order") or "").strip().lower() == "asc" else "desc"
         data = get_local_emails(
             page=page, page_size=page_size,
@@ -110,6 +111,7 @@ def list_emails():
             date_from=date_from, date_to=date_to,
             is_check=is_check,
             mbl_number=mbl_number,
+            broker_name=broker_name,
             order=order,
         )
         return jsonify({"code": 200, "message": "查询成功", "data": data})

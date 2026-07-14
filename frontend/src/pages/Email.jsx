@@ -834,6 +834,7 @@ export default function Email() {
     ? parseInt(searchParams.get('is_check'), 10)
     : null;
   const initMblNumber = searchParams.get('mbl_number') || '';
+  const initBrokerName = searchParams.get('broker_name') || '';
   const initOrder = searchParams.get('order') === 'asc' ? 'asc' : 'desc';
 
   const [tableData, setTableData] = useState([]);
@@ -859,9 +860,9 @@ export default function Email() {
     const maxPage = Math.ceil(remainingTotal / initPageSize);
     const targetPage = Math.min(initPage, maxPage);
     if (targetPage === initPage) {
-      loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initOrder);
+      loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initBrokerName, initOrder);
     } else {
-      pushParams(targetPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber);
+      pushParams(targetPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initBrokerName);
     }
   };
 
@@ -916,7 +917,7 @@ export default function Email() {
     setTableData((prev) => prev.map((row) => row.id === id ? { ...row, ...fields } : row));
   };
 
-  const pushParams = (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber, order = initOrder) => {
+  const pushParams = (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber, brokerName = initBrokerName, order = initOrder) => {
     const p = {};
     if (page !== 1) p.page = page;
     if (pageSize !== 50) p.pageSize = pageSize;
@@ -925,11 +926,12 @@ export default function Email() {
     if (dateTo) p.date_to = dateTo;
     if (isCheck !== null && isCheck !== undefined) p.is_check = isCheck;
     if (mblNumber) p.mbl_number = mblNumber;
+    if (brokerName) p.broker_name = brokerName;
     if (order === 'asc') p.order = 'asc';
     setSearchParams(p, { replace: false });
   };
 
-  const loadTable = async (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber, order) => {
+  const loadTable = async (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber, brokerName, order) => {
     setTableLoading(true);
     try {
       const res = await fetchEmailList({
@@ -940,6 +942,7 @@ export default function Email() {
         date_to: dateTo,
         is_check: isCheck,
         mbl_number: mblNumber,
+        broker_name: brokerName,
         order,
       });
       if (res?.code === 200) {
@@ -956,11 +959,11 @@ export default function Email() {
   };
 
   useEffect(() => {
-    loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initOrder);
+    loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initBrokerName, initOrder);
   }, [searchParams.toString()]);
 
   const handleOrderChange = (value) => {
-    pushParams(1, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, value);
+    pushParams(1, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initBrokerName, value);
   };
 
   // 当前筛选后的列表上下文，随预览一起带入详情页，用于结果内翻页 + 跨页续翻
@@ -975,6 +978,7 @@ export default function Email() {
       date_to: initDateTo,
       is_check: initIsCheck,
       mbl_number: initMblNumber,
+      broker_name: initBrokerName,
       order: initOrder,
     },
   };
@@ -991,6 +995,10 @@ export default function Email() {
 
   const handleMblSearch = (value) => {
     pushParams(1, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, value.trim());
+  };
+
+  const handleBrokerSearch = (value) => {
+    pushParams(1, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, value.trim());
   };
 
   const [customPickerOpen, setCustomPickerOpen] = useState(false);
@@ -1129,6 +1137,14 @@ export default function Email() {
         }}
       >
         <Space wrap>
+          <Input.Search
+            size="middle"
+            placeholder="搜索代理名称"
+            defaultValue={initBrokerName}
+            allowClear
+            style={{ width: 200 }}
+            onSearch={handleBrokerSearch}
+          />
           <Select
             allowClear
             size="middle"

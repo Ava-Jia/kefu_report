@@ -285,7 +285,7 @@ export const fetchEmailParseStatus = async (taskId) => {
 };
 
 /** 获取本地邮件列表 */
-export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = '', date_from = '', date_to = '', is_check = null, mbl_number = '', order = '' } = {}) => {
+export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = '', date_from = '', date_to = '', is_check = null, mbl_number = '', broker_name = '', order = '' } = {}) => {
   try {
     const params = { page, page_size };
     if (intent_type1) params.intent_type1 = intent_type1;
@@ -293,6 +293,7 @@ export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = 
     if (date_to) params.date_to = date_to;
     if (is_check !== null && is_check !== undefined) params.is_check = is_check;
     if (mbl_number) params.mbl_number = mbl_number;
+    if (broker_name) params.broker_name = broker_name;
     if (order === 'asc') params.order = 'asc';
     const { data } = await client.get('/email/list', { params });
     return data;

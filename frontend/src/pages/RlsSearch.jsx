@@ -41,25 +41,57 @@ const DATE_FILTERS = [
   { key: 2, label: "前天" },
 ];
 
-/** 外部系统 release_status 是 JSON 字符串，提取其中的 bl_type 展示 */
-const parseReleaseStatus = (raw) => {
+/** web_status / plt_status 是包含三项状态的 JSON 字符串 */
+const STATUS_FIELDS = ["Ocean B/L Status", "Freight Status", "Customs Status"];
+
+const parseStatusFields = (raw) => {
   if (!raw) return null;
   try {
     const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-    return parsed?.bl_type ?? parsed;
+    return parsed && typeof parsed === "object" ? parsed : null;
   } catch {
-    return raw;
+    return null;
   }
+};
+
+/** 把 JSON 字符串拆成三行展示：Ocean B/L Status / Freight Status / Customs Status */
+const renderStatusRows = (raw) => {
+  const parsed = parseStatusFields(raw);
+  if (!parsed) return <Tag color="red">-</Tag>;
+  return (
+    <Space direction="vertical" size={4} style={{ width: "100%" }}>
+      {STATUS_FIELDS.map((field) => {
+        const val = parsed[field];
+        return (
+          <div
+            key={field}
+            style={{ display: "flex", justifyContent: "space-between", gap: 8 }}
+          >
+            <span style={{ color: "#999", fontSize: 12 }}>{field}</span>
+            {val ? (
+              <Tag color={/released/i.test(val) ? "green" : "orange"} style={{ margin: 0 }}>
+                {val}
+              </Tag>
+            ) : (
+              <Tag color="default" style={{ margin: 0 }}>
+                -
+              </Tag>
+            )}
+          </div>
+        );
+      })}
+    </Space>
+  );
 };
 
 /** 把外部系统返回的原始字段映射为页面内部使用的统一字段名 */
 const normalizeRlsRow = (item) => ({
   id: item.id,
   query_number: item.bl_number,
-  item: item.item,
   success: item.status === "success",
-  result: parseReleaseStatus(item.release_status),
-  plt_status: item.plt_status,
+  web_status: item.web_Status,
+  plt_status: item.plt_Status,
+  created_at: item.created_at,
   updated_at: item.updated_at,
 });
 
@@ -186,51 +218,41 @@ export default function RlsSearch() {
           </span>
         ),
     },
-    { title: "item", dataIndex: "item", key: "item", width: "14%", ellipsis: true },
     {
       title: "检索状态",
       dataIndex: "success",
       key: "success",
-      width: "15%",
+      width: "12%",
       render: (success) =>
         success ? <Tag color="green">成功</Tag> : <Tag color="red">失败</Tag>,
     },
     {
-      title: "Release_Status",
-      dataIndex: "result",
-      key: "result",
-      width: "16%",
-      render: (result) => {
-        const value = typeof result === "string" ? result : result ? JSON.stringify(result) : "";
-        if (!value) {
-          return <Tag color="red">-</Tag>;
-        }
-        return (
-          <Tag color={value === "Telex Release" ? "green" : "orange"}>
-            {value}
-          </Tag>
-        );
-      },
+      title: "Web_Status",
+      dataIndex: "web_status",
+      key: "web_status",
+      width: "20%",
+      render: renderStatusRows,
     },
     {
       title: "Plt_Status",
       dataIndex: "plt_status",
       key: "plt_status",
-      width: "12%",
-      render: (pltStatus) => {
-        if (!pltStatus) return <Tag color="default">-</Tag>;
-        return (
-          <Tag color={pltStatus === "release" ? "green" : "orange"}>
-            {pltStatus}
-          </Tag>
-        );
-      },
+      width: "20%",
+      render: renderStatusRows,
+    },
+    {
+      title: "创建时间",
+      dataIndex: "created_at",
+      key: "created_at",
+      width: "10%",
+      ellipsis: true,
+      render: (createdAt) => (createdAt || "").slice(0, 10),
     },
     {
       title: "更新时间",
       dataIndex: "updated_at",
       key: "updated_at",
-      width: "16%",
+      width: "10%",
       ellipsis: true,
       render: (updatedAt) => (updatedAt || "").slice(0, 10),
     },
@@ -337,7 +359,7 @@ export default function RlsSearch() {
         cancelText="取消"
       >
         <p style={{ color: "#666" }}>
-          提单号：{editingRow?.query_number}　item：{editingRow?.item}
+          提单号：{editingRow?.query_number}
         </p>
         <Input
           value={manualResult}

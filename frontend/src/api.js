@@ -314,32 +314,11 @@ export const searchRls = async (scacCode, queryNumberList) => {
   }
 };
 
-/** 查询 RLS 检索任务结果 */
-export const fetchRlsTaskResult = async (taskId) => {
-  try {
-    const { data } = await client.get(`/rls/task/${encodeURIComponent(taskId)}`);
-    return data;
-  } catch (error) {
-    return unwrapCompanyError(error);
-  }
-};
 
 /** 列出 RLS 查询结果（转发至外部系统，支持过滤） */
 export const fetchRlsResults = async (params = {}) => {
   try {
     const { data } = await client.get("/rls/results", { params });
-    return data;
-  } catch (error) {
-    return unwrapCompanyError(error);
-  }
-};
-
-/** 按提单号查询单条 RLS 结果（转发至外部系统） */
-export const fetchRlsResultByQueryNumber = async (queryNumber) => {
-  try {
-    const { data } = await client.get("/rls/result", {
-      params: { query_number: queryNumber },
-    });
     return data;
   } catch (error) {
     return unwrapCompanyError(error);

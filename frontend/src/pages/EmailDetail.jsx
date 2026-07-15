@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Button, Spin, Modal, message, Pagination } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined, ZoomInOutlined, CheckOutlined, DownloadOutlined } from '@ant-design/icons';
-import { fetchEmailPreview, updateEmail, updateEmailCheck, fetchAdjacentEmail, fetchEmailList } from '../api';
+import { Button, Spin, Modal, message, Pagination, Input } from 'antd';
+import { ArrowLeftOutlined, SaveOutlined, ZoomInOutlined, CheckOutlined, DownloadOutlined, PlusOutlined, SearchOutlined} from '@ant-design/icons';
+import { fetchEmailPreview, updateEmail, updateEmailCheck, fetchAdjacentEmail, fetchEmailList, checkOrderByMBL } from '../api';
 
 function EditableText({ value, onChange, style, renderValue }) {
   const [editing, setEditing] = useState(false);
@@ -62,10 +62,8 @@ const RESULT_TEMPLATE = {
   consigneeAddress: '', consigneeEmail: '', consigneeFromEmail: '', consigneeName: '', consigneeTel: '',
   containerType: '', ctrNumber: '',
   customerType: '', descriptionOfGoods: '',
-  expenseItem: {
-    expenseName: '',expenseAmount: '',
-    otherFee: [{ otherFeeName: '', otherFeeAmount: '', type: '' }],
-  },
+  expenseItem: { Fee: [{ feeName: '', feeAmount: '', type: '' }] },
+
   grossWeight: '', hblUrl: '', houseBillNo: '',
   isSuspicious: 0, mark: '', masterBillNo: '', masterBillNoFromEmail: '',
   notifyAddress: '', notifyEmails: '', notifyName: '', notifyTel: '',
@@ -106,20 +104,19 @@ const FIELD_LABEL = {
   shipperAddress: '发货人地址', shipperEmail: '发货人邮箱',
   shipperName: '发货人名称', shipperTel: '发货人电话',
   summary: '备注', volume: '体积',
-  expenseName: '费用名称',expenseAmount: '费用金额',
-  handlingFee: '操作费', otherFeeAmount: '其他费用金额', otherFeeName: '其他费用名称', type: '费用类型',
+  feeName: '费用名称', feeAmount: '费用金额', type: '费用类型',
 };
 
 const FIELD_ORDER = [
   'masterBillNo', 'houseBillNo',
-  'consigneeName', 'consigneeEmail', 'consigneeAddress',
+  'consigneeName', 'consigneeEmail', 'consigneeFromEmail', 'consigneeAddress',
   'notifyName', 'notifyAddress',
   'shipperName', 'shipperAddress',
   'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume', 'containerType',
-  'expenseItem', 'expenseName', 'expenseAmount', 'handlingFee',
+  'expenseItem',
 ];
-const ATTENTION_FIELDS = ['masterBillNo', 'houseBillNo', 'consigneeName', 'consigneeEmail', 'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume', 'containerType', 'expenseItem', 'expenseAmount', 'expenseName'];
-const SECTION_DIVIDER_AFTER = new Set(['houseBillNo', 'consigneeAddress', 'shipperAddress', 'containerType', 'expenseAmount']);
+const ATTENTION_FIELDS = ['masterBillNo', 'houseBillNo', 'consigneeName', 'consigneeEmail', 'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume', 'containerType', 'feeName', 'feeAmount',];
+const SECTION_DIVIDER_AFTER = new Set(['houseBillNo', 'consigneeAddress', 'shipperAddress', 'containerType']);
 
 const flattenValue = (val, path) => {
   if (Array.isArray(val)) {
@@ -409,6 +406,57 @@ export default function EmailDetail() {
     setResultDirty(true);
   };
 
+  const handleMblSearch = async (value) => {
+    const mbl = value.trim();
+    if (!mbl) return;
+    setResultLoading(true);
+    try {
+      const res = await checkOrderByMBL(mbl);
+      if (res?.code === 200 && Array.isArray(res.data) && res.data.length) {
+        const raws = res.data.map((row) => row.parser_result);
+        const merged = raws.map((r) => deepMerge(RESULT_TEMPLATE, r));
+        let newIndex = 0;
+        setResult((prev) => {
+          const arr = Array.isArray(prev) ? prev.slice() : (prev ? [prev] : []);
+          newIndex = arr.length;
+          return [...arr, ...merged];
+        });
+        setRawResult((prev) => {
+          const arr = Array.isArray(prev) ? prev.slice() : (prev ? [prev] : []);
+          return [...arr, ...raws];
+        });
+        setResultPage(newIndex);
+        setResultDirty(true);
+      } else {
+        message.info(res?.message || '未找到该 MBL 的解析结果');
+      }
+    } catch {
+      message.error('查询失败');
+    } finally {
+      setResultLoading(false);
+    }
+  };
+
+  const handleAddResult = () => {
+    const blank = deepMerge(RESULT_TEMPLATE, null);
+    let newIndex = 0;
+    setResult((prev) => {
+      const arr = Array.isArray(prev) ? prev.slice() : (prev ? [prev] : []);
+      arr.push(blank);
+      newIndex = arr.length - 1;
+      return arr;
+    });
+    setRawResult((prev) => {
+      const arr = Array.isArray(prev) ? prev.slice() : (prev ? [prev] : []);
+      arr.push(deepMerge(RESULT_TEMPLATE, null));
+      return arr;
+    });
+    setResultPage(newIndex);
+    setResultDirty(true);
+  };
+
+  
+
   const handleCancelEdit = () => {
     setResult(savedSnapshotRef.current.result);
     setRawResult(savedSnapshotRef.current.rawResult);
@@ -605,7 +653,7 @@ export default function EmailDetail() {
   };
 
   const resultList = Array.isArray(result) ? result : (result ? [result] : []);
-  const resultObj = resultList[resultPage] ?? resultList[0] ?? {};
+  const resultObj = resultList[resultPage] ?? resultList[0] ?? deepMerge(RESULT_TEMPLATE, null);
 
   useEffect(() => {
     setResultLoading(true);
@@ -878,23 +926,41 @@ export default function EmailDetail() {
 
       {/* 第三列：解析信息 */}
       <div className="scrollbar-hidden" style={{ width: `${colWidths[2]}%`, flexShrink: 0, padding: '16px 14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: 15, marginBottom: 12 }}>
-          解析信息
-          {resultLoading && <Spin size="small" />}
-        </div>
-        {resultList.length > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-            <Pagination
-              size="small"
-              simple
-              current={resultPage + 1}
-              total={resultList.length}
-              pageSize={1}
-              showSizeChanger={false}
-              onChange={(page) => setResultPage(page - 1)}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontWeight: 600, fontSize: 18, marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            解析信息
+            {resultLoading && <Spin size="large" />}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-start', flex: 1}}>
+            {resultList.map((_, i) => (
+              <Button
+                key={i}
+                size="large"
+                type={i === resultPage ? 'primary' : 'default'}
+                onClick={() => setResultPage(i)}
+              >
+                {i + 1}
+              </Button>
+            ))}
+            <Button
+              size="large"
+              onClick={handleAddResult}
+              icon={<PlusOutlined />}
+            />
+
+            <Input.Search
+              allowClear
+              enterButton
+              size="large"
+              placeholder="按 MBL 查询解析结果"
+              prefix={<SearchOutlined />}
+              onSearch={handleMblSearch}
+              loading={resultLoading}
+              style={{ width: 170 }}
             />
           </div>
-        )}
+        </div>
+
         {sortedEntries(resultObj).map(([k, v, path]) => (
           <ResultField key={path.join('.')} label={k} value={v}
             onChange={(v === null || typeof v !== 'object') && !isUrl(String(v ?? '')) ? (val) => onFieldChange(path, val) : undefined}

@@ -148,6 +148,7 @@ def get_local_emails(
                     "data_id": e.data_id,
                     "email_url": e.email_url,
                     "status": e.status,
+                    "message_id": e.message_id,
                 }
                 for e in items
             ],
@@ -196,6 +197,7 @@ def upsert_emails(records: list[dict]) -> int:
                 subject=r.get("subject"),
                 email_summary=r.get("email_summary"),
                 broker_name=broker_name,
+                message_id=r.get("message_id") or r.get("messageId"),
                 html_content=None,
                 attachments=None,
                 parser_result=None,
@@ -341,6 +343,7 @@ def get_email_id_by_ordering_id(ordering_id: str):
             "email_url": row.email_url,
             "status": row.status,
             "broker_name": row.broker_name,
+            "message_id": row.message_id,
         }
 
 
@@ -366,6 +369,7 @@ def get_email_detail(email_id: str) -> dict | None:
             "email_url": row.email_url,
             "status": row.status,
             "broker_name": row.broker_name,
+            "message_id": row.message_id,
         }
 
 # data_id 是全局唯一的自增排序号，根据当前 data_id 找排序上更靠后/靠前的一条邮件
@@ -388,3 +392,4 @@ def get_next_email_id(data_id: int, direction: str) -> str | None:
         else:
             raise ValueError("direction must be 'next' or 'prev'")
         return row.id if row else None
+

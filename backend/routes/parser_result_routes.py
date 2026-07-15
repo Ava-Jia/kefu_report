@@ -8,6 +8,7 @@ from services.parser_result_service import (
     update_parser_result,
     delete_parser_result,
     get_parser_result_by_ordering_id,
+    get_mbl_order
 )
 
 bp = Blueprint("parser_result", __name__, url_prefix="/api")
@@ -57,7 +58,7 @@ def update(record_id):
 
 
 # DELETE /api/parser_result/<id>：删除单条
-@bp.route("/parser_result/<int:record_id>", methods=["DELETE"])
+@bp.route("/parser_result/<record_id>", methods=["DELETE"])
 def delete(record_id):
     try:
         ok = delete_parser_result(record_id)
@@ -66,4 +67,16 @@ def delete(record_id):
         return jsonify({"code": 200, "message": "删除成功"})
     except Exception as e:
         logger.exception("delete parser_result error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+# 根据MBL查找
+@bp.route("/parser_result/<mbl_number>", methods=["GET"])
+def get_by_mbl(mbl_number):
+    try:
+        rows = get_mbl_order(mbl_number)
+        if not rows:
+            return jsonify({"code": 404, "message": "记录不存在"}), 404
+        return jsonify({"code": 200, "message": "查询成功", "data": rows})
+    except Exception as e:
+        logger.exception("get parser_result by mbl error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500

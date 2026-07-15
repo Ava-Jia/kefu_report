@@ -298,3 +298,15 @@ def delete_parser_result(record_id: int) -> bool:
         session.delete(row)
         session.commit()
         return True
+
+# MBL的解析信息
+def get_mbl_order(mbl_number: str) -> list[dict]:
+    with get_session() as session:
+        rows = (
+            session.query(EmailParserResult)
+            .filter(EmailParserResult.master_bill_no == mbl_number)
+            .all()
+        )
+        return _serialize(rows)
+
+

@@ -99,12 +99,15 @@ def get_local_emails(
     date_to: str | None = None,
     is_check: int | None = None,
     mbl_number: str | None = None,
+    broker_name: str | None = None,
     order: str = "desc",
 ) -> dict:
     with get_session() as session:
         query = session.query(Email)
         if intent_type1:
             query = query.filter(Email.intent_type1.contains(intent_type1))
+        if broker_name:
+            query = query.filter(Email.broker_name.contains(broker_name))
         if date_from:
             query = query.filter(Email.date >= date_from)
         if date_to:

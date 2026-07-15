@@ -72,7 +72,7 @@ def get_email_result(email_id: str) -> dict | None:
     r = _get_redis()
     return _json_get(r, f"email_id:{email_id}")
 
-def submit_parse_async(eml_url: str) -> str | None:
+def submit_parse_async(eml_url: str, brokerName: str | None) -> str | None:
     url = os.getenv("EMAIL_PARSER_BASE_URL")
     url = f"{url}/parse/async"
     headers = {
@@ -82,7 +82,7 @@ def submit_parse_async(eml_url: str) -> str | None:
     payload = {
         "eml_url": eml_url,
         "callBack": "",
-        "brokerName": "",
+        "brokerName": brokerName,
     }
     try:
         response = requests.post(

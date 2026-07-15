@@ -1142,7 +1142,7 @@ export default function Email() {
             placeholder="搜索代理名称"
             defaultValue={initBrokerName}
             allowClear
-            style={{ width: 200 }}
+            style={{ width: 170 }}
             onSearch={handleBrokerSearch}
           />
           <Select
@@ -1151,7 +1151,7 @@ export default function Email() {
             value={initCategory || undefined}
             placeholder="全部类别"
             options={INTENT_OPTIONS}
-            style={{ width: 200 }}
+            style={{ width: 170 }}
             onChange={(value) => handleCategoryChange(value || '')}
           />
           <Input.Search
@@ -1159,7 +1159,7 @@ export default function Email() {
             placeholder="搜索 MBL 号"
             defaultValue={initMblNumber}
             allowClear
-            style={{ width: 200 }}
+            style={{ width: 170 }}
             onSearch={handleMblSearch}
           />
           <DatePicker.RangePicker

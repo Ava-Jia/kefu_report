@@ -260,11 +260,12 @@ export const updateEmail = async (email_id, fields) => {
   }
 };
 
-/** 上传 .eml 文件到 OSS 并提交异步解析，返回 task_id */
-export const uploadEmailEml = async (file) => {
+/** 上传 .eml 文件到 OSS 并提交异步解析*/
+export const uploadEmailEml = async (file, brokerName) => {
   try {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('brokerName', broker_name)
     const { data } = await client.post('/email/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });

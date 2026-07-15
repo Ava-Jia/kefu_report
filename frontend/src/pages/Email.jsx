@@ -834,6 +834,7 @@ export default function Email() {
     ? parseInt(searchParams.get('is_check'), 10)
     : null;
   const initMblNumber = searchParams.get('mbl_number') || '';
+  const initBrokerName = searchParams.get('broker_name') || '';
   const initOrder = searchParams.get('order') === 'asc' ? 'asc' : 'desc';
 
   const [tableData, setTableData] = useState([]);
@@ -859,9 +860,9 @@ export default function Email() {
     const maxPage = Math.ceil(remainingTotal / initPageSize);
     const targetPage = Math.min(initPage, maxPage);
     if (targetPage === initPage) {
-      loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initOrder);
+      loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initBrokerName, initOrder);
     } else {
-      pushParams(targetPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber);
+      pushParams(targetPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initBrokerName);
     }
   };
 
@@ -916,7 +917,7 @@ export default function Email() {
     setTableData((prev) => prev.map((row) => row.id === id ? { ...row, ...fields } : row));
   };
 
-  const pushParams = (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber, order = initOrder) => {
+  const pushParams = (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber, brokerName = initBrokerName, order = initOrder) => {
     const p = {};
     if (page !== 1) p.page = page;
     if (pageSize !== 50) p.pageSize = pageSize;
@@ -925,11 +926,12 @@ export default function Email() {
     if (dateTo) p.date_to = dateTo;
     if (isCheck !== null && isCheck !== undefined) p.is_check = isCheck;
     if (mblNumber) p.mbl_number = mblNumber;
+    if (brokerName) p.broker_name = brokerName;
     if (order === 'asc') p.order = 'asc';
     setSearchParams(p, { replace: false });
   };
 
-  const loadTable = async (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber, order) => {
+  const loadTable = async (page, pageSize, cat, dateFrom, dateTo, isCheck, mblNumber, brokerName, order) => {
     setTableLoading(true);
     try {
       const res = await fetchEmailList({
@@ -940,6 +942,7 @@ export default function Email() {
         date_to: dateTo,
         is_check: isCheck,
         mbl_number: mblNumber,
+        broker_name: brokerName,
         order,
       });
       if (res?.code === 200) {
@@ -956,11 +959,11 @@ export default function Email() {
   };
 
   useEffect(() => {
-    loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initOrder);
+    loadTable(initPage, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initBrokerName, initOrder);
   }, [searchParams.toString()]);
 
   const handleOrderChange = (value) => {
-    pushParams(1, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, value);
+    pushParams(1, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, initBrokerName, value);
   };
 
   // 当前筛选后的列表上下文，随预览一起带入详情页，用于结果内翻页 + 跨页续翻
@@ -975,6 +978,7 @@ export default function Email() {
       date_to: initDateTo,
       is_check: initIsCheck,
       mbl_number: initMblNumber,
+      broker_name: initBrokerName,
       order: initOrder,
     },
   };
@@ -991,6 +995,10 @@ export default function Email() {
 
   const handleMblSearch = (value) => {
     pushParams(1, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, value.trim());
+  };
+
+  const handleBrokerSearch = (value) => {
+    pushParams(1, initPageSize, initCategory, initDateFrom, initDateTo, initIsCheck, initMblNumber, value.trim());
   };
 
   const [customPickerOpen, setCustomPickerOpen] = useState(false);
@@ -1033,6 +1041,7 @@ export default function Email() {
   const [parseResult, setParseResult] = useState(null);
   const [parseError, setParseError] = useState('');
   const [showRawResult, setShowRawResult] = useState(false);
+  const [uploadBrokerName, setUploadBrokerName] = useState('');
   const pollTokenRef = useRef(0); // 自增令牌，切换文件/关弹窗时使旧轮询失效
 
   const POLL_INTERVAL = 10000;
@@ -1084,7 +1093,7 @@ export default function Email() {
     setShowRawResult(false);
     setUploadPhase('uploading');
     try {
-      const res = await uploadEmailEml(file);
+      const res = await uploadEmailEml(file, uploadBrokerName.trim());
       if (pollTokenRef.current !== token) return false;
       if (res?.code === 200 && res.data?.task_id) {
         setUploadPhase('polling');
@@ -1113,6 +1122,7 @@ export default function Email() {
     setParseError('');
     setShowRawResult(false);
     setUploadModalOpen(true);
+    setUploadBrokerName('');
   };
 
   const uploadBusy = uploadPhase === 'uploading' || uploadPhase === 'polling';
@@ -1129,13 +1139,21 @@ export default function Email() {
         }}
       >
         <Space wrap>
+          <Input.Search
+            size="middle"
+            placeholder="搜索代理名称"
+            defaultValue={initBrokerName}
+            allowClear
+            style={{ width: 170 }}
+            onSearch={handleBrokerSearch}
+          />
           <Select
             allowClear
             size="middle"
             value={initCategory || undefined}
             placeholder="全部类别"
             options={INTENT_OPTIONS}
-            style={{ width: 200 }}
+            style={{ width: 170 }}
             onChange={(value) => handleCategoryChange(value || '')}
           />
           <Input.Search
@@ -1143,7 +1161,7 @@ export default function Email() {
             placeholder="搜索 MBL 号"
             defaultValue={initMblNumber}
             allowClear
-            style={{ width: 200 }}
+            style={{ width: 170 }}
             onSearch={handleMblSearch}
           />
           <DatePicker.RangePicker
@@ -1206,6 +1224,13 @@ export default function Email() {
         footer={null}
         width={560}
       >
+        <Input
+          value={uploadBrokerName}
+          onChange={(e) => setUploadBrokerName(e.target.value)}
+          placeholder="请输入代理名称"
+          style={{ marginBottom: 12 }}
+          disabled={uploadBusy}
+        />
         <Upload.Dragger
           accept=".eml"
           showUploadList={false}

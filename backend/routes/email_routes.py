@@ -60,15 +60,18 @@ def create_email():
 
 @bp.route("/email/upload", methods=["POST"])
 def upload_eml():
-    """把上传的 .eml 文件传到 OSS，返回 OSS URL。"""
+    """把上传的 .eml 文件传到 OSS，并提交进行解析等待结果"""
     try:
         file = request.files.get("file")
+        brokerName = request.form.get("brokerName")
         if not file or not file.filename:
             return jsonify({"code": 400, "message": "请上传 .eml 文件"}), 400
         if not file.filename.lower().endswith(".eml"):
             return jsonify({"code": 400, "message": "仅支持 .eml 文件"}), 400
+        if not brokerName:
+            return jsonify({"code": 400, "message": "缺少代理名称"}), 400
         eml_url = upload_file_to_oss(file.filename, file.read())
-        resp = submit_parse_async(eml_url)
+        resp = submit_parse_async(eml_url, brokerName)
         if not resp or not resp.get("task_id"):
             return jsonify({"code": 502, "message": "提交解析任务失败", "data": {"eml_url": eml_url}}), 502
         return jsonify({"code": 200, "message": "上传成功", "data": {"task_id": resp["task_id"], "eml_url": eml_url}})
@@ -103,6 +106,7 @@ def list_emails():
         is_check_raw = request.args.get("is_check")
         is_check = int(is_check_raw) if is_check_raw is not None and is_check_raw != "" else None
         mbl_number = (request.args.get("mbl_number") or "").strip() or None
+        broker_name = (request.args.get("broker_name") or "").strip() or None
         order = "asc" if (request.args.get("order") or "").strip().lower() == "asc" else "desc"
         data = get_local_emails(
             page=page, page_size=page_size,
@@ -110,6 +114,7 @@ def list_emails():
             date_from=date_from, date_to=date_to,
             is_check=is_check,
             mbl_number=mbl_number,
+            broker_name=broker_name,
             order=order,
         )
         return jsonify({"code": 200, "message": "查询成功", "data": data})

@@ -3,10 +3,7 @@ import logging
 from flask import Blueprint, jsonify, request
 
 from services.rls_service import (
-    rls_create_result,
-    rls_get_task_result,
     rls_list_remote_results,
-    rls_query_result,
     rls_search_async,
     rls_update_remote_result,
 )
@@ -35,42 +32,15 @@ def rls_search():
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
 
-@bp.route("/rls/task/<task_id>", methods=["GET"])
-def rls_task_result(task_id):
-    """根据 task_id 获取 RLS 查询任务状态。"""
-    try:
-        result = rls_get_task_result(task_id)
-        return jsonify({"code": 200, "message": "查询成功", "data": result})
-    except Exception as e:
-        logger.exception("rls_task_result error")
-        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
-
-@bp.route("/rls/result", methods=["POST"])
-def rls_result_create():
-    """新增一条 RLS """
-    try:
-        body = request.get_json(force=True, silent=True)
-        if not body:
-            return jsonify({"code": 400, "message": "请求体必须为合法 JSON"}), 400
-        result = rls_create_result(body)
-        return jsonify({"code": 200, "message": "新增成功", "data": result})
-    except Exception as e:
-        logger.exception("rls_result_create error")
-        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
-
-
-@bp.route("/rls/result", methods=["GET"])
-def rls_result_query():
-    """按提单号查询 RLS """
-    try:
-        query_number = request.args.get("query_number")
-        if not query_number:
-            return jsonify({"code": 400, "message": "缺少 query_number 参数"}), 400
-        result = rls_query_result(query_number)
-        return jsonify({"code": 200, "message": "查询成功", "data": result})
-    except Exception as e:
-        logger.exception("rls_result_query error")
-        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+# @bp.route("/rls/task/<task_id>", methods=["GET"])
+# def rls_task_result(task_id):
+#     """根据 task_id 获取 RLS 查询任务状态。"""
+#     try:
+#         result = rls_get_task_result(task_id)
+#         return jsonify({"code": 200, "message": "查询成功", "data": result})
+#     except Exception as e:
+#         logger.exception("rls_task_result error")
+#         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
 
 @bp.route("/rls/results", methods=["GET"])

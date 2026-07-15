@@ -240,6 +240,16 @@ export const checkEmailParserResult = async (email_task_id) => {
   }
 }
 
+/** 根据MBL查询order */
+export const checkOrderByMBL = async (mbl_number) => {
+  try {
+    const {data} = await client.get(`/parser_result/${encodeURIComponent(mbl_number)}`)
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error)
+  }
+}
+
 /** 更新邮件 is_check 状态（0=未处理 1=已处理 2=待定） */
 export const updateEmailCheck = async (email_id, is_check) => {
   try {
@@ -260,11 +270,12 @@ export const updateEmail = async (email_id, fields) => {
   }
 };
 
-/** 上传 .eml 文件到 OSS 并提交异步解析，返回 task_id */
-export const uploadEmailEml = async (file) => {
+/** 上传 .eml 文件到 OSS 并提交异步解析*/
+export const uploadEmailEml = async (file, brokerName) => {
   try {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('brokerName', brokerName)
     const { data } = await client.post('/email/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
@@ -285,7 +296,7 @@ export const fetchEmailParseStatus = async (taskId) => {
 };
 
 /** 获取本地邮件列表 */
-export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = '', date_from = '', date_to = '', is_check = null, mbl_number = '', order = '' } = {}) => {
+export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = '', date_from = '', date_to = '', is_check = null, mbl_number = '', broker_name = '', order = '' } = {}) => {
   try {
     const params = { page, page_size };
     if (intent_type1) params.intent_type1 = intent_type1;
@@ -293,6 +304,7 @@ export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = 
     if (date_to) params.date_to = date_to;
     if (is_check !== null && is_check !== undefined) params.is_check = is_check;
     if (mbl_number) params.mbl_number = mbl_number;
+    if (broker_name) params.broker_name = broker_name;
     if (order === 'asc') params.order = 'asc';
     const { data } = await client.get('/email/list', { params });
     return data;
@@ -314,15 +326,6 @@ export const searchRls = async (scacCode, queryNumberList) => {
   }
 };
 
-/** 查询 RLS 检索任务结果 */
-export const fetchRlsTaskResult = async (taskId) => {
-  try {
-    const { data } = await client.get(`/rls/task/${encodeURIComponent(taskId)}`);
-    return data;
-  } catch (error) {
-    return unwrapCompanyError(error);
-  }
-};
 
 /** 列出 RLS 查询结果（转发至外部系统，支持过滤） */
 export const fetchRlsResults = async (params = {}) => {
@@ -334,23 +337,13 @@ export const fetchRlsResults = async (params = {}) => {
   }
 };
 
-/** 按提单号查询单条 RLS 结果（转发至外部系统） */
-export const fetchRlsResultByQueryNumber = async (queryNumber) => {
-  try {
-    const { data } = await client.get("/rls/result", {
-      params: { query_number: queryNumber },
-    });
-    return data;
-  } catch (error) {
-    return unwrapCompanyError(error);
-  }
-};
-
-/** 手动修正一条 RLS 结果的 release_status（人工补录，转发至外部系统） */
-export const updateRlsResult = async (resultId, result) => {
+/** 手动修正一条 RLS 结果的 web_Status 子字段（人工补录，转发至外部系统） */
+export const updateRlsResult = async (resultId, { blStatus, freightStatus, customsStatus } = {}) => {
   try {
     const { data } = await client.patch(`/rls/result/${encodeURIComponent(resultId)}`, {
-      result,
+      bl_status: blStatus,
+      freight_status: freightStatus,
+      customs_status: customsStatus,
     });
     return data;
   } catch (error) {

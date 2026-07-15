@@ -313,6 +313,16 @@ export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = 
   }
 };
 
+/** 获取去重后的代理名称列表（搜索下拉框用） */
+export const fetchBrokerNames = async () => {
+  try {
+    const { data } = await client.get('/email/broker-names');
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
 /** RLS 检索 - 提交异步任务，返回 task_id */
 export const searchRls = async (scacCode, queryNumberList) => {
   try {

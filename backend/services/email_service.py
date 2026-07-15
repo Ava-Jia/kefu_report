@@ -109,6 +109,19 @@ def _normalize_html_content(html) -> str | None:
     return None
 
 
+def get_broker_names() -> list[str]:
+    """返回 email 表中去重后的代理名称列表，供前端下拉框使用。"""
+    with get_session() as session:
+        rows = (
+            session.query(Email.broker_name)
+            .filter(Email.broker_name.isnot(None), Email.broker_name != "")
+            .distinct()
+            .order_by(Email.broker_name.asc())
+            .all()
+        )
+        return [row[0] for row in rows]
+
+
 def get_local_emails(
     page: int = 1,
     page_size: int = 50,

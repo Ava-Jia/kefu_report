@@ -5,7 +5,7 @@ from services.email_parser import (
     upload_file_to_oss, submit_parse_async, email_parse_status, email_html_attachment
 )
 from services.email_service import (
-    upsert_emails, get_local_emails, update_email_check, update_email,
+    upsert_emails, get_local_emails, get_broker_names, update_email_check, update_email,
     get_email_id_by_ordering_id, get_audit_logs,
     get_email_detail,
     get_next_email_id, compute_is_done, compute_is_done_multi,
@@ -91,6 +91,16 @@ def status_eml(task_id):
         return jsonify({"code": 200, "message": "查询成功", "data": resp})
     except Exception as e:
         logger.exception("status_eml error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
+@bp.route("/email/broker-names", methods=["GET"])
+def list_broker_names():
+    """返回去重后的代理名称列表，供搜索下拉框使用。"""
+    try:
+        return jsonify({"code": 200, "message": "查询成功", "data": get_broker_names()})
+    except Exception as e:
+        logger.exception("list_broker_names error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
 

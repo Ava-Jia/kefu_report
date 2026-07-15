@@ -23,10 +23,13 @@ _BJT = datetime.timezone(datetime.timedelta(hours=8))
 
 _IS_DONE_REQUIRED_FIELDS = (
     'masterBillNo', 'houseBillNo',
-  'consigneeName', 'consigneeEmail', 'consigneeAddress',
+    'consigneeName', 'consigneeAddress',
   'notifyName', 'notifyAddress',
   'shipperName', 'shipperAddress',
   'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume',
+)
+_IS_DONE_OTHERS_EMAIL = (
+    'consigneeEmail', 'consigneeFromEmail',
 )
 
 # is_done 取值：0=待处理 1=新建下单 2=新建失败 3=修改订单 4=作废
@@ -62,7 +65,20 @@ def compute_is_done(parser_result: dict | list | None) -> int:
     parser_result = normalize_parser_result(parser_result)
     if not parser_result:
         return IS_DONE_PENDING
-    ok = all(_is_field_present(parser_result.get(f)) for f in _IS_DONE_REQUIRED_FIELDS)
+    # 先判断必填字段是否全部非缺失值
+    ok = True
+    for f in _IS_DONE_REQUIRED_FIELDS:
+        if not _is_field_present(parser_result.get(f)):
+            ok = False
+            break
+    # 必填字段都不缺时，再要求两个邮件字段至少有一个非空
+    if ok:
+        has_email = False
+        for f in _IS_DONE_OTHERS_EMAIL:
+            if _is_field_present(parser_result.get(f)):
+                has_email = True
+                break
+        ok = has_email
     return IS_DONE_CREATED if ok else IS_DONE_CREATE_FAILED
 
 
@@ -70,8 +86,10 @@ def compute_is_done_multi(results: list[dict]) -> int:
     """多条解析结果汇总到 email 表单行：无结果=待处理，全部齐全=成功，否则失败。"""
     if not results:
         return IS_DONE_PENDING
-    return IS_DONE_CREATED if all(compute_is_done(r) == IS_DONE_CREATED for r in results) else IS_DONE_CREATE_FAILED
-
+    for r in results:
+        if compute_is_done(r) != IS_DONE_CREATED:
+            return IS_DONE_CREATE_FAILED
+    return IS_DONE_CREATED
 
 def _to_bjt(date_str: str | None) -> str | None:
     if not date_str:

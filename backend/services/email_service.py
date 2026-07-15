@@ -183,7 +183,6 @@ def upsert_emails(records: list[dict]) -> int:
         for r in records:
             if not r.get("id"):
                 continue
-            # attachments = r.get("attachments")
             # 获取 parser_result
             raw = r.get("ordering_id") or ""
             ordering_id = raw[12:] or None          # 裸 UUID，移除 ordeing_id:

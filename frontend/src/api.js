@@ -265,7 +265,7 @@ export const uploadEmailEml = async (file, brokerName) => {
   try {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('brokerName', broker_name)
+    formData.append('brokerName', brokerName)
     const { data } = await client.post('/email/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });

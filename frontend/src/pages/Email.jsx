@@ -1041,6 +1041,7 @@ export default function Email() {
   const [parseResult, setParseResult] = useState(null);
   const [parseError, setParseError] = useState('');
   const [showRawResult, setShowRawResult] = useState(false);
+  const [uploadBrokerName, setUploadBrokerName] = useState('');
   const pollTokenRef = useRef(0); // 自增令牌，切换文件/关弹窗时使旧轮询失效
 
   const POLL_INTERVAL = 10000;
@@ -1092,7 +1093,7 @@ export default function Email() {
     setShowRawResult(false);
     setUploadPhase('uploading');
     try {
-      const res = await uploadEmailEml(file);
+      const res = await uploadEmailEml(file, uploadBrokerName.trim());
       if (pollTokenRef.current !== token) return false;
       if (res?.code === 200 && res.data?.task_id) {
         setUploadPhase('polling');
@@ -1121,6 +1122,7 @@ export default function Email() {
     setParseError('');
     setShowRawResult(false);
     setUploadModalOpen(true);
+    setUploadBrokerName('');
   };
 
   const uploadBusy = uploadPhase === 'uploading' || uploadPhase === 'polling';
@@ -1222,6 +1224,13 @@ export default function Email() {
         footer={null}
         width={560}
       >
+        <Input
+          value={uploadBrokerName}
+          onChange={(e) => setUploadBrokerName(e.target.value)}
+          placeholder="请输入代理名称"
+          style={{ marginBottom: 12 }}
+          disabled={uploadBusy}
+        />
         <Upload.Dragger
           accept=".eml"
           showUploadList={false}

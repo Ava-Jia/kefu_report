@@ -146,7 +146,7 @@ def _filter_by_scac_bill(query, master_bill_no: str | None, house_bill_no: str |
     else:
         query = query.filter((EmailParserResult.master_bill_no.is_(None)) | (EmailParserResult.master_bill_no == ""))
     if house_bill_no:
-        query = query.filter(EmailParserResult.house_bill_no.like(f"%{house_bill_no}"))
+        query = query.filter(EmailParserResult.house_bill_no == house_bill_no)
     else:
         query = query.filter((EmailParserResult.house_bill_no.is_(None)) | (EmailParserResult.house_bill_no == ""))
     return query

@@ -48,7 +48,7 @@ def create_email():
         if not email_id:
             log_create_failure("缺少 email_id 参数", status_code=400, request_body=body)
             return jsonify({"code": 400, "message": "缺少 email_id 参数"}), 400
-        return _create_by_email_id(body, email_id)
+        return _create_by_email_id(body, email_id) # 仅写入了Email信息，没有写入order信息
     except Exception as e:
         logger.exception("create_email error")
         log_create_failure(f"服务器错误: {e}", status_code=500,
@@ -397,12 +397,20 @@ def _create_by_ordering_id(body, ordering_id):
                 pass
             else:
                 # 创建新的解析结果
+                is_done = compute_is_done(one)
                 create_parser_result_by_ordering_id(
-                    ordering_id, one, broker_name=brokerName, is_done=compute_is_done(one),
+                    ordering_id, one, broker_name=brokerName, is_done=is_done,
                     master_bill_no=mbl, house_bill_no=hbl, operator="order_callback",
                 )
+                # 更新Email的状态
+                update_email(email_id=data_email_id, fields={"is_done": is_done}, operator="order_callback")
+                # 后续判断是否要下单
+                if is_done == 1:
+                    pass
+
         # 更新之前的数据
         elif intent_action == "update":
+            update_email(email_id=data_email_id, fields={"is_done": is_done}, operator="order_callback")
             if update_parser_result_by_bill(
                 mbl, hbl, one, broker_name=brokerName, is_done=IS_DONE_MODIFIED,
                 operator="order_callback",
@@ -448,6 +456,7 @@ def _create_by_email_id(body, email_id):
         log_create_failure("未找到对应邮件", status_code=404,
                            email_id=email_id, request_body=body)
         return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
+    # 将Email数据写入表中
     upsert_emails([record])
     return jsonify({"code": 200, "message": "写入成功", "data": {"id": record.get("id", email_id)}})
 

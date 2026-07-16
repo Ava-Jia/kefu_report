@@ -195,7 +195,10 @@ def create_parser_result_by_ordering_id(
     master_bill_no: str | None = None, house_bill_no: str | None = None,
     operator: str | None = None,
 ):
-    """如果二级意图是新建下单，就要写入一条parser-result"""
+    """
+    如果二级意图是新建下单，就要写入一条parser-result
+    并且要更新
+    """
     with get_session() as session:
         fields = _parse_result_input(parser_result)
         fields.setdefault("master_bill_no", master_bill_no)

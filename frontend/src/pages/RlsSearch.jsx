@@ -180,7 +180,7 @@ export default function RlsSearch() {
   const loadDbResults = useCallback(async () => {
     setDbLoading(true);
     try {
-      const res = await fetchRlsResults();
+      const res = await fetchRlsResults({ limit: 500 });
       if (res.code !== 200) {
         throw new Error(res.error || res.message || "加载失败");
       }
@@ -430,9 +430,9 @@ export default function RlsSearch() {
           columns={dbColumns}
           dataSource={filteredResults}
           loading={dbLoading}
-          pagination={{ 
-            pageSize: 50,
-            showSizeChanger: false,
+          pagination={{
+            pageSize: 100,
+            showSizeChanger: true,
           }}
           tableLayout="fixed"
           scroll={{ x: "max-content" }}

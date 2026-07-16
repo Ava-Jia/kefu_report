@@ -109,6 +109,19 @@ def _normalize_html_content(html) -> str | None:
     return None
 
 
+def get_broker_names() -> list[str]:
+    """返回 email 表中去重后的代理名称列表，供前端下拉框使用。"""
+    with get_session() as session:
+        rows = (
+            session.query(Email.broker_name)
+            .filter(Email.broker_name.isnot(None), Email.broker_name != "")
+            .distinct()
+            .order_by(Email.broker_name.asc())
+            .all()
+        )
+        return [row[0] for row in rows]
+
+
 def get_local_emails(
     page: int = 1,
     page_size: int = 50,
@@ -174,6 +187,7 @@ def get_local_emails(
 
 
 def upsert_emails(records: list[dict]) -> int:
+    """只用于新建Email，无论其是否有orderid，都不操作"""
     if not records:
         return 0
     # 局部导入避免 parser_result_service -> email_service 的循环导入问题。
@@ -185,26 +199,11 @@ def upsert_emails(records: list[dict]) -> int:
                 continue
             # 获取 parser_result
             raw = r.get("ordering_id") or ""
-            ordering_id = raw[12:] or None          # 裸 UUID，移除 ordeing_id:
-            if ordering_id:
-                parser_result = get_order_result(ordering_id)
-                parser_result = parser_result.get("result") if parser_result else None
-                results = normalize_parser_results(parser_result)  # 一个 ordering 可能有多份结果
-            else:
-                results = []
-            # email 表单行的 is_done 由多条结果汇总
-            is_done = compute_is_done_multi(results)
             broker_name = r.get("brokerName")
-            # 每份解析结果单独入库；同一 ordering 下按 (mbl, hbl) 区分为多行
-            for one in results:
-                parser_result_rows.append({
-                    "ordering_id": ordering_id,
-                    "parser_result": one,
-                    "broker_name": broker_name,
-                    "is_done": compute_is_done(one),
-                    "master_bill_no": one.get("masterBillNo"),
-                    "house_bill_no": one.get("houseBillNo"),
-                })
+            ordering_id = raw[12:] or None          # 裸 UUID，移除 ordeing_id:
+            status = "" # 默认空值
+            if ordering_id:
+                status = "PENDING_TRACK"
             session.merge(Email(
                 id=r["id"],
                 date=_to_bjt(r.get("date")),
@@ -221,19 +220,9 @@ def upsert_emails(records: list[dict]) -> int:
                 intent_type2=str(r.get("intent_type2")) if r.get("intent_type2") else None,
                 ordering_id=ordering_id,
                 email_url=r.get("email_url") or None,
-                is_done=is_done,
+                is_done=0,
+                status=status,
             ))
-        for row in parser_result_rows:
-            upsert_parser_result_in_session(
-                session,
-                row["ordering_id"],
-                row["parser_result"],
-                broker_name=row["broker_name"],
-                is_done=row["is_done"],
-                master_bill_no=row["master_bill_no"],
-                house_bill_no=row["house_bill_no"],
-                operator="email_create",
-            )
         session.commit()
     return len(records)
 
@@ -409,4 +398,3 @@ def get_next_email_id(data_id: int, direction: str) -> str | None:
         else:
             raise ValueError("direction must be 'next' or 'prev'")
         return row.id if row else None
-

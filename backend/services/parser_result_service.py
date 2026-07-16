@@ -139,6 +139,19 @@ def _filter_by_bill(query, master_bill_no: str | None, house_bill_no: str | None
         query = query.filter((EmailParserResult.house_bill_no.is_(None)) | (EmailParserResult.house_bill_no == ""))
     return query
 
+def _filter_by_scac_bill(query, master_bill_no: str | None, house_bill_no: str | None):
+    """给查询追加 mbl/hbl 过滤："""
+    if master_bill_no:
+        query = query.filter(EmailParserResult.master_bill_no.like(f"%{master_bill_no}"))
+    else:
+        query = query.filter((EmailParserResult.master_bill_no.is_(None)) | (EmailParserResult.master_bill_no == ""))
+    if house_bill_no:
+        query = query.filter(EmailParserResult.house_bill_no == house_bill_no)
+    else:
+        query = query.filter((EmailParserResult.house_bill_no.is_(None)) | (EmailParserResult.house_bill_no == ""))
+    return query
+
+
 
 def _apply_field_changes(session, row: EmailParserResult, fields: dict, record_id: str, operator: str | None):
     """把 fields 写入 row，仅对有变化的列记审计日志。"""
@@ -195,7 +208,10 @@ def create_parser_result_by_ordering_id(
     master_bill_no: str | None = None, house_bill_no: str | None = None,
     operator: str | None = None,
 ):
-    """如果二级意图是新建下单，就要写入一条parser-result"""
+    """
+    如果二级意图是新建下单，就要写入一条parser-result
+    并且要更新
+    """
     with get_session() as session:
         fields = _parse_result_input(parser_result)
         fields.setdefault("master_bill_no", master_bill_no)
@@ -209,12 +225,15 @@ def create_parser_result_by_ordering_id(
 
 
 def find_parser_result_by_bill(master_bill_no: str | None, house_bill_no: str | None) -> dict | None:
-    """新建单前要找是否以前存过该mbl、hbl的订单"""
+    """新建单前要找是否以前存过该mbl、hbl的订单
+    此时传入的mbl和hbl是无scac的
+    但是parser表中可以存有scac和无scac
+    """
     if not master_bill_no and not house_bill_no:
         return None
     with get_session() as session:
         row = (
-            _filter_by_bill(session.query(EmailParserResult), master_bill_no, house_bill_no)
+            _filter_by_scac_bill(session.query(EmailParserResult), master_bill_no, house_bill_no)
             .order_by(EmailParserResult.id.desc())
             .first()
         )
@@ -230,7 +249,7 @@ def update_parser_result_by_bill(
         return None
     with get_session() as session:
         row = (
-            _filter_by_bill(session.query(EmailParserResult), master_bill_no, house_bill_no)
+            _filter_by_scac_bill(session.query(EmailParserResult), master_bill_no, house_bill_no)
             .order_by(EmailParserResult.id.desc())
             .first()
         )
@@ -252,28 +271,31 @@ def update_parser_result_by_bill(
 
 def void_parser_result_by_bill(
     master_bill_no: str | None, house_bill_no: str | None, operator: str | None = None,
-) -> dict | None:
-    """作废单，需要根据mbl和hbl找到新建单的解析结果"""
+) -> str:
+    """作废单，需要根据mbl和hbl找到新建单的解析结果。
+    返回状态：
+      - "voided"       成功作废
+      - "not_found"    未找到对应记录
+      - "not_voidable" 找到了但状态非"已下单"(is_done!=1)，不允许作废
+    """
     if not master_bill_no and not house_bill_no:
-        return None
+        return "not_found"
     with get_session() as session:
         row = (
-            _filter_by_bill(session.query(EmailParserResult), master_bill_no, house_bill_no)
+            _filter_by_scac_bill(session.query(EmailParserResult), master_bill_no, house_bill_no)
             .order_by(EmailParserResult.id.desc())
             .first()
         )
         if row is None:
-            logger.warning(
-                "void_parser_result_by_bill: 未找到对应新建单，作废操作被丢弃 "
-                "master_bill_no=%s house_bill_no=%s", master_bill_no, house_bill_no,
-            )
-            return None
+            return "not_found"
+        if row.is_done != 1:
+            return "not_voidable"
         _apply_field_changes(
             session, row, {"is_done": IS_DONE_VOIDED},
             f"{row.ordering_id}_{master_bill_no}_{house_bill_no}", operator,
         )
         session.commit()
-        return _serialize(row)
+        return "voided"
 
 
 def update_parser_result(record_id: int, fields: dict) -> dict | None:

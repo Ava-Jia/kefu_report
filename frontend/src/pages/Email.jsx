@@ -19,6 +19,7 @@ import {
   updateEmail,
   uploadEmailEml,
   fetchEmailParseStatus,
+  fetchBrokerNames,
 } from '../api';
 
 const { Text } = Typography;
@@ -843,6 +844,14 @@ export default function Email() {
   const [total, setTotal] = useState(0);
   const [fadingIds, setFadingIds] = useState(new Set());
   const [batchBarMounted, setBatchBarMounted] = useState(false);
+  const [brokerOptions, setBrokerOptions] = useState([]);
+
+  useEffect(() => {
+    fetchBrokerNames().then((res) => {
+      const names = res?.data || [];
+      setBrokerOptions(names.map((name) => ({ label: name, value: name })));
+    });
+  }, []);
 
   useEffect(() => {
     if (selectedRowKeys.length > 0) {
@@ -1139,13 +1148,16 @@ export default function Email() {
         }}
       >
         <Space wrap>
-          <Input.Search
+          <Select
+            showSearch
+            allowClear
             size="middle"
             placeholder="搜索代理名称"
-            defaultValue={initBrokerName}
-            allowClear
+            value={initBrokerName || undefined}
+            options={brokerOptions}
             style={{ width: 170 }}
-            onSearch={handleBrokerSearch}
+            optionFilterProp="label"
+            onChange={(value) => handleBrokerSearch(value || '')}
           />
           <Select
             allowClear

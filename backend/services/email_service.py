@@ -398,4 +398,3 @@ def get_next_email_id(data_id: int, direction: str) -> str | None:
         else:
             raise ValueError("direction must be 'next' or 'prev'")
         return row.id if row else None
-

@@ -91,12 +91,11 @@ def status_eml(task_id):
         # 获取email解析数据
         if resp["email_id"]:
             email_detail = get_email_detail(resp["email_id"])
+            ordering_id = email_detail.get("ordering_id") if email_detail else None
+            order_result = get_order_result(ordering_id) if ordering_id else None
+            order_detail = order_result.get("result") if order_result else None
         else:
             email_detail = None
-        ordering_id = resp["ordering_id"][12:]
-        if ordering_id:
-            order_detail = get_parser_result_by_ordering_id(ordering_id)
-        else:
             order_detail = None
         detail = {
             "email_detail": email_detail,

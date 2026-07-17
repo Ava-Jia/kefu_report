@@ -812,42 +812,90 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
   },
 ];
 
-// 展示 .eml 异步解析返回的关键字段
-const ParseResultView = ({ result }) => {
+// key-value 表格：解析详情统一用它渲染
+const DetailTable = ({ rows }) => (
+  <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+    <tbody>
+      {rows.map(([label, value]) => (
+        <tr key={label}>
+          <td style={{ padding: '4px 8px', color: '#999', width: 84, verticalAlign: 'top', whiteSpace: 'nowrap' }}>{label}</td>
+          <td style={{ padding: '4px 8px', wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>
+            {value != null && value !== '' ? value : <EmptyDash />}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+);
+
+// 展示 .eml 异步解析返回的邮件关键字段
+const ParseResultView = ({ result, title = '邮件解析结果' }) => {
   const intents1 = splitValues(result.intent_type1);
   const intents2 = parseIntentType2(result.intent_type2);
+  const intentCell = (intents1.length || intents2.length) ? (
+    <Space size={[4, 4]} wrap>
+      {intents1.map((i) => <Tag key={i} color={INTENT_COLOR[i] ?? 'blue'}>{INTENT_LABEL[i] ?? i}</Tag>)}
+      {intents2.map((i) => <Tag key={i}>{getSecondaryIntentLabel(i)}</Tag>)}
+    </Space>
+  ) : null;
   const rows = [
     ['邮件主题', result.subject],
     ['发件人', result.from],
     ['日期', result.date],
     ['代理名称', result.brokerName || result.broker_name],
     ['MBL 号', result.mbl_number],
+    ['意图', intentCell],
     ['邮件摘要', result.email_summary],
   ];
   return (
     <div>
-      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>解析结果</div>
-      <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
-        <tbody>
-          {rows.map(([label, value]) => (
-            <tr key={label}>
-              <td style={{ padding: '4px 8px', color: '#999', width: 84, verticalAlign: 'top', whiteSpace: 'nowrap' }}>{label}</td>
-              <td style={{ padding: '4px 8px', wordBreak: 'break-all' }}>{value || <span style={{ color: '#ccc' }}>-</span>}</td>
-            </tr>
-          ))}
-          <tr>
-            <td style={{ padding: '4px 8px', color: '#999', verticalAlign: 'top' }}>意图</td>
-            <td style={{ padding: '4px 8px' }}>
-              {intents1.length || intents2.length ? (
-                <Space size={[4, 4]} wrap>
-                  {intents1.map((i) => <Tag key={i} color={INTENT_COLOR[i] ?? 'blue'}>{INTENT_LABEL[i] ?? i}</Tag>)}
-                  {intents2.map((i) => <Tag key={i}>{getSecondaryIntentLabel(i)}</Tag>)}
-                </Space>
-              ) : <span style={{ color: '#ccc' }}>-</span>}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      {title && <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{title}</div>}
+      <DetailTable rows={rows} />
+    </div>
+  );
+};
+
+// 展示订单解析结果（order_detail.result 里的每一份提单）
+const OrderResultView = ({ orders }) => {
+  if (!orders?.length) {
+    return <div style={{ color: '#999', fontSize: 13 }}>无订单解析结果</div>;
+  }
+  return (
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+        订单解析结果（{orders.length} 条）
+      </div>
+      {orders.map((o, idx) => {
+        const expense = o.expenseItem
+          ? [o.expenseItem.expenseName, o.expenseItem.expenseAmount].filter(Boolean).join(' ')
+          : '';
+        const rows = [
+          ['MBL 号', o.masterBillNo],
+          ['HBL 号', o.houseBillNo],
+          ['箱型/箱号', [o.containerType, o.ctrNumber].filter(Boolean).join(' / ')],
+          ['单据类型', o.orderType],
+          ['客户类型', o.customerType],
+          ['发货人', o.shipperName],
+          ['发货人地址', o.shipperAddress],
+          ['收货人', o.consigneeName],
+          ['收货人地址', o.consigneeAddress],
+          ['通知人', o.notifyName],
+          ['通知人地址', o.notifyAddress],
+          ['货物描述', o.descriptionOfGoods],
+          ['唛头', o.mark],
+          ['件数', [o.pieces, o.packageUnit].filter(Boolean).join(' ')],
+          ['毛重', o.grossWeight],
+          ['体积', o.volume],
+          ['费用', expense],
+          ['HBL 文件', o.hblUrl ? <a href={o.hblUrl} target="_blank" rel="noreferrer">查看 PDF</a> : ''],
+        ];
+        return (
+          <div key={idx} style={{ marginBottom: 12, border: '1px solid #f0f0f0', borderRadius: 6, padding: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#1677ff', marginBottom: 4 }}>订单 {idx + 1}</div>
+            <DetailTable rows={rows} />
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -1313,7 +1361,7 @@ export default function Email() {
         open={uploadModalOpen}
         onCancel={closeUploadModal}
         footer={null}
-        width={560}
+        width={uploadPhase === 'done' ? 940 : 560}
       >
         <Input
           value={uploadBrokerName}
@@ -1353,24 +1401,15 @@ export default function Email() {
 
         {uploadPhase === 'done' && parseResult?.email_detail && (
           <div style={{ marginTop: 16 }}>
-            <ParseResultView result={parseResult.email_detail} />
-
-            {(parseResult.order_detail?.length > 0) && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
-                  订单解析结果（{parseResult.order_detail.length} 条）
-                </div>
-                {parseResult.order_detail.map((order, idx) => (
-                  <pre
-                    key={order.id ?? idx}
-                    style={{
-                      margin: '0 0 8px', maxHeight: 200, overflow: 'auto',
-                      background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12,
-                    }}
-                  >{JSON.stringify(order.parser_result ?? order, null, 2)}</pre>
-                ))}
+            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+              <div style={{ flex: 1, minWidth: 0, maxHeight: 460, overflow: 'auto' }}>
+                <ParseResultView result={parseResult.email_detail} />
               </div>
-            )}
+              <div style={{ width: 1, alignSelf: 'stretch', background: '#f0f0f0' }} />
+              <div style={{ flex: 1, minWidth: 0, maxHeight: 460, overflow: 'auto' }}>
+                <OrderResultView orders={parseResult.order_detail} />
+              </div>
+            </div>
 
             <div style={{ marginTop: 8 }}>
               <Button

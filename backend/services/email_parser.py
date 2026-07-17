@@ -128,7 +128,6 @@ def email_parse_status(task_id: str):
         return None
     return {
         "email_id": email_id,
-        "ordering_id": result_list.get("ordering_id") or "",
     }
 
 

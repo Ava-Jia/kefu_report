@@ -373,7 +373,6 @@ def _create_by_ordering_id(body, ordering_id):
     intentType1 = email_result.get("intent_type1")
     intentType2 = email_result.get("intent_type2")
     intent_action = _classify_exchange_intent(intentType1, intentType2)
-    # other 不处理
 
     # 获取解析结果
     parser_result = get_order_result(ordering_id)
@@ -384,13 +383,14 @@ def _create_by_ordering_id(body, ordering_id):
                            ordering_id=ordering_id, email_id=data_email_id, request_body=body)
         return jsonify({"code": 400, "message": "缺少 result 参数"}), 400
     # 每份解析结果按意图分别入库：以 mbl+hbl 判断是否已存在，避免不同提单互相覆盖
-    # TODO: 循环内每条结果各开独立事务，非原子；中途失败会留下部分写入，后续可改为共享 session 统一 commit
+    new_ordering_id = None  # 修改单场景下，被改订单的ordering_id，回填到email
     for one in results:
         mbl = one.get("masterBillNo")
         hbl = one.get("houseBillNo")
         # 处理SCAC
         no_scac_mbl = _strip_scac(mbl)
         is_done = compute_is_done(one)
+        
         if intent_action == "new":
             if find_parser_result_by_bill(no_scac_mbl, hbl):
                 # 同一 mbl+hbl 已存在，跳过并记录（后续补充去重逻辑）
@@ -428,39 +428,20 @@ def _create_by_ordering_id(body, ordering_id):
                 continue
             if row.get("is_done") in (1, 3):
                 new_is_done = IS_DONE_MODIFIED
-            elif row.get("is_done") in (0, 2):
+            else:  # (0, 2) 及其它值：按本次解析结果重新计算
                 new_is_done = compute_is_done(one)
             update_parser_result_by_bill(
                 master_bill_no=no_scac_mbl, house_bill_no=hbl, parser_result=one, broker_name=brokerName, is_done=new_is_done,
                 operator="order_update",
             )
-
-        # elif intent_action == "cancel":
-        #     # 找有没有 is_done=1 的新建单，作废之
-            # row = find_parser_result_by_bill(no_scac_mbl, hbl)
-            # if row is None:
-            #     log_create_failure(
-            #         f"作废单未找到对应新建单，作废被丢弃 mbl={mbl} hbl={hbl}",
-            #         ordering_id=ordering_id, email_id=data_email_id, request_body=one,
-            #     )
-            #     continue
-            # if row.get("is_done") in (1, 3):
-            #     # 进行作废
-            #     update_parser_result_by_bill(
-            #     master_bill_no=no_scac_mbl, house_bill_no=hbl, parser_result=one, broker_name=brokerName, is_done=4,
-            #     operator="order_cancel",
-            #     )
-            # elif row.get("is_done") in (0, 2, 4):
-            #     log_create_failure(
-            #         f"作废单对应订单非已下单状态，无法作废 mbl={mbl} hbl={hbl}",
-            #         ordering_id=ordering_id, email_id=data_email_id, request_body=one,
-            #     )
-
-        # other: 不操作
-    # 写入email表数据，包括status
+            new_ordering_id = row.get("ordering_id")
+            
     payload = {
         "status": status
     }
+    if new_ordering_id:
+        payload["ordering_id"] = new_ordering_id
+
     # 更新Email的mbl，拿更加准确的解析mbl来替换email mbl
     parser_mbls = [r.get("masterBillNo") for r in results if r.get("masterBillNo")]
     if parser_mbls:

@@ -197,6 +197,10 @@ def upsert_emails(records: list[dict]) -> int:
         for r in records:
             if not r.get("id"):
                 continue
+            row = session.query(Email.id).filter(Email.id == r.get("id")).first()
+            if row:
+                log_create_failure("该email_id已写入，跳过", email_id=r["id"], request_body=r)
+                continue
             # 获取 parser_result
             raw = r.get("ordering_id") or ""
             broker_name = r.get("brokerName")

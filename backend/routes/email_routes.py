@@ -355,7 +355,6 @@ def _create_by_ordering_id(body, ordering_id):
     将写入parser-result分为多个1
     1. 新建单——判断mbl、hbl是否已经写入，如果写入（当前版本pass）；如果没有写入，就新建一条数据（基于mbl和hbl）
     2. 修改单——找到该mbl、hbl已经写入的数据，将修改后的结果写入进去，包括is_done（是否下单）
-    3. 作废单——找到该mbl、hbl已经写入的数据，将其is_done赋值为4（作废）
     """
     status = body.get("status")
     if not status:
@@ -384,7 +383,6 @@ def _create_by_ordering_id(body, ordering_id):
         log_create_failure("缺少 result 参数", status_code=400,
                            ordering_id=ordering_id, email_id=data_email_id, request_body=body)
         return jsonify({"code": 400, "message": "缺少 result 参数"}), 400
-
     # 每份解析结果按意图分别入库：以 mbl+hbl 判断是否已存在，避免不同提单互相覆盖
     # TODO: 循环内每条结果各开独立事务，非原子；中途失败会留下部分写入，后续可改为共享 session 统一 commit
     for one in results:
@@ -394,28 +392,25 @@ def _create_by_ordering_id(body, ordering_id):
         no_scac_mbl = _strip_scac(mbl)
         is_done = compute_is_done(one)
         if intent_action == "new":
-            """
-            新增情况，先找这个mbl和hbl是否在库里面了
-            """
             if find_parser_result_by_bill(no_scac_mbl, hbl):
-                # 同一 mbl+hbl 已存在，暂不处理（后续补充去重逻辑）
-                pass
+                # 同一 mbl+hbl 已存在，跳过并记录（后续补充去重逻辑）
+                log_create_failure(
+                    f"新建单 mbl+hbl 已存在，跳过 mbl={mbl} hbl={hbl}",
+                    ordering_id=ordering_id, email_id=data_email_id, request_body=one,
+                )
             else:
                 # 创建新的解析结果
-                is_done = compute_is_done(one)
                 create_parser_result_by_ordering_id(
                     ordering_id, one, broker_name=brokerName, is_done=is_done,
                     master_bill_no=mbl, house_bill_no=hbl, operator="order_new",
                 )
-                # 更新Email的状态
-                update_email(email_id=data_email_id, fields={"is_done": is_done}, operator="order_new")
                 # 后续判断是否要下单
                 if is_done == 1:
                     pass
         # 更新之前的数据
         elif intent_action == "update":
             # 判断有没有is-done=1的对应订单
-            row = find_parser_result_by_bill(no_scac_mbl, hbl)
+            row = find_parser_result_by_bill(no_scac_mbl, hbl) # 新建单的order数据
             if row is None:
                 # 没有对应新建单，修改无从下手，记日志跳过
                 log_create_failure(
@@ -423,81 +418,44 @@ def _create_by_ordering_id(body, ordering_id):
                     ordering_id=ordering_id, email_id=data_email_id, request_body=one,
                 )
                 continue
-            # 找到新建单的email-id
-            new_order_email = get_email_id_by_ordering_id(row.get("ordering_id"))
-            new_order_email_id = new_order_email.get("id") if new_order_email else None
-
-            if row.get("is_done") == 1 or row.get("is_done") == 3:
-                new_is_done = 3 # 如果修改is-done=1的订单，需要赋值为3
-                # 更新此order-id对应的email-id的is-done
-                update_email(email_id=data_email_id, fields={"is_done": new_is_done}, operator="order_update")
-                # 更新新建单对应email-id的is-done状态
-                if new_order_email_id:
-                    update_email(email_id=new_order_email_id, fields={"is_done": new_is_done}, operator="order_update")
-                if update_parser_result_by_bill(
-                master_bill_no=no_scac_mbl, house_bill_no=hbl, parser_result=one, broker_name=brokerName, is_done=new_is_done,
-                operator="order_update",
-                ) is None:
-                    log_create_failure(
-                        f"修改单未找到对应新建单，修改被丢弃 mbl={mbl} hbl={hbl}",
-                        ordering_id=ordering_id, email_id=data_email_id, request_body=one,
-                    )
-
-            elif row.get("is_done") == 2 or row.get("is_done") == 0:
-                # 状态是0，2
-                new_is_done = compute_is_done(one) # 看是1还是2
-                # 更新此order-id对应的email-id的is-done
-                update_email(email_id=data_email_id, fields={"is_done": new_is_done}, operator="order_update")
-                # 更新新建单对应email-id的is-done状态
-                if new_order_email_id:
-                    update_email(email_id=new_order_email_id, fields={"is_done": new_is_done}, operator="order_update")
-
-                # 更新parser结果 one vs row
-                if update_parser_result_by_bill(
-                    master_bill_no=no_scac_mbl, house_bill_no=hbl, parser_result=one, broker_name=brokerName, is_done=new_is_done,
-                    operator="order_update",
-                ) is None:
-                    log_create_failure(
-                        f"修改单未找到对应新建单，修改被丢弃 mbl={mbl} hbl={hbl}",
-                        ordering_id=ordering_id, email_id=data_email_id, request_body=one,
-                    )
-                # 是否要下单，如果is-done=3不下单，只更新；如果is-done是1就表明更新后可下单。
-            elif row.get("is_done") == 4:
+            # 先看该单是不是作废单
+            if row.get("is_done") == 4:
                 # 订单已作废，不允许再被修改覆盖
                 log_create_failure(
                     f"修改单对应订单已作废，修改被丢弃 mbl={mbl} hbl={hbl}",
                     ordering_id=ordering_id, email_id=data_email_id, request_body=one,
                 )
-            
-        elif intent_action == "cancel":
-            # 找有没有 is_done=1 的新建单，作废之
-            row = find_parser_result_by_bill(no_scac_mbl, hbl)
-            if row is None:
-                log_create_failure(
-                    f"作废单未找到对应新建单，作废被丢弃 mbl={mbl} hbl={hbl}",
-                    ordering_id=ordering_id, email_id=data_email_id, request_body=one,
-                )
                 continue
-            void_result = void_parser_result_by_bill(master_bill_no=no_scac_mbl, house_bill_no=hbl, operator="order_cancel",)
-            if void_result == "not_found":
-                log_create_failure(
-                    f"作废单未找到对应新建单，作废被丢弃 mbl={mbl} hbl={hbl}",
-                    ordering_id=ordering_id, email_id=data_email_id, request_body=one,
-                )
-            elif void_result == "not_voidable":
-                log_create_failure(
-                    f"作废单对应订单非已下单状态，无法作废 mbl={mbl} hbl={hbl}",
-                    ordering_id=ordering_id, email_id=data_email_id, request_body=one,
-                )
-            elif void_result == "voided":
-                # 找到新建单的email-id
-                new_order_email = get_email_id_by_ordering_id(row.get("ordering_id"))
-                new_order_email_id = new_order_email.get("id") if new_order_email else None
-                # 更新此order-id对应的email-id的is-done
-                update_email(email_id=data_email_id, fields={"is_done": IS_DONE_VOIDED}, operator="order_cancel")
-                # 更新新建单对应email-id的is-done状态
-                if new_order_email_id:
-                    update_email(email_id=new_order_email_id, fields={"is_done": IS_DONE_VOIDED}, operator="order_cancel")
+            if row.get("is_done") in (1, 3):
+                new_is_done = IS_DONE_MODIFIED
+            elif row.get("is_done") in (0, 2):
+                new_is_done = compute_is_done(one)
+            update_parser_result_by_bill(
+                master_bill_no=no_scac_mbl, house_bill_no=hbl, parser_result=one, broker_name=brokerName, is_done=new_is_done,
+                operator="order_update",
+            )
+
+        # elif intent_action == "cancel":
+        #     # 找有没有 is_done=1 的新建单，作废之
+            # row = find_parser_result_by_bill(no_scac_mbl, hbl)
+            # if row is None:
+            #     log_create_failure(
+            #         f"作废单未找到对应新建单，作废被丢弃 mbl={mbl} hbl={hbl}",
+            #         ordering_id=ordering_id, email_id=data_email_id, request_body=one,
+            #     )
+            #     continue
+            # if row.get("is_done") in (1, 3):
+            #     # 进行作废
+            #     update_parser_result_by_bill(
+            #     master_bill_no=no_scac_mbl, house_bill_no=hbl, parser_result=one, broker_name=brokerName, is_done=4,
+            #     operator="order_cancel",
+            #     )
+            # elif row.get("is_done") in (0, 2, 4):
+            #     log_create_failure(
+            #         f"作废单对应订单非已下单状态，无法作废 mbl={mbl} hbl={hbl}",
+            #         ordering_id=ordering_id, email_id=data_email_id, request_body=one,
+            #     )
+
         # other: 不操作
     # 写入email表数据，包括status
     payload = {
@@ -522,6 +480,33 @@ def _create_by_email_id(body, email_id):
         log_create_failure("未找到对应邮件", status_code=404,
                            email_id=email_id, request_body=body)
         return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
+    # 判断该封Email是否为作废邮件
+    intent_type2 = record.get("intent_type2") or ""
+    if "PRE_ALERT_CANCEL" in intent_type2:
+        # 修改其订单状态
+        mbl = body.get("mbl")
+        hbl = body.get("hbl")
+        no_scac_mbl = _strip_scac(mbl)
+        # 看看有没有这一单
+        row = find_parser_result_by_bill(no_scac_mbl, hbl)
+        # 没有就退出，但是写入这封邮件
+        if row is None:
+            log_create_failure(
+                f"作废单未找到对应新建单，作废被丢弃 mbl={mbl} hbl={hbl}", email_id=email_id, 
+            )
+            upsert_emails([record])
+            return jsonify({"code": 200, "message": "Email写入成功，但是作废失败，找不到该mbl、hbl的订单", "data": {"id": record.get("id", email_id)}})
+
+        if row.get("is_done") in (1, 3):
+            # 进行作废
+            update_parser_result_by_bill(
+            master_bill_no=no_scac_mbl, house_bill_no=hbl, is_done=4, operator="order_cancel",
+            )
+        elif row.get("is_done") in (0, 2, 4):
+            log_create_failure(
+                f"作废单对应订单非已下单状态，无法作废 mbl={mbl} hbl={hbl}",
+                ordering_id=row.get("ordering_id"), email_id=email_id, 
+            )
     # 将Email数据写入表中
     upsert_emails([record])
     return jsonify({"code": 200, "message": "写入成功", "data": {"id": record.get("id", email_id)}})

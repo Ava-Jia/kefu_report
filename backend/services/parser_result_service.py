@@ -226,7 +226,7 @@ def create_parser_result_by_ordering_id(
 
 def find_parser_result_by_bill(master_bill_no: str | None, house_bill_no: str | None) -> dict | None:
     """新建单前要找是否以前存过该mbl、hbl的订单
-    此时传入的mbl和hbl是无scac的
+    此时传入的mbl是无scac的
     但是parser表中可以存有scac和无scac
     """
     if not master_bill_no and not house_bill_no:

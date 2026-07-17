@@ -9,6 +9,8 @@ from utils.company_utils import (
     retry_open_corporates_task,
     delete_open_corporates_task,
     list_open_corporates_tasks,
+    search_open_corporates_from_db,
+    create_xlsx_from_db_search,
     create_xlsx_from_open_corporates_task,
 )
 
@@ -83,6 +85,106 @@ def search_companys():
             "error": "系统A创建OpenCorporates任务失败",
             "detail": str(e),
         }), 502
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@bp.route("/companys/search/db", methods=["POST"])
+def search_companys_from_db():
+    """
+    直接查询系统A数据库中已有的公司结果，不触发爬虫。
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        company_name_list = normalize_company_name_list(
+            data.get("company_name_list")
+        )
+        if not company_name_list:
+            return jsonify({
+                "success": False,
+                "error": "company_name_list不能为空，并且必须是数组"
+            }), 400
+        result = search_open_corporates_from_db(company_name_list)
+        return jsonify({
+            "success": True,
+            "company_results": result.get("company_results"),
+        })
+    except requests.Timeout:
+        return jsonify({
+            "success": False,
+            "error": "请求系统A超时"
+        }), 504
+    except requests.HTTPError as e:
+        return jsonify({
+            "success": False,
+            "error": "查询系统A数据库结果失败",
+            "detail": str(e),
+        }), 502
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@bp.route("/companys/search/db/export-xlsx", methods=["POST"])
+def export_company_db_xlsx():
+    """
+    直接查询系统A数据库中的公司结果，并导出 XLSX。
+    不触发爬虫，不创建任务。
+
+    请求:
+    {
+        "company_name_list": [
+            "TPD ENTERPRISE INC",
+            "ABC COMPANY LLC"
+        ]
+    }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+
+        company_name_list = normalize_company_name_list(
+            data.get("company_name_list")
+        )
+
+        if not company_name_list:
+            return jsonify({
+                "success": False,
+                "error": "company_name_list不能为空，并且必须是数组"
+            }), 400
+
+        xlsx_path, summary, result_data = create_xlsx_from_db_search(company_name_list)
+
+        return send_file(
+            xlsx_path,
+            as_attachment=True,
+            download_name=xlsx_path.name,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    except requests.Timeout:
+        return jsonify({
+            "success": False,
+            "error": "请求系统A超时"
+        }), 504
+
+    except requests.HTTPError as e:
+        return jsonify({
+            "success": False,
+            "error": "查询系统A数据库结果失败",
+            "detail": str(e),
+        }), 502
+
+    except ValueError as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+        }), 400
 
     except Exception as e:
         return jsonify({

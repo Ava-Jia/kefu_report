@@ -6,12 +6,13 @@ import {
 import {
   SearchOutlined, DownloadOutlined,
   UnorderedListOutlined, ReloadOutlined, RedoOutlined,
-  PlusOutlined, DeleteOutlined, ClearOutlined
+  PlusOutlined, DeleteOutlined, ClearOutlined, DatabaseOutlined
 } from "@ant-design/icons";
 import {
   searchCompany,
   fetchCompanyTasks,
   downloadCompanyXlsx,
+  downloadCompanyDbXlsx,
   retryCompanyTask,
 } from "../api.js";
 
@@ -96,6 +97,7 @@ export default function CompanySearch() {
     createCompanyRows(DEFAULT_INPUT_ROW_COUNT)
   );
   const [submitting, setSubmitting] = useState(false);
+  const [dbDownloading, setDbDownloading] = useState(false);
   const [loadingAllTasks, setLoadingAllTasks] = useState(false);
   const [searchNameModalOpen, setSearchNameModalOpen] = useState(false);
   const [searchNameInput, setSearchNameInput] = useState("");
@@ -515,6 +517,26 @@ export default function CompanySearch() {
     }
   };
 
+  const handleDbDownload = async () => {
+    const companyNames = getCompanyNames();
+
+    if (companyNames.length === 0) {
+      message.warning("请至少输入一个公司名称");
+      return;
+    }
+
+    setDbDownloading(true);
+
+    try {
+      await downloadCompanyDbXlsx(companyNames);
+      message.success("下载成功");
+    } catch (e) {
+      message.error(e.message || "下载失败");
+    } finally {
+      setDbDownloading(false);
+    }
+  };
+
   const handleDownload = async (taskId) => {
     try {
       await downloadCompanyXlsx(taskId);
@@ -701,16 +723,29 @@ export default function CompanySearch() {
             </Button>
           </Space>
 
-          <Button
-            type="primary"
-            icon={<SearchOutlined />}
-            onClick={handleSearch}
-            loading={submitting}
-            size="large"
-            style={{ minWidth: 120 }}
-          >
-            提交检索 ({searchCount} 家)
-          </Button>
+          <Space>
+            <Tooltip title="直接查询数据库中已有的结果并下载，不触发爬虫">
+              <Button
+                icon={<DatabaseOutlined />}
+                onClick={handleDbDownload}
+                loading={dbDownloading}
+                size="large"
+              >
+                数据库直查下载 ({searchCount} 家)
+              </Button>
+            </Tooltip>
+
+            <Button
+              type="primary"
+              icon={<SearchOutlined />}
+              onClick={handleSearch}
+              loading={submitting}
+              size="large"
+              style={{ minWidth: 120 }}
+            >
+              提交检索 ({searchCount} 家)
+            </Button>
+          </Space>
         </div>
 
         <Table

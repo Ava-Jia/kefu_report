@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import uuid
 import logging
 import requests
 from datetime import date
@@ -223,6 +224,23 @@ def delete_open_corporates_task(task_id: str) -> dict:
             return {"message": response.text or "删除成功"}
 
     return {"message": "删除成功"}
+
+
+def search_open_corporates_from_db(company_name_list: list[str]) -> dict:
+    """
+    直接查询系统A数据库中已有的公司结果，不触发爬虫。
+    """
+    base_url = _get_system_a_base_url()
+
+    response = requests.post(
+        f"{base_url}/openCorporates/search/db",
+        json={
+            "company_name_list": company_name_list,
+        },
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 def list_open_corporates_tasks(limit: int = 100, offset: int = 0) -> dict:
@@ -755,6 +773,33 @@ def save_failure_xlsx(
     }
 
     return save_to_xlsx(data, task_id, query_names)
+
+
+def create_xlsx_from_db_search(company_name_list: list[str]) -> tuple[Path, dict, dict]:
+    """
+    直接查询系统A数据库中的公司结果，并生成 XLSX。
+
+    适合 Flask 下载接口中调用。
+    """
+    payload = search_open_corporates_from_db(company_name_list)
+
+    company_results = payload.get("company_results") or []
+    if not isinstance(company_results, list):
+        raise ValueError("company_results 格式错误，应为列表")
+
+    company_result = {
+        item["company_name"]: item.get("result")
+        for item in company_results
+        if isinstance(item, dict) and "company_name" in item
+    }
+
+    file_id = f"db_{uuid.uuid4().hex[:12]}"
+
+    return save_to_xlsx(
+        company_result,
+        file_id,
+        company_name_list,
+    )
 
 
 def create_xlsx_from_open_corporates_task(task_id: str) -> tuple[Path, dict, dict]:

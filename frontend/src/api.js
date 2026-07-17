@@ -361,6 +361,37 @@ export const updateRlsResult = async (resultId, { blStatus, freightStatus, custo
   }
 };
 
+/** 数据库直查公司结果并下载 XLSX（不触发爬虫） */
+export const downloadCompanyDbXlsx = async (companyNameList) => {
+  const token = localStorage.getItem("token");
+  const response = await fetch("/api/companys/search/db/export-xlsx", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ company_name_list: companyNameList }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || err.message || "下载失败");
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+  const filename = match
+    ? match[1].replace(/['"]/g, "")
+    : "open_corporates_db.xlsx";
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+};
+
 /** 下载公司检索结果为 XLSX */
 export const downloadCompanyXlsx = async (taskId) => {
   const token = localStorage.getItem("token");

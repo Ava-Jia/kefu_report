@@ -88,11 +88,26 @@ def status_eml(task_id):
         resp = email_parse_status(task_id)
         if resp is None:
             return jsonify({"code": 502, "message": "解析服务无响应或返回异常"}), 502
-        return jsonify({"code": 200, "message": "查询成功", "data": resp})
+        # 获取email解析数据
+        if resp["email_id"]:
+            email_detail = get_email_detail(resp["email_id"])
+        else:
+            email_detail = None
+        ordering_id = resp["ordering_id"][12:]
+        if ordering_id:
+            order_detail = get_parser_result_by_ordering_id(ordering_id)
+        else:
+            order_detail = None
+        detail = {
+            "email_detail": email_detail,
+            "order_detail": order_detail
+        }
+        # 获取order解析数据
+        return jsonify({"code": 200, "message": "查询成功", "data": detail})
     except Exception as e:
         logger.exception("status_eml error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
-
+    
 
 @bp.route("/email/broker-names", methods=["GET"])
 def list_broker_names():
@@ -435,28 +450,6 @@ def _create_by_ordering_id(body, ordering_id):
                 operator="order_update",
             )
 
-        # elif intent_action == "cancel":
-        #     # 找有没有 is_done=1 的新建单，作废之
-            # row = find_parser_result_by_bill(no_scac_mbl, hbl)
-            # if row is None:
-            #     log_create_failure(
-            #         f"作废单未找到对应新建单，作废被丢弃 mbl={mbl} hbl={hbl}",
-            #         ordering_id=ordering_id, email_id=data_email_id, request_body=one,
-            #     )
-            #     continue
-            # if row.get("is_done") in (1, 3):
-            #     # 进行作废
-            #     update_parser_result_by_bill(
-            #     master_bill_no=no_scac_mbl, house_bill_no=hbl, parser_result=one, broker_name=brokerName, is_done=4,
-            #     operator="order_cancel",
-            #     )
-            # elif row.get("is_done") in (0, 2, 4):
-            #     log_create_failure(
-            #         f"作废单对应订单非已下单状态，无法作废 mbl={mbl} hbl={hbl}",
-            #         ordering_id=ordering_id, email_id=data_email_id, request_body=one,
-            #     )
-
-        # other: 不操作
     # 写入email表数据，包括status
     payload = {
         "status": status

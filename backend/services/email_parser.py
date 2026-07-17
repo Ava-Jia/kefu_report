@@ -113,14 +113,24 @@ def email_parse_status(task_id: str):
             timeout=60,
         )
         response.raise_for_status()
-        return response.json()
+        results = response.json()
     except requests.exceptions.RequestException as e:
         print(f"请求失败: {e}")
         return None
     except ValueError:
         print(f"响应不是合法 JSON: {response.text}")
         return None
+
+    result_list = results.get("result") or []
     
+    email_id = result_list.get("id")
+    if not email_id:
+        return None
+    return {
+        "email_id": email_id,
+        "ordering_id": result_list.get("ordering_id") or "",
+    }
+
 
 def email_html_attachment(email_id: str):
     """通过email_id 获取html_content"""

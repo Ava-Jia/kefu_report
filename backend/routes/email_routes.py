@@ -88,11 +88,25 @@ def status_eml(task_id):
         resp = email_parse_status(task_id)
         if resp is None:
             return jsonify({"code": 502, "message": "解析服务无响应或返回异常"}), 502
-        return jsonify({"code": 200, "message": "查询成功", "data": resp})
+        # 获取email解析数据
+        if resp["email_id"]:
+            email_detail = get_email_detail(resp["email_id"])
+            ordering_id = email_detail.get("ordering_id") if email_detail else None
+            order_result = get_order_result(ordering_id) if ordering_id else None
+            order_detail = order_result.get("result") if order_result else None
+        else:
+            email_detail = None
+            order_detail = None
+        detail = {
+            "email_detail": email_detail,
+            "order_detail": order_detail
+        }
+        # 获取order解析数据
+        return jsonify({"code": 200, "message": "查询成功", "data": detail})
     except Exception as e:
         logger.exception("status_eml error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
-
+    
 
 @bp.route("/email/broker-names", methods=["GET"])
 def list_broker_names():

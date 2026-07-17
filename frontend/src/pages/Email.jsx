@@ -144,6 +144,35 @@ const copyText = (text) => {
   message.success('已复制');
 };
 
+// 上传解析历史任务：仅存 taskId 及元信息在本地，结果按需用状态接口回查
+const PARSE_TASKS_KEY = 'emailParseTasks';
+const PARSE_TASKS_MAX = 20;
+
+const PARSE_TASK_STATUS = {
+  polling: { label: '解析中', color: 'gold' },
+  done: { label: '已完成', color: 'green' },
+  failed: { label: '失败', color: 'red' },
+  timeout: { label: '超时', color: 'orange' },
+};
+
+const loadParseTasks = () => {
+  try {
+    const raw = localStorage.getItem(PARSE_TASKS_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveParseTasks = (list) => {
+  try {
+    localStorage.setItem(PARSE_TASKS_KEY, JSON.stringify(list.slice(0, PARSE_TASKS_MAX)));
+  } catch {
+    // 存储不可用时忽略，不影响主流程
+  }
+};
+
 // 空值统一占位：与 MBL 号一致的灰色短横
 const EmptyDash = () => <span style={{ color: '#ccc' }}>-</span>;
 
@@ -783,42 +812,90 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
   },
 ];
 
-// 展示 .eml 异步解析返回的关键字段
-const ParseResultView = ({ result }) => {
+// key-value 表格：解析详情统一用它渲染
+const DetailTable = ({ rows }) => (
+  <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+    <tbody>
+      {rows.map(([label, value]) => (
+        <tr key={label}>
+          <td style={{ padding: '4px 8px', color: '#999', width: 84, verticalAlign: 'top', whiteSpace: 'nowrap' }}>{label}</td>
+          <td style={{ padding: '4px 8px', wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>
+            {value != null && value !== '' ? value : <EmptyDash />}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+);
+
+// 展示 .eml 异步解析返回的邮件关键字段
+const ParseResultView = ({ result, title = '邮件解析结果' }) => {
   const intents1 = splitValues(result.intent_type1);
   const intents2 = parseIntentType2(result.intent_type2);
+  const intentCell = (intents1.length || intents2.length) ? (
+    <Space size={[4, 4]} wrap>
+      {intents1.map((i) => <Tag key={i} color={INTENT_COLOR[i] ?? 'blue'}>{INTENT_LABEL[i] ?? i}</Tag>)}
+      {intents2.map((i) => <Tag key={i}>{getSecondaryIntentLabel(i)}</Tag>)}
+    </Space>
+  ) : null;
   const rows = [
     ['邮件主题', result.subject],
     ['发件人', result.from],
     ['日期', result.date],
-    ['代理名称', result.brokerName],
+    ['代理名称', result.brokerName || result.broker_name],
     ['MBL 号', result.mbl_number],
+    ['意图', intentCell],
     ['邮件摘要', result.email_summary],
   ];
   return (
     <div>
-      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>解析结果</div>
-      <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
-        <tbody>
-          {rows.map(([label, value]) => (
-            <tr key={label}>
-              <td style={{ padding: '4px 8px', color: '#999', width: 84, verticalAlign: 'top', whiteSpace: 'nowrap' }}>{label}</td>
-              <td style={{ padding: '4px 8px', wordBreak: 'break-all' }}>{value || <span style={{ color: '#ccc' }}>-</span>}</td>
-            </tr>
-          ))}
-          <tr>
-            <td style={{ padding: '4px 8px', color: '#999', verticalAlign: 'top' }}>意图</td>
-            <td style={{ padding: '4px 8px' }}>
-              {intents1.length || intents2.length ? (
-                <Space size={[4, 4]} wrap>
-                  {intents1.map((i) => <Tag key={i} color={INTENT_COLOR[i] ?? 'blue'}>{INTENT_LABEL[i] ?? i}</Tag>)}
-                  {intents2.map((i) => <Tag key={i}>{getSecondaryIntentLabel(i)}</Tag>)}
-                </Space>
-              ) : <span style={{ color: '#ccc' }}>-</span>}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      {title && <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{title}</div>}
+      <DetailTable rows={rows} />
+    </div>
+  );
+};
+
+// 展示订单解析结果（order_detail.result 里的每一份提单）
+const OrderResultView = ({ orders }) => {
+  if (!orders?.length) {
+    return <div style={{ color: '#999', fontSize: 13 }}>无订单解析结果</div>;
+  }
+  return (
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+        订单解析结果（{orders.length} 条）
+      </div>
+      {orders.map((o, idx) => {
+        const expense = o.expenseItem
+          ? [o.expenseItem.expenseName, o.expenseItem.expenseAmount].filter(Boolean).join(' ')
+          : '';
+        const rows = [
+          ['MBL 号', o.masterBillNo],
+          ['HBL 号', o.houseBillNo],
+          ['箱型/箱号', [o.containerType, o.ctrNumber].filter(Boolean).join(' / ')],
+          ['单据类型', o.orderType],
+          ['客户类型', o.customerType],
+          ['发货人', o.shipperName],
+          ['发货人地址', o.shipperAddress],
+          ['收货人', o.consigneeName],
+          ['收货人地址', o.consigneeAddress],
+          ['通知人', o.notifyName],
+          ['通知人地址', o.notifyAddress],
+          ['货物描述', o.descriptionOfGoods],
+          ['唛头', o.mark],
+          ['件数', [o.pieces, o.packageUnit].filter(Boolean).join(' ')],
+          ['毛重', o.grossWeight],
+          ['体积', o.volume],
+          ['费用', expense],
+          ['HBL 文件', o.hblUrl ? <a href={o.hblUrl} target="_blank" rel="noreferrer">查看 PDF</a> : ''],
+        ];
+        return (
+          <div key={idx} style={{ marginBottom: 12, border: '1px solid #f0f0f0', borderRadius: 6, padding: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#1677ff', marginBottom: 4 }}>订单 {idx + 1}</div>
+            <DetailTable rows={rows} />
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -1051,36 +1128,43 @@ export default function Email() {
   const [parseError, setParseError] = useState('');
   const [showRawResult, setShowRawResult] = useState(false);
   const [uploadBrokerName, setUploadBrokerName] = useState('');
+  const [parseTasks, setParseTasks] = useState(loadParseTasks); // 历史任务（含 taskId）
   const pollTokenRef = useRef(0); // 自增令牌，切换文件/关弹窗时使旧轮询失效
+
+  // 新增/更新某个 taskId 的历史记录并持久化
+  const upsertParseTask = (taskId, patch) => {
+    setParseTasks((prev) => {
+      const idx = prev.findIndex((t) => t.taskId === taskId);
+      const next = idx >= 0
+        ? prev.map((t, i) => (i === idx ? { ...t, ...patch } : t))
+        : [{ taskId, ...patch }, ...prev];
+      saveParseTasks(next);
+      return next;
+    });
+  };
+
+  const removeParseTask = (taskId) => {
+    setParseTasks((prev) => {
+      const next = prev.filter((t) => t.taskId !== taskId);
+      saveParseTasks(next);
+      return next;
+    });
+  };
 
   const POLL_INTERVAL = 10000;
   const POLL_MAX = 90; // 最多轮询约 3 分钟
 
-  const terminalPhase = (status) => {
-    const v = (status || '').toLowerCase();
-    if (['completed', 'success', 'succeeded', 'done', 'finished'].includes(v)) return 'done';
-    if (['failed', 'failure', 'error', 'cancelled', 'canceled'].includes(v)) return 'failed';
-    return null;
-  };
-
+  // 查到 email_detail 即视为解析完成；查不到（后端返回非 200）则继续轮询
   const pollStatus = async (taskId, token, attempt) => {
     if (pollTokenRef.current !== token) return;
     try {
       const res = await fetchEmailParseStatus(taskId);
       if (pollTokenRef.current !== token) return;
-      if (res?.code === 200) {
-        const data = res.data || {};
-        const phase = terminalPhase(data.status);
-        if (phase === 'done') {
-          setParseResult(data.result || {});
-          setUploadPhase('done');
-          return;
-        }
-        if (phase === 'failed') {
-          setParseError(data.error || '解析失败');
-          setUploadPhase('failed');
-          return;
-        }
+      if (res?.code === 200 && res.data?.email_detail) {
+        setParseResult(res.data);
+        setUploadPhase('done');
+        upsertParseTask(taskId, { status: 'done', result: res.data });
+        return;
       }
     } catch {
       // 单次查询失败忽略，继续重试
@@ -1090,6 +1174,7 @@ export default function Email() {
         setParseError('解析超时，请稍后重试');
         setUploadPhase('failed');
       }
+      upsertParseTask(taskId, { status: 'timeout', error: '解析超时' });
       return;
     }
     setTimeout(() => pollStatus(taskId, token, attempt + 1), POLL_INTERVAL);
@@ -1106,6 +1191,12 @@ export default function Email() {
       if (pollTokenRef.current !== token) return false;
       if (res?.code === 200 && res.data?.task_id) {
         setUploadPhase('polling');
+        upsertParseTask(res.data.task_id, {
+          fileName: file.name,
+          brokerName: uploadBrokerName.trim(),
+          createdAt: Date.now(),
+          status: 'polling',
+        });
         pollStatus(res.data.task_id, token, 0);
       } else {
         setParseError(res?.message || '上传失败');
@@ -1132,6 +1223,42 @@ export default function Email() {
     setShowRawResult(false);
     setUploadModalOpen(true);
     setUploadBrokerName('');
+  };
+
+  // 查看历史任务：用状态接口回查，查到 email_detail 即展示，否则回退本地缓存或继续轮询
+  const handleViewParseTask = async (task) => {
+    const token = ++pollTokenRef.current;
+    setUploadBrokerName(task.brokerName || '');
+    setParseError('');
+    setShowRawResult(false);
+    setParseResult(null);
+    setUploadPhase('polling');
+    try {
+      const res = await fetchEmailParseStatus(task.taskId);
+      if (pollTokenRef.current !== token) return;
+      if (res?.code === 200 && res.data?.email_detail) {
+        setParseResult(res.data);
+        setUploadPhase('done');
+        upsertParseTask(task.taskId, { status: 'done', result: res.data });
+        return;
+      }
+      // 上游还没查到：有本地缓存结果先展示，否则继续轮询
+      if (task.result?.email_detail) {
+        setParseResult(task.result);
+        setUploadPhase('done');
+        return;
+      }
+      pollStatus(task.taskId, token, 0);
+    } catch {
+      if (pollTokenRef.current !== token) return;
+      if (task.result?.email_detail) {
+        setParseResult(task.result);
+        setUploadPhase('done');
+      } else {
+        setParseError('查询任务失败');
+        setUploadPhase('failed');
+      }
+    }
   };
 
   const uploadBusy = uploadPhase === 'uploading' || uploadPhase === 'polling';
@@ -1234,7 +1361,7 @@ export default function Email() {
         open={uploadModalOpen}
         onCancel={closeUploadModal}
         footer={null}
-        width={560}
+        width={uploadPhase === 'done' ? 940 : 560}
       >
         <Input
           value={uploadBrokerName}
@@ -1272,29 +1399,87 @@ export default function Email() {
           </div>
         )}
 
-        {uploadPhase === 'done' && parseResult && (
+        {uploadPhase === 'done' && parseResult?.email_detail && (
           <div style={{ marginTop: 16 }}>
-            <ParseResultView result={parseResult} />
-            <div style={{ marginTop: 12 }}>
-              <Button size="small" onClick={() => setShowRawResult((v) => !v)}>
-                {showRawResult ? '隐藏原始数据' : '查看原始数据'}
+            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+              <div style={{ flex: 1, minWidth: 0, maxHeight: 460, overflow: 'auto' }}>
+                <ParseResultView result={parseResult.email_detail} />
+              </div>
+              <div style={{ width: 1, alignSelf: 'stretch', background: '#f0f0f0' }} />
+              <div style={{ flex: 1, minWidth: 0, maxHeight: 460, overflow: 'auto' }}>
+                <OrderResultView orders={parseResult.order_detail} />
+              </div>
+            </div>
+
+            <div style={{ marginTop: 8 }}>
+              <Button
+                type="link"
+                size="small"
+                style={{ paddingLeft: 0 }}
+                onClick={() => navigate(`/email/${parseResult.email_detail.id}`)}
+              >
+                查看邮件详情
               </Button>
               <Button
+                type="link"
                 size="small"
-                style={{ marginLeft: 8 }}
                 onClick={() => copyText(JSON.stringify(parseResult, null, 2))}
               >
                 复制完整结果
               </Button>
             </div>
-            {showRawResult && (
-              <pre
-                style={{
-                  marginTop: 8, maxHeight: 260, overflow: 'auto',
-                  background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 12,
-                }}
-              >{JSON.stringify(parseResult, null, 2)}</pre>
-            )}
+          </div>
+        )}
+
+        {parseTasks.length > 0 && (
+          <div style={{ marginTop: 20 }}>
+            <Divider style={{ margin: '12px 0' }} />
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>历史任务</span>
+              <Button
+                type="link"
+                size="small"
+                style={{ marginLeft: 'auto' }}
+                disabled={uploadBusy}
+                onClick={() => { setParseTasks([]); saveParseTasks([]); }}
+              >
+                清空
+              </Button>
+            </div>
+            <div style={{ maxHeight: 220, overflow: 'auto' }}>
+              {parseTasks.map((task) => {
+                const meta = PARSE_TASK_STATUS[task.status] || { label: task.status, color: 'default' };
+                return (
+                  <div
+                    key={task.taskId}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '6px 8px', borderRadius: 6, border: '1px solid #f0f0f0', marginBottom: 6,
+                    }}
+                  >
+                    <Tag color={meta.color} style={{ margin: 0, flexShrink: 0 }}>{meta.label}</Tag>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {task.fileName || task.taskId}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#999' }}>
+                        {task.brokerName ? `${task.brokerName} · ` : ''}
+                        {task.createdAt ? dayjs(task.createdAt).format('MM-DD HH:mm') : ''}
+                      </div>
+                    </div>
+                    <Button size="small" type="link" disabled={uploadBusy} onClick={() => handleViewParseTask(task)}>
+                      查看
+                    </Button>
+                    <Button size="small" type="link" onClick={() => copyText(task.taskId)}>
+                      复制 ID
+                    </Button>
+                    <Button size="small" type="link" danger disabled={uploadBusy} onClick={() => removeParseTask(task.taskId)}>
+                      删除
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </Modal>

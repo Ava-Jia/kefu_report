@@ -86,22 +86,22 @@ def status_eml(task_id):
         if not task_id:
             return jsonify({"code": 400, "message": "缺少 task_id 参数"}), 400
         resp = email_parse_status(task_id)
-        if resp is None:
+        if not resp:
             return jsonify({"code": 502, "message": "解析服务无响应或返回异常"}), 502
-        # 获取email解析数据
-        if resp["email_id"]:
-            email_detail = get_email_detail(resp["email_id"])
-            ordering_id = email_detail.get("ordering_id") if email_detail else None
-            order_result = get_order_result(ordering_id) if ordering_id else None
-            order_detail = order_result.get("result") if order_result else None
-        else:
-            email_detail = None
-            order_detail = None
+        email_id = resp["email_id"]
+        # ordering_id 以解析服务返回的为准，缺失时回退本地 email 表
+        email_detail = get_email_result(email_id)
+        ordering_id = email_detail.get("ordering_id")[12:] or ""
+        order_detail = get_order_result(ordering_id)["result"]
         detail = {
+            "email_id": email_id,
             "email_detail": email_detail,
-            "order_detail": order_detail
+            "order_id": ordering_id,
+            "order_detail": order_detail,
         }
-        # 获取order解析数据
+        # 持久化保存
+        
+
         return jsonify({"code": 200, "message": "查询成功", "data": detail})
     except Exception as e:
         logger.exception("status_eml error")
@@ -129,7 +129,11 @@ def list_emails():
         date_to = (request.args.get("date_to") or "").strip() or None
         is_check_raw = request.args.get("is_check")
         is_check = int(is_check_raw) if is_check_raw is not None and is_check_raw != "" else None
+        # 移除SCAC，然后变为模糊查询
         mbl_number = (request.args.get("mbl_number") or "").strip() or None
+        if mbl_number and mbl_number[:4] in _SCAC_CODES:
+            mbl_number = mbl_number[5:]
+
         broker_name = (request.args.get("broker_name") or "").strip() or None
         order = "asc" if (request.args.get("order") or "").strip().lower() == "asc" else "desc"
         data = get_local_emails(

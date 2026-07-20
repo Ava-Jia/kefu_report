@@ -146,7 +146,7 @@ const copyText = (text) => {
 
 // 上传解析历史任务：仅存 taskId 及元信息在本地，结果按需用状态接口回查
 const PARSE_TASKS_KEY = 'emailParseTasks';
-const PARSE_TASKS_MAX = 20;
+const PARSE_TASKS_MAX = 200;
 
 const PARSE_TASK_STATUS = {
   polling: { label: '解析中', color: 'gold' },
@@ -1163,7 +1163,12 @@ export default function Email() {
       if (res?.code === 200 && res.data?.email_detail) {
         setParseResult(res.data);
         setUploadPhase('done');
-        upsertParseTask(taskId, { status: 'done', result: res.data });
+        upsertParseTask(taskId, {
+          status: 'done',
+          result: res.data,
+          emailId: res.data.email_id,
+          orderId: res.data.order_id,
+        });
         return;
       }
     } catch {
@@ -1239,7 +1244,12 @@ export default function Email() {
       if (res?.code === 200 && res.data?.email_detail) {
         setParseResult(res.data);
         setUploadPhase('done');
-        upsertParseTask(task.taskId, { status: 'done', result: res.data });
+        upsertParseTask(task.taskId, {
+          status: 'done',
+          result: res.data,
+          emailId: res.data.email_id,
+          orderId: res.data.order_id,
+        });
         return;
       }
       // 上游还没查到：有本地缓存结果先展示，否则继续轮询
@@ -1449,6 +1459,9 @@ export default function Email() {
             <div style={{ maxHeight: 220, overflow: 'auto' }}>
               {parseTasks.map((task) => {
                 const meta = PARSE_TASK_STATUS[task.status] || { label: task.status, color: 'default' };
+                // 兼容旧缓存：老记录只存了 result，没有单独的 emailId/orderId 字段
+                const emailId = task.emailId || task.result?.email_id || task.result?.email_detail?.id;
+                const orderId = task.orderId || task.result?.order_id;
                 return (
                   <div
                     key={task.taskId}
@@ -1466,6 +1479,21 @@ export default function Email() {
                         {task.brokerName ? `${task.brokerName} · ` : ''}
                         {task.createdAt ? dayjs(task.createdAt).format('MM-DD HH:mm') : ''}
                       </div>
+                      {/* 解析出的 ID 直接展示，无需点「查看」 */}
+                      {(emailId || orderId) && (
+                        <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#666', marginTop: 2 }}>
+                          {emailId && (
+                            <span style={{ display: 'inline-flex', minWidth: 0 }}>
+                              email:&nbsp;<CopyableText text={emailId} />
+                            </span>
+                          )}
+                          {orderId && (
+                            <span style={{ display: 'inline-flex', minWidth: 0 }}>
+                              order:&nbsp;<CopyableText text={orderId} />
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <Button size="small" type="link" disabled={uploadBusy} onClick={() => handleViewParseTask(task)}>
                       查看

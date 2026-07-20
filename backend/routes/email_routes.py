@@ -438,12 +438,22 @@ def _create_by_ordering_id(body, ordering_id):
         is_done = compute_is_done(one)
         
         if intent_action == "new":
-            if find_parser_result_by_bill(no_scac_mbl, hbl):
-                # 同一 mbl+hbl 已存在，跳过并记录（后续补充去重逻辑）
-                log_create_failure(
-                    f"新建单 mbl+hbl 已存在，跳过 mbl={mbl} hbl={hbl}",
-                    ordering_id=ordering_id, email_id=data_email_id, request_body=one,
-                )
+            row = find_parser_result_by_bill(no_scac_mbl, hbl)
+            if row:
+                if row.get("is_done") in (1,3):
+                    pass
+                else:
+                    if status != "failed":
+                        # pending和完成要更新之前的单
+                        update_parser_result_by_bill(
+                            master_bill_no=no_scac_mbl, house_bill_no=hbl, parser_result=one, broker_name=brokerName, is_done=is_done,
+                            operator="order_update",
+                        )
+                # # 同一 mbl+hbl 已存在，跳过并记录（后续补充去重逻辑）
+                # log_create_failure(
+                #     f"新建单 mbl+hbl 已存在，跳过 mbl={mbl} hbl={hbl}",
+                #     ordering_id=ordering_id, email_id=data_email_id, request_body=one,
+                # )
             else:
                 # 创建新的解析结果
                 create_parser_result_by_ordering_id(
@@ -453,8 +463,6 @@ def _create_by_ordering_id(body, ordering_id):
                 # 后续判断是否要下单
                 if status != "COMPLETED":
                     pass
-                    if is_done == 1:
-                        pass
         # 更新之前的数据
         elif intent_action == "update":
             # 判断有没有is-done=1的对应订单
@@ -483,6 +491,9 @@ def _create_by_ordering_id(body, ordering_id):
                 operator="order_update",
             )
             new_ordering_id = row.get("ordering_id")
+            # 推送plt的的情况
+            # 1. is-done =1、3直接推
+            # 2. is-done不为1、3；计算后new-is-done为1，且status=completed，直接推
             if status != "COMPLETED":
                 # 状态不是完成，等待解析
                 if is_done == 1:
@@ -501,6 +512,8 @@ def _create_by_ordering_id(body, ordering_id):
                 update_parser_result_by_bill(
                     master_bill_no=no_scac_mbl, house_bill_no=hbl, is_done=4, operator="order_cancel",
                 )
+                # 推送plt
+                
             else:
                 # 0=待处理 2=新建失败 4=已作废，均非已下单状态，不允许作废
                 log_create_failure(

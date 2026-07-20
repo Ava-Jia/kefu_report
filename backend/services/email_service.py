@@ -340,7 +340,10 @@ def get_audit_logs(record_id: str, table_name: str = "email") -> list[dict]:
     with get_session() as session:
         rows = (
             session.query(AuditLog)
-            .filter(AuditLog.table_name == table_name, AuditLog.record_id == record_id)
+            .filter(
+                AuditLog.table_name == table_name, 
+                AuditLog.record_id.like(f"%{record_id}%")
+                )
             .order_by(AuditLog.created_at.desc())
             .all()
         )

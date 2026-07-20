@@ -36,7 +36,7 @@ function EditableText({ value, onChange, style, renderValue }) {
   );
 }
 
-const NUMBERED_FIELDS = ['consigneeEmail'];
+const NUMBERED_FIELDS = ['consigneeEmail', 'consigneeFromEmail'];
 const COL_WIDTHS_STORAGE_KEY = 'emailDetail.colWidths';
 
 const circledNumber = (n) => (n >= 1 && n <= 20 ? String.fromCodePoint(9311 + n) : `(${n})`);

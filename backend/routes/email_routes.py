@@ -295,6 +295,14 @@ def get_email_logs(email_id):
         logger.exception("get_email_logs error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
+@bp.route("/order/<ordering_id>/logs", methods=["GET"])
+def get_order_logs(ordering_id):
+    try:
+        logs = get_audit_logs(record_id=ordering_id, table_name="email_parser_result")
+        return jsonify({"code": 200, "data": logs})
+    except Exception as e:
+        logger.exception("get_email_logs error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
 @bp.route("/email/<email_id>/check", methods=["PATCH"])
 def update_check(email_id):
@@ -376,6 +384,7 @@ def _create_by_ordering_id(body, ordering_id):
     将写入parser-result分为多个1
     1. 新建单——判断mbl、hbl是否已经写入，如果写入（当前版本pass）；如果没有写入，就新建一条数据（基于mbl和hbl）
     2. 修改单——找到该mbl、hbl已经写入的数据，将修改后的结果写入进去，包括is_done（是否下单）
+    3. 作废单——
     """
     status = body.get("status")
     if not status:
@@ -478,6 +487,26 @@ def _create_by_ordering_id(body, ordering_id):
                 # 状态不是完成，等待解析
                 if is_done == 1:
                     pass
+        elif intent_action == "cancel":
+            # 找到这一单
+            row = find_parser_result_by_bill(no_scac_mbl, hbl) # 新建单的order数据
+            if row is None:
+                # 没有对应的新建单，作废失败
+                log_create_failure(
+                    f"作废单未找到对应新建单，作废被丢弃 mbl={mbl} hbl={hbl}",
+                    ordering_id=ordering_id, email_id=data_email_id, request_body=one,
+                )
+                continue
+            if row.get("is_done") in (1, 3):
+                update_parser_result_by_bill(
+                    master_bill_no=no_scac_mbl, house_bill_no=hbl, is_done=4, operator="order_cancel",
+                )
+            else:
+                # 0=待处理 2=新建失败 4=已作废，均非已下单状态，不允许作废
+                log_create_failure(
+                    f"作废单对应订单非已下单状态，无法作废 mbl={mbl} hbl={hbl}",
+                    ordering_id=ordering_id, email_id=data_email_id, request_body=one,
+                )
         
     payload = {
         "status": status
@@ -505,32 +534,32 @@ def _create_by_email_id(body, email_id):
                            email_id=email_id, request_body=body)
         return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
     # 判断该封Email是否为作废邮件
-    intent_type2 = record.get("intent_type2") or ""
-    if "PRE_ALERT_CANCEL" in intent_type2:
-        # 修改其订单状态
-        mbl = body.get("mbl")
-        hbl = body.get("hbl")
-        no_scac_mbl = _strip_scac(mbl)
-        # 看看有没有这一单
-        row = find_parser_result_by_bill(no_scac_mbl, hbl)
-        # 没有就退出，但是写入这封邮件
-        if row is None:
-            log_create_failure(
-                f"作废单未找到对应新建单，作废被丢弃 mbl={mbl} hbl={hbl}", email_id=email_id, 
-            )
-            upsert_emails([record])
-            return jsonify({"code": 200, "message": "Email写入成功，但是作废失败，找不到该mbl、hbl的订单", "data": {"id": record.get("id", email_id)}})
+    # intent_type2 = record.get("intent_type2") or ""
+    # if "PRE_ALERT_CANCEL" in intent_type2:
+    #     # 修改其订单状态
+    #     mbl = body.get("mbl")
+    #     hbl = body.get("hbl")
+    #     no_scac_mbl = _strip_scac(mbl)
+    #     # 看看有没有这一单
+    #     row = find_parser_result_by_bill(no_scac_mbl, hbl)
+    #     # 没有就退出，但是写入这封邮件
+    #     if row is None:
+    #         log_create_failure(
+    #             f"作废单未找到对应新建单，作废被丢弃 mbl={mbl} hbl={hbl}", email_id=email_id, 
+    #         )
+    #         upsert_emails([record])
+    #         return jsonify({"code": 200, "message": "Email写入成功，但是作废失败，找不到该mbl、hbl的订单", "data": {"id": record.get("id", email_id)}})
 
-        if row.get("is_done") in (1, 3):
-            # 进行作废
-            update_parser_result_by_bill(
-            master_bill_no=no_scac_mbl, house_bill_no=hbl, is_done=4, operator="order_cancel",
-            )
-        elif row.get("is_done") in (0, 2, 4):
-            log_create_failure(
-                f"作废单对应订单非已下单状态，无法作废 mbl={mbl} hbl={hbl}",
-                ordering_id=row.get("ordering_id"), email_id=email_id, 
-            )
+    #     if row.get("is_done") in (1, 3):
+    #         # 进行作废
+    #         update_parser_result_by_bill(
+    #         master_bill_no=no_scac_mbl, house_bill_no=hbl, is_done=4, operator="order_cancel",
+    #         )
+    #     elif row.get("is_done") in (0, 2, 4):
+    #         log_create_failure(
+    #             f"作废单对应订单非已下单状态，无法作废 mbl={mbl} hbl={hbl}",
+    #             ordering_id=row.get("ordering_id"), email_id=email_id, 
+    #         )
     # 将Email数据写入表中
     upsert_emails([record])
     return jsonify({"code": 200, "message": "写入成功", "data": {"id": record.get("id", email_id)}})

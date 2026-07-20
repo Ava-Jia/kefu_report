@@ -235,10 +235,48 @@ def update_email_route(email_id):
                     patch = None
             patch = normalize_parser_result(patch)
             if patch:
+                mbl = patch.get("masterBillNo")
+                hbl = patch.get("houseBillNo")
+                no_scac_mbl = _strip_scac(mbl)
+                # 找到这一单
+                row = find_parser_result_by_bill(no_scac_mbl, hbl)
+                
+                # 这封邮件的相关信息，如detail和ordering_id
                 detail = get_email_detail(email_id)
                 if detail is None:
                     return jsonify({"code": 404, "message": "未找到该邮件"}), 404
                 ordering_id = detail.get("ordering_id")
+                # 存在记录，判断当前这个email是否有ordering_id
+                if row:
+                    # 如果有ordering_id
+                    if ordering_id:
+                        # 判断email的order_id和数据库中的order_id是否相同
+                        if ordering_id == row.get("ordering_id"):
+                            # 已作废的单不允许再被编辑覆盖
+                            if row.get("is_done") == 4:
+                                log_create_failure(
+                                    f"该订单已作废，不允许再编辑，mbl={mbl} hbl={hbl}, order_id={ordering_id}",
+                                    ordering_id=ordering_id, email_id=email_id, request_body=patch,
+                                )
+                                return jsonify({"code": 409, "message": "该订单已作废，不允许再编辑"}), 409
+                            # is_done 为 (1,3)/(0,2) 时均允许编辑，写入逻辑走下面统一的 upsert
+                        else:
+                            # mbl+hbl 已被另一个 ordering_id 占用，禁止在当前 ordering_id 下写入，避免产生重复记录
+                            log_create_failure(
+                                f"此mbl、hbl已被另一个ordering-id绑定，请勿再次创建，mbl={mbl} hbl={hbl}, order_id={ordering_id}",
+                                ordering_id=ordering_id, email_id=email_id, request_body=patch,
+                            )
+                            return jsonify({"code": 409, "message": "该 mbl/hbl 已被其它订单占用，无法保存"}), 409
+                    # 如果没有ordering_id，复用row的ordering-id
+                    else:
+                        ordering_id = row.get("ordering_id")
+                        
+                # 不存在记录：沿用邮件自身的 ordering_id（若也没有，下面会因 ordering_id 为空而报错）
+                else:
+                    pass
+                
+
+
                 if not ordering_id:
                     return jsonify({"code": 400, "message": "该邮件未关联 ordering_id，无法保存解析结果"}), 400
                 # 用改动前的提单号定位到本次编辑的那条解析结果（未指定时回退到 patch 自身的提单号）

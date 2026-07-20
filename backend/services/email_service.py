@@ -29,7 +29,7 @@ _IS_DONE_REQUIRED_FIELDS = (
   'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume',
 )
 _IS_DONE_OTHERS_EMAIL = (
-    'consigneeEmail', 'consigneeFromEmail',
+    'consigneeEmail', 'consigneeFromEmail',"notifyEmails"
 )
 
 # is_done 取值：0=待处理 1=新建下单 2=新建失败 3=修改订单 4=作废
@@ -65,13 +65,22 @@ def compute_is_done(parser_result: dict | list | None) -> int:
     parser_result = normalize_parser_result(parser_result)
     if not parser_result:
         return IS_DONE_PENDING
-    # 先判断必填字段是否全部非缺失值
+    
+    # 1. 判断是否可疑
+    if parser_result.get("isSuspicious") == 1:
+       return IS_DONE_CREATE_FAILED
+    # 2. 代理名称不为空，但代理邮箱不存在
+    if parser_result.get("agentName") and not _is_field_present(parser_result.get("agentEmail")):
+        return IS_DONE_CREATE_FAILED
+
+
+    # 2. 判断必填字段是否全部非缺失值
     ok = True
     for f in _IS_DONE_REQUIRED_FIELDS:
         if not _is_field_present(parser_result.get(f)):
             ok = False
             break
-    # 必填字段都不缺时，再要求两个邮件字段至少有一个非空
+    # 3. 必填字段都不缺时，再要求三个邮件字段至少有一个非空
     if ok:
         has_email = False
         for f in _IS_DONE_OTHERS_EMAIL:

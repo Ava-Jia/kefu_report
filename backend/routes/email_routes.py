@@ -386,11 +386,27 @@ def _create_by_ordering_id(body, ordering_id):
         log_create_failure("未找到对应邮件", status_code=404,
                            ordering_id=ordering_id, request_body=body)
         return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
+
+    if status == "failed":
+        log_create_failure("解析失败", status_code=200,
+                           ordering_id=ordering_id, request_body=body)
+        payload = {
+        "status": status
+        }
+        update_email(data_email_id, payload, operator="order_callback") # 写入email表（无parser_result字段）
+        return jsonify({"code": 200, "message": "已记录解析失败"}), 200
     brokerName = email_result.get("broker_name") if email_result else None 
     # 意图处理，返回NEW、UPDATE、CANCEL、OTEHR
     intentType1 = email_result.get("intent_type1")
-    intentType2 = email_result.get("intent_type2")
-    intent_action = _classify_exchange_intent(intentType1, intentType2)
+
+    # 获取解析结果中的意图，而非email中的意图
+    intentType2 = body.get("intent_type2")
+    if not intentType2:
+        log_create_failure("缺少intent_type2参数", status_code=400,
+                           ordering_id=ordering_id, request_body=body)
+        return jsonify({"code": 400, "message": "缺少intent_type2参数"}), 400
+
+    intent_action = _classify_exchange_intent(intentType1, intentType2) # 最终判断出意图other、new、update
 
     # 获取解析结果
     parser_result = get_order_result(ordering_id)
@@ -423,8 +439,10 @@ def _create_by_ordering_id(body, ordering_id):
                     master_bill_no=mbl, house_bill_no=hbl, operator="order_new",
                 )
                 # 后续判断是否要下单
-                if is_done == 1:
+                if status != "COMPLETED":
                     pass
+                    if is_done == 1:
+                        pass
         # 更新之前的数据
         elif intent_action == "update":
             # 判断有没有is-done=1的对应订单
@@ -453,7 +471,11 @@ def _create_by_ordering_id(body, ordering_id):
                 operator="order_update",
             )
             new_ordering_id = row.get("ordering_id")
-            
+            if status != "COMPLETED":
+                # 状态不是完成，等待解析
+                if is_done == 1:
+                    pass
+        
     payload = {
         "status": status
     }

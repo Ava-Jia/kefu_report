@@ -8,7 +8,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from models.email import Email, AuditLog, CreateFailureLog, get_session
+from models.email import Email, AuditLog, CreateFailureLog, get_session, EmailParserResult
 from services.email_parser import get_order_result
 
 _VALID_STATUSES = {"PENDING_TRACK", "COMPLETED", "FAILED"}
@@ -166,6 +166,24 @@ def get_local_emails(
             .limit(page_size)
             .all()
         )
+        
+        # is_done 建单后不会写回 email 表，真实状态存在 EmailParserResult 里，按 ordering_id 批量取最新一条
+        ordering_ids = []
+        for e in items:
+            if e.ordering_id and e.ordering_id not in ordering_ids:
+                ordering_ids.append(e.ordering_id)
+        is_done_map = {}
+        if ordering_ids:
+            parser_rows = (
+                session.query(EmailParserResult.ordering_id, EmailParserResult.is_done)
+                .filter(EmailParserResult.ordering_id.in_(ordering_ids))
+                .order_by(EmailParserResult.id.desc())
+                .all()
+            )
+            for oid, is_done in parser_rows:
+                if oid not in is_done_map:
+                    is_done_map[oid] = is_done
+
         return {
             "total": total,
             "page": page,
@@ -179,7 +197,7 @@ def get_local_emails(
                     "from": e.from_addr,
                     "mbl_number": e.mbl_number,
                     "intent_type1": e.intent_type1,
-                    "is_done": e.is_done,
+                    "is_done": is_done_map.get(e.ordering_id, 0),
                     "email_summary": e.email_summary,
                     "subject": e.subject,
                     "intent_type2": e.intent_type2,
@@ -411,3 +429,18 @@ def get_next_email_id(data_id: int, direction: str) -> str | None:
         else:
             raise ValueError("direction must be 'next' or 'prev'")
         return row.id if row else None
+
+# 获取 is_done
+def get_by_order_done(ordering_id):
+    if not ordering_id:
+        return 0
+    with get_session() as session:
+        row = (
+            session.query(EmailParserResult)
+            .filter(EmailParserResult.ordering_id == ordering_id)
+            .order_by(EmailParserResult.id.desc())
+            .first()
+        )
+        return row.is_done if row is not None else 0
+
+

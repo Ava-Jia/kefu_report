@@ -92,7 +92,10 @@ def status_eml(task_id):
         # ordering_id 以解析服务返回的为准，缺失时回退本地 email 表
         email_detail = get_email_result(email_id)
         ordering_id = email_detail.get("ordering_id")[12:] or ""
-        order_detail = get_order_result(ordering_id)["result"]
+        if ordering_id:
+            order_detail = get_order_result(ordering_id)["result"]
+        else:
+            order_detail = None
         detail = {
             "email_id": email_id,
             "email_detail": email_detail,

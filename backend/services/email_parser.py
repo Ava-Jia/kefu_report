@@ -121,13 +121,15 @@ def email_parse_status(task_id: str):
         print(f"响应不是合法 JSON: {response.text}")
         return None
 
-    result_list = results.get("result") or []
-    
-    email_id = result_list.get("id")
+    result = results.get("result") or []
+    if isinstance(result, list):
+        result = result[0] if result else {}
+    email_id = result.get("id")
     if not email_id:
         return None
     return {
         "email_id": email_id,
+        "ordering_id": result.get("ordering_id")
     }
 
 

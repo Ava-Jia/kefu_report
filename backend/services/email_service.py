@@ -8,7 +8,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from models.email import Email, AuditLog, CreateFailureLog, get_session
+from models.email import Email, AuditLog, CreateFailureLog, get_session, EmailParserResult
 from services.email_parser import get_order_result
 
 _VALID_STATUSES = {"PENDING_TRACK", "COMPLETED", "FAILED"}
@@ -29,7 +29,7 @@ _IS_DONE_REQUIRED_FIELDS = (
   'descriptionOfGoods', 'mark', 'pieces', 'packageUnit', 'grossWeight', 'volume',
 )
 _IS_DONE_OTHERS_EMAIL = (
-    'consigneeEmail', 'consigneeFromEmail',
+    'consigneeEmail', 'consigneeFromEmail',"notifyEmails"
 )
 
 # is_done 取值：0=待处理 1=新建下单 2=新建失败 3=修改订单 4=作废
@@ -65,13 +65,22 @@ def compute_is_done(parser_result: dict | list | None) -> int:
     parser_result = normalize_parser_result(parser_result)
     if not parser_result:
         return IS_DONE_PENDING
-    # 先判断必填字段是否全部非缺失值
+    
+    # 1. 判断是否可疑
+    if parser_result.get("isSuspicious") == 1:
+       return IS_DONE_CREATE_FAILED
+    # 2. 代理名称不为空，但代理邮箱不存在
+    if parser_result.get("agentName") and not _is_field_present(parser_result.get("agentEmail")):
+        return IS_DONE_CREATE_FAILED
+
+
+    # 2. 判断必填字段是否全部非缺失值
     ok = True
     for f in _IS_DONE_REQUIRED_FIELDS:
         if not _is_field_present(parser_result.get(f)):
             ok = False
             break
-    # 必填字段都不缺时，再要求两个邮件字段至少有一个非空
+    # 3. 必填字段都不缺时，再要求三个邮件字段至少有一个非空
     if ok:
         has_email = False
         for f in _IS_DONE_OTHERS_EMAIL:
@@ -157,6 +166,24 @@ def get_local_emails(
             .limit(page_size)
             .all()
         )
+        
+        # is_done 建单后不会写回 email 表，真实状态存在 EmailParserResult 里，按 ordering_id 批量取最新一条
+        ordering_ids = []
+        for e in items:
+            if e.ordering_id and e.ordering_id not in ordering_ids:
+                ordering_ids.append(e.ordering_id)
+        is_done_map = {}
+        if ordering_ids:
+            parser_rows = (
+                session.query(EmailParserResult.ordering_id, EmailParserResult.is_done)
+                .filter(EmailParserResult.ordering_id.in_(ordering_ids))
+                .order_by(EmailParserResult.id.desc())
+                .all()
+            )
+            for oid, is_done in parser_rows:
+                if oid not in is_done_map:
+                    is_done_map[oid] = is_done
+
         return {
             "total": total,
             "page": page,
@@ -170,7 +197,7 @@ def get_local_emails(
                     "from": e.from_addr,
                     "mbl_number": e.mbl_number,
                     "intent_type1": e.intent_type1,
-                    "is_done": e.is_done,
+                    "is_done": is_done_map.get(e.ordering_id, 0),
                     "email_summary": e.email_summary,
                     "subject": e.subject,
                     "intent_type2": e.intent_type2,
@@ -313,7 +340,10 @@ def get_audit_logs(record_id: str, table_name: str = "email") -> list[dict]:
     with get_session() as session:
         rows = (
             session.query(AuditLog)
-            .filter(AuditLog.table_name == table_name, AuditLog.record_id == record_id)
+            .filter(
+                AuditLog.table_name == table_name, 
+                AuditLog.record_id.like(f"%{record_id}%")
+                )
             .order_by(AuditLog.created_at.desc())
             .all()
         )
@@ -402,3 +432,18 @@ def get_next_email_id(data_id: int, direction: str) -> str | None:
         else:
             raise ValueError("direction must be 'next' or 'prev'")
         return row.id if row else None
+
+# 获取 is_done
+def get_by_order_done(ordering_id):
+    if not ordering_id:
+        return 0
+    with get_session() as session:
+        row = (
+            session.query(EmailParserResult)
+            .filter(EmailParserResult.ordering_id == ordering_id)
+            .order_by(EmailParserResult.id.desc())
+            .first()
+        )
+        return row.is_done if row is not None else 0
+
+

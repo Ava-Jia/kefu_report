@@ -273,6 +273,55 @@ def update_email_route(email_id):
                 else:
                     print("该email没有orderin_id")
                     ordering_id = row.get("ordering_id")
+                    payload = {
+                        "ordering_id": ordering_id
+                    }
+                    # 将这mbl、hbl对应的ordering_id写入到这个email的ordering_id中
+                    update_email(email_id, payload, operator="用户对该email新增了一个订单信息")
+                    # 更新下单数据
+                    target_mbl = row_mbl
+                    if target_mbl in (None, ""):
+                        target_mbl = patch.get("masterBillNo")
+
+                    target_hbl = row_hbl
+                    if target_hbl in (None, ""):
+                        target_hbl = patch.get("houseBillNo")
+
+                    # 获取该ordering_id的详细信息（因此可以存在多条）
+                    existing_list = get_parser_result_by_ordering_id(row.get("ordering_id")) or []
+                    existing_result = {}
+                    all_results = []
+
+                    for item in existing_list:
+                        pr = item.get("parser_result") or {}
+                        mbl_match = (pr.get("masterBillNo") or None) == (target_mbl or None)
+                        hbl_match = (pr.get("houseBillNo") or None) == (target_hbl or None)
+                        if not existing_result and mbl_match and hbl_match:
+                            existing_result = pr
+                            merged = dict(pr)
+                            merged.update(patch)
+                            all_results.append(merged)
+                        else:
+                            all_results.append(pr)
+                    if not existing_result:
+                        all_results.append(patch)
+                    
+                    if row.get("is_done") in (1,3):
+                        new_is_done = 3
+                    else:
+                        new_is_done = compute_is_done({**existing_result, **patch})
+                    # 按 (ordering_id, masterBillNo, houseBillNo) 匹配到具体那条记录，避免定位错行/新增重复
+                    upsert_parser_result_by_ordering_id(
+                        row.get("ordering_id"), patch,
+                        broker_name=detail.get("broker_name"),
+                        is_done=new_is_done,
+                        master_bill_no=target_mbl,
+                        house_bill_no=target_hbl,
+                        operator=operator,
+                    )
+                    # 判断下单状态 new_is_done in (0,2);这是更新后的下单状态，不是更新前。
+
+
                     
             # 不存在记录：沿用邮件自身的 ordering_id（若也没有，下面会因 ordering_id 为空而报错）
             else:

@@ -295,12 +295,22 @@ export const fetchEmailParseStatus = async (taskId) => {
   }
 };
 
-/** 按 email_id / order_id 直接回看上传解析结果 */
-export const fetchUploadResult = async (emailId, orderId) => {
+/** 按 task_id / order_id 直接回看上传解析结果 */
+export const fetchUploadResult = async (taskId, orderId) => {
   try {
-    const params = { email_id: emailId };
+    const params = { task_id: taskId };
     if (orderId) params.order_id = orderId;
     const { data } = await client.get('/email/upload/result', { params });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
+/** 获取历史解析任务列表（task_id/email_id/order_id），数据来自后端 email_status.json */
+export const fetchParseTaskList = async () => {
+  try {
+    const { data } = await client.get('/email/status/list');
     return data;
   } catch (error) {
     return unwrapCompanyError(error);

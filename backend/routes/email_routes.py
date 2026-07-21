@@ -21,10 +21,68 @@ from services.parser_result_service import (
 import json
 import logging
 import os
+import threading
+import time
+import uuid
+from datetime import datetime
 import requests
 
 bp = Blueprint("email", __name__, url_prefix="/api")
 logger = logging.getLogger(__name__)
+
+EMAIL_STATUS_PATH = "data/email_status.json"
+_email_status_file_lock = threading.Lock()
+
+# 每个 task_id 一把锁，避免后台轮询线程和前端主动查询同时触发重复的手动推送
+_task_locks_guard = threading.Lock()
+_task_locks: dict[str, threading.Lock] = {}
+
+POLL_INTERVAL_SECONDS = 10
+POLL_MAX_ATTEMPTS = 90  # 10s × 90，最多轮询约 15 分钟，和前端轮询上限保持一致
+
+
+def _get_task_lock(task_id: str) -> threading.Lock:
+    with _task_locks_guard:
+        lock = _task_locks.get(task_id)
+        if lock is None:
+            lock = threading.Lock()
+            _task_locks[task_id] = lock
+        return lock
+
+
+def _load_email_status_records() -> list:
+    if not os.path.exists(EMAIL_STATUS_PATH):
+        return []
+    with open(EMAIL_STATUS_PATH, "r", encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return []
+
+
+def _save_email_status_records(records: list) -> None:
+    os.makedirs(os.path.dirname(EMAIL_STATUS_PATH), exist_ok=True)
+    with open(EMAIL_STATUS_PATH, "w", encoding="utf-8") as f:
+        json.dump(records, f, ensure_ascii=False, indent=2)
+
+
+def _upsert_email_status(task_id: str, **fields) -> None:
+    """按 task_id 更新记录；不存在则新建。"""
+    with _email_status_file_lock:
+        records = _load_email_status_records()
+        for record in records:
+            if record.get("task_id") == task_id:
+                record.update(fields)
+                break
+        else:
+            records.append({"task_id": task_id, "created_at": datetime.now().isoformat(), **fields})
+        _save_email_status_records(records)
+
+
+def _find_email_status(task_id: str) -> dict | None:
+    with _email_status_file_lock:
+        records = _load_email_status_records()
+    return next((r for r in records if r.get("task_id") == task_id), None)
 
 
 @bp.route("/email/create", methods=["POST"])
@@ -427,14 +485,111 @@ def upload_eml():
             return jsonify({"code": 400, "message": "仅支持 .eml 文件"}), 400
         if not brokerName:
             return jsonify({"code": 400, "message": "缺少代理名称"}), 400
-        eml_url = upload_file_to_oss(file.filename, file.read())
+
+        filename = f"{uuid.uuid4().hex}.eml"
+        eml_url = upload_file_to_oss(filename, file.read())
         resp = submit_parse_async(eml_url, brokerName)
         if not resp or not resp.get("task_id"):
             return jsonify({"code": 502, "message": "提交解析任务失败", "data": {"eml_url": eml_url}}), 502
-        return jsonify({"code": 200, "message": "上传成功", "data": {"task_id": resp["task_id"], "eml_url": eml_url}})
+        task_id = resp["task_id"]
+        _upsert_email_status(task_id, order_id=None)
+        threading.Thread(target=_poll_task_in_background, args=(task_id,), daemon=True).start()
+        return jsonify({"code": 200, "message": "上传成功", "data": {"task_id": task_id, "eml_url": eml_url}})
     except Exception as e:
         logger.exception("upload_eml error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
+def _resolve_task_result(task_id: str) -> dict | None:
+    """查询邮件解析状态并确定 order_id；解析服务还没出结果时返回 None。
+
+    若该 task_id 此前已经解析完成（记录里已有 order_id），直接复用已持久化的
+    order_id，避免重复触发手动推送订单解析。
+    """
+    existing = _find_email_status(task_id)
+    if existing and existing.get("order_id"):
+        resp = email_parse_status(task_id)
+        if not resp:
+            return None
+        order_id = existing["order_id"]
+        order_detail = (get_order_result(order_id) or {}).get("result") or [
+            {"masterBillNo": "等待解析中，请稍后点击查看"}
+        ]
+        return {
+            "task_id": task_id,
+            "email_id": existing.get("email_id"),
+            "email_detail": resp,
+            "order_id": order_id,
+            "order_detail": order_detail,
+        }
+
+    resp = email_parse_status(task_id)
+    if not resp:
+        return None
+    email_id = resp["email_id"]
+    # ordering_id 以解析服务返回的为准，缺失时回退本地 email 表
+    email_detail = get_email_result(email_id)
+    ordering_id = email_detail.get("ordering_id")[12:] or ""
+    if ordering_id:
+        order_detail = get_order_result(ordering_id)["result"]
+    else:
+        # 没有order-id，手动推送一次订单解析
+        print("没有order-id，开始手动推送")
+        brokerName = email_detail.get("brokerName")
+        subject = email_detail.get("subject")
+        references = email_detail.get("references")
+        content = email_detail.get("body") or ""
+        email_attachments = email_detail.get("attachments") or []
+        attachments = []
+        for attachment in email_attachments:
+            if not attachment.get("content_id"):
+                attachments.append({
+                    "attachmentName": attachment.get("filename"),
+                    "attachmentTypeUrl": attachment.get("oss_url"),
+                    "attachmentType": "attachment",
+                    })
+        print(attachments)
+        data = {
+            "taskType": "orderParse",
+            "orderInter": "new",  # 每个都当作新下单
+            "subject": subject,
+            "brokerName": brokerName,
+            "references": references,
+            "content": content,
+            "attachments": attachments,
+        }
+        response = requests.post(os.getenv("ORDER_PARSE_URL", "http://36.103.199.11:5010/process/async"), json=data)
+        result = json.loads(response.content)
+        ordering_id = result.get("task_id")
+        print(f"Status Code: {result}")
+        order_detail = [{
+            "masterBillNo": "等待解析中，请稍后点击查看"
+        }]
+
+    _upsert_email_status(task_id, email_id=email_id, order_id=ordering_id)
+    return {
+        "task_id": task_id,
+        "email_id": email_id,
+        "email_detail": resp,
+        "order_id": ordering_id,
+        "order_detail": order_detail,
+    }
+
+
+def _poll_task_in_background(task_id: str) -> None:
+    """上传成功后在后台持续轮询解析状态，即使前端页面关闭也能把结果落到 email_status.json。"""
+    lock = _get_task_lock(task_id)
+    for _ in range(POLL_MAX_ATTEMPTS):
+        time.sleep(POLL_INTERVAL_SECONDS)
+        with lock:
+            try:
+                detail = _resolve_task_result(task_id)
+            except Exception:
+                logger.exception("后台轮询 task_id=%s 失败", task_id)
+                detail = None
+        if detail is not None:
+            return
+    logger.warning("task_id=%s 后台轮询超时，仍未解析完成", task_id)
 
 
 @bp.route("/email/status/<task_id>", methods=["GET"])
@@ -442,73 +597,51 @@ def status_eml(task_id):
     try:
         if not task_id:
             return jsonify({"code": 400, "message": "缺少 task_id 参数"}), 400
-        resp = email_parse_status(task_id)
-        if not resp:
+        lock = _get_task_lock(task_id)
+        with lock:
+            detail = _resolve_task_result(task_id)
+        if detail is None:
             return jsonify({"code": 502, "message": "解析服务无响应或返回异常"}), 502
-        email_id = resp["email_id"]
-        # ordering_id 以解析服务返回的为准，缺失时回退本地 email 表
-        email_detail = get_email_result(email_id)
-        ordering_id = email_detail.get("ordering_id")[12:] or ""
-        if ordering_id:
-            order_detail = get_order_result(ordering_id)["result"]
-        else:
-            # 没有order-id
-            print("没有order-id，开始手动推送")
-            brokerName = email_detail.get("brokerName")
-            subject = email_detail.get("subject")
-            references = email_detail.get("references")
-            content = email_detail.get("body") or ""
-            email_attachments = email_detail.get("attachments") or []
-            attachments = []
-            for attachment in email_attachments:
-                if not attachment.get("content_id"):
-                    attachments.append({
-                        "attachmentName": attachment.get("filename"),
-                        "attachmentTypeUrl": attachment.get("oss_url"),
-                        "attachmentType": "attachment",
-                        })
-            print(attachments) 
-            # 获取相关信息
-            data = {
-                "taskType":"orderParse",
-                "orderInter": "new", # 每个都当作新下单
-                "subject": subject,
-                "brokerName":brokerName,
-                "references": references,
-                "content": content,
-                "attachments":attachments,
-            }
-            response = requests.post(os.getenv("ORDER_PARSE_URL", "http://36.103.199.11:5010/process/async"), json=data)
-            result = json.loads(response.content)
-            ordering_id = result.get("task_id")
-            print(f"Status Code: {result}")
-            order_detail = [{
-                "masterBillNo": "等待解析中，请稍后点击查看"
-            }]
-
-        # 组成数据
-        detail = {
-            "email_id": email_id,
-            "email_detail": email_detail,
-            "order_id": ordering_id,
-            "order_detail": order_detail,
-        }
-        # 持久化保存
         return jsonify({"code": 200, "message": "查询成功", "data": detail})
     except Exception as e:
         logger.exception("status_eml error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
+
+@bp.route("/email/status/list", methods=["GET"])
+def list_email_status():
+    """读取 email_status.json 历史记录，仅返回 task_id/email_id/order_id 供前端历史任务列表展示。"""
+    try:
+        save_path = "data/email_status.json"
+        if not os.path.exists(save_path):
+            return jsonify({"code": 200, "message": "查询成功", "data": []})
+        with open(save_path, "r", encoding="utf-8") as f:
+            try:
+                records = json.load(f)
+            except json.JSONDecodeError:
+                records = []
+        data = [
+            {
+                "task_id": r.get("task_id"),
+                "email_id": r.get("email_id"),
+                "order_id": r.get("order_id"),
+            }
+            for r in reversed(records)
+        ]
+        return jsonify({"code": 200, "message": "查询成功", "data": data})
+    except Exception as e:
+        logger.exception("list_email_status error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
 @bp.route("/email/upload/result", methods=["GET"])
 def get_result():
-    """按 email_id / order_id 直接取解析结果，供上传历史任务回看，不再依赖 task_id。"""
+    """按 task_id / order_id 直接取解析结果，供上传历史任务回看，不再依赖 email_id。"""
     try:
-        email_id = (request.args.get("email_id") or "").strip()
         order_id = (request.args.get("order_id") or "").strip()
-        if not email_id:
-            return jsonify({"code": 400, "message": "缺少 email_id 参数"}), 400
-        email_detail = get_email_detail(email_id)
+        task_id = (request.args.get("task_id") or "").strip()
 
+        email_detail = email_parse_status(task_id).get("result")
         if email_detail is None:
             return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
         order_detail = (get_order_result(order_id) or {}).get("result") if order_id else None
@@ -519,7 +652,7 @@ def get_result():
                 }
             ]
         return jsonify({"code": 200, "message": "查询成功", "data": {
-            "email_id": email_id,
+            "task_id": task_id,
             "email_detail": email_detail,
             "order_id": order_id,
             "order_detail": order_detail,

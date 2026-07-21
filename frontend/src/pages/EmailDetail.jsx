@@ -312,7 +312,7 @@ function EmailMetaPanel({ info }) {
   const intents2 = parseIntentType2(info.intentType2);
 
   // 下单状态仅对「预报/换单」且已解析出结果的邮件有意义，与列表页保持一致
-  const doneStatus = intents1.includes(EXCHANGE_OF_PORT) && info.status && info.isDone
+  const doneStatus = intents1.includes(EXCHANGE_OF_PORT) && info.isDone
     ? IS_DONE_MAP[info.isDone]
     : null;
   const parseStatus = info.status ? PARSE_STATUS_MAP[info.status] : null;

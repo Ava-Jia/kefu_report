@@ -204,10 +204,11 @@ def update_email_route(email_id):
 
             # 存在记录，判断当前这个email是否有ordering_id
             if row:
+                ordering_id = row.get("ordering_id")
                 # 如果有email_ordering_id
                 if email_ordering_id:
                     # 判断email的order_id和数据库中的order_id是否相同
-                    if email_ordering_id == row.get("ordering_id"):
+                    if email_ordering_id == ordering_id:
                         print("两个order-id相同")
                         # 已作废的单不允许再被编辑覆盖
                         if row.get("is_done") == 4:
@@ -216,10 +217,8 @@ def update_email_route(email_id):
                                 ordering_id=ordering_id, email_id=email_id, request_body=patch,
                             )
                             return jsonify({"code": 409, "message": "该订单已作废，不允许再编辑"}), 409
-                        # is_done 为 (1,3)/(0,2) 时均允许编辑，写入逻辑走下面统一的 upsert
                         
-                        # 判断row和detail
-                        # 找到被修改的mbl、hbl
+                        # is_done 为 (1,3)/(0,2) 时均允许编辑，写入逻辑走下面统一的 upsert
                         target_mbl = row_mbl
                         if target_mbl in (None, ""):
                             target_mbl = patch.get("masterBillNo")
@@ -229,7 +228,7 @@ def update_email_route(email_id):
                             target_hbl = patch.get("houseBillNo")
 
                         # 获取该ordering_id的详细信息（因此可以存在多条）
-                        existing_list = get_parser_result_by_ordering_id(row.get("ordering_id")) or []
+                        existing_list = get_parser_result_by_ordering_id(ordering_id) or []
                         existing_result = {}
                         all_results = []
 
@@ -251,28 +250,40 @@ def update_email_route(email_id):
                             new_is_done = 3
                         else:
                             new_is_done = compute_is_done({**existing_result, **patch})
-                        # 按 (ordering_id, masterBillNo, houseBillNo) 匹配到具体那条记录，避免定位错行/新增重复
+                        # 更新order数据
                         upsert_parser_result_by_ordering_id(
-                            row.get("ordering_id"), patch,
-                            broker_name=detail.get("broker_name"),
-                            is_done=new_is_done,
-                            master_bill_no=target_mbl,
-                            house_bill_no=target_hbl,
-                            operator=operator,
+                        ordering_id, patch,
+                        broker_name=detail.get("broker_name"),
+                        is_done=new_is_done,
+                        master_bill_no=target_mbl,
+                        house_bill_no=target_hbl,
+                        operator=operator,
                         )
-                        return jsonify({"code": 200, "message": "更新成功"}),200
+                        # 如果原始状态为非下单，并且修改后的new_is_done不等于1（下单失败），后续无需任何操作
+                        if row.get("is_done") in (0, 2) and new_is_done != 1:
+                            print("===不满足下单条件（0，1），不推送到PLT系统中===")
+                            return jsonify({"code": 200, "message": "修改成功,但仍然不满足下单"}),200
+                        
+                        # 其他情况下需要推送PLT
+                        # 1. 原始状态已经下单（1，3），直接推送PLT
+                        # 2. 原始状态未下单，但是new_is_done = 1，直接推送PLT
+                        push_plt()
+                        print("===满足下单条件（1，3），开始推送到PLT系统中===")
+                        return jsonify({"code": 200, "message": "修改成功，已成功推送至PLT系统"}),200
+
+                        
+                    # mbl+hbl 已被另一个 ordering_id 占用，禁止在当前 ordering_id 下写入，避免产生重复记录
                     else:
-                        # mbl+hbl 已被另一个 ordering_id 占用，禁止在当前 ordering_id 下写入，避免产生重复记录
                         log_create_failure(
                             f"此mbl、hbl已被另一个ordering-id绑定，请勿再次创建，mbl={row_mbl} hbl={row_hbl}, order_id={ordering_id}",
                             ordering_id=ordering_id, email_id=email_id, request_body=patch,
                         )
                         return jsonify({"code": 409, "message": "该 mbl/hbl 已被其它订单占用，无法保存"}), 409
-                    
+     
                 # 如果没有ordering_id，复用row的ordering-id
                 else:
                     print("该email没有orderin_id")
-                    ordering_id = row.get("ordering_id")
+                    # ordering_id = row.get("ordering_id")
                     payload = {
                         "ordering_id": ordering_id
                     }
@@ -288,7 +299,7 @@ def update_email_route(email_id):
                         target_hbl = patch.get("houseBillNo")
 
                     # 获取该ordering_id的详细信息（因此可以存在多条）
-                    existing_list = get_parser_result_by_ordering_id(row.get("ordering_id")) or []
+                    existing_list = get_parser_result_by_ordering_id(ordering_id) or []
                     existing_result = {}
                     all_results = []
 
@@ -312,7 +323,7 @@ def update_email_route(email_id):
                         new_is_done = compute_is_done({**existing_result, **patch})
                     # 按 (ordering_id, masterBillNo, houseBillNo) 匹配到具体那条记录，避免定位错行/新增重复
                     upsert_parser_result_by_ordering_id(
-                        row.get("ordering_id"), patch,
+                        ordering_id, patch,
                         broker_name=detail.get("broker_name"),
                         is_done=new_is_done,
                         master_bill_no=target_mbl,
@@ -321,12 +332,17 @@ def update_email_route(email_id):
                     )
                     # 判断下单状态 new_is_done in (0,2);这是更新后的下单状态，不是更新前。
 
-
-                    
             # 不存在记录：沿用邮件自身的 ordering_id（若也没有，下面会因 ordering_id 为空而报错）
             else:
-                print("test")
-                pass
+                # email有ordering_id
+                if email_ordering_id:
+
+                    pass
+
+                # email没有ordering_id
+                else:
+                    pass
+
         
     except Exception as e:
         logger.exception("update_email error")
@@ -841,3 +857,7 @@ def _strip_scac(bill: str | None) -> str | None:
     if bill[:4].upper() in _SCAC_CODES:
         return bill[4:] # 返回剔除SCAC
     return bill # 原始无SCAC，原样返回
+
+def push_plt():
+    """推送到PLT系统中"""
+    pass

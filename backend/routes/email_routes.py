@@ -21,10 +21,68 @@ from services.parser_result_service import (
 import json
 import logging
 import os
+import threading
+import time
+import uuid
+from datetime import datetime
 import requests
 
 bp = Blueprint("email", __name__, url_prefix="/api")
 logger = logging.getLogger(__name__)
+
+EMAIL_STATUS_PATH = "data/email_status.json"
+_email_status_file_lock = threading.Lock()
+
+# 每个 task_id 一把锁，避免后台轮询线程和前端主动查询同时触发重复的手动推送
+_task_locks_guard = threading.Lock()
+_task_locks: dict[str, threading.Lock] = {}
+
+POLL_INTERVAL_SECONDS = 10
+POLL_MAX_ATTEMPTS = 90  # 10s × 90，最多轮询约 15 分钟，和前端轮询上限保持一致
+
+
+def _get_task_lock(task_id: str) -> threading.Lock:
+    with _task_locks_guard:
+        lock = _task_locks.get(task_id)
+        if lock is None:
+            lock = threading.Lock()
+            _task_locks[task_id] = lock
+        return lock
+
+
+def _load_email_status_records() -> list:
+    if not os.path.exists(EMAIL_STATUS_PATH):
+        return []
+    with open(EMAIL_STATUS_PATH, "r", encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return []
+
+
+def _save_email_status_records(records: list) -> None:
+    os.makedirs(os.path.dirname(EMAIL_STATUS_PATH), exist_ok=True)
+    with open(EMAIL_STATUS_PATH, "w", encoding="utf-8") as f:
+        json.dump(records, f, ensure_ascii=False, indent=2)
+
+
+def _upsert_email_status(task_id: str, **fields) -> None:
+    """按 task_id 更新记录；不存在则新建。"""
+    with _email_status_file_lock:
+        records = _load_email_status_records()
+        for record in records:
+            if record.get("task_id") == task_id:
+                record.update(fields)
+                break
+        else:
+            records.append({"task_id": task_id, "created_at": datetime.now().isoformat(), **fields})
+        _save_email_status_records(records)
+
+
+def _find_email_status(task_id: str) -> dict | None:
+    with _email_status_file_lock:
+        records = _load_email_status_records()
+    return next((r for r in records if r.get("task_id") == task_id), None)
 
 
 @bp.route("/email/create", methods=["POST"])
@@ -198,13 +256,18 @@ def update_email_route(email_id):
             detail = get_email_detail(email_id)
             if detail is None:
                 return jsonify({"code": 404, "message": "未找到该邮件"}), 404
-            ordering_id = detail.get("ordering_id")
+            email_ordering_id = detail["ordering_id"]
+            print(email_ordering_id)
+            print(row.get("ordering_id"))
+
             # 存在记录，判断当前这个email是否有ordering_id
             if row:
-                # 如果有ordering_id
-                if ordering_id:
+                ordering_id = row.get("ordering_id")
+                # 如果有email_ordering_id
+                if email_ordering_id:
                     # 判断email的order_id和数据库中的order_id是否相同
-                    if ordering_id == row.get("ordering_id"):
+                    if email_ordering_id == ordering_id:
+                        print("两个order-id相同")
                         # 已作废的单不允许再被编辑覆盖
                         if row.get("is_done") == 4:
                             log_create_failure(
@@ -212,23 +275,30 @@ def update_email_route(email_id):
                                 ordering_id=ordering_id, email_id=email_id, request_body=patch,
                             )
                             return jsonify({"code": 409, "message": "该订单已作废，不允许再编辑"}), 409
-                        # is_done 为 (1,3)/(0,2) 时均允许编辑，写入逻辑走下面统一的 upsert
                         
-                        # 用改动前的提单号定位到本次编辑的那条解析结果（未指定时回退到 patch 自身的提单号）
-                        # 判断row和detail
-                        target_mbl = row_mbl if row_mbl not in (None, "") else patch.get("masterBillNo")
-                        target_hbl = row_hbl if row_hbl not in (None, "") else patch.get("houseBillNo")
+                        # is_done 为 (1,3)/(0,2) 时均允许编辑，写入逻辑走下面统一的 upsert
+                        target_mbl = row_mbl
+                        if target_mbl in (None, ""):
+                            target_mbl = patch.get("masterBillNo")
+
+                        target_hbl = row_hbl
+                        if target_hbl in (None, ""):
+                            target_hbl = patch.get("houseBillNo")
+
+                        # 获取该ordering_id的详细信息（因此可以存在多条）
                         existing_list = get_parser_result_by_ordering_id(ordering_id) or []
                         existing_result = {}
                         all_results = []
-                       
+
                         for item in existing_list:
                             pr = item.get("parser_result") or {}
-                            if (not existing_result
-                                    and (pr.get("masterBillNo") or None) == (target_mbl or None)
-                                    and (pr.get("houseBillNo") or None) == (target_hbl or None)):
+                            mbl_match = (pr.get("masterBillNo") or None) == (target_mbl or None)
+                            hbl_match = (pr.get("houseBillNo") or None) == (target_hbl or None)
+                            if not existing_result and mbl_match and hbl_match:
                                 existing_result = pr
-                                all_results.append({**pr, **patch})
+                                merged = dict(pr)
+                                merged.update(patch)
+                                all_results.append(merged)
                             else:
                                 all_results.append(pr)
                         if not existing_result:
@@ -237,71 +307,101 @@ def update_email_route(email_id):
                         if row.get("is_done") in (1,3):
                             new_is_done = 3
                         else:
-                            new_is_done = compute_is_done({**existing_result, **patch}),
-                        # 按 (ordering_id, masterBillNo, houseBillNo) 匹配到具体那条记录，避免定位错行/新增重复
+                            new_is_done = compute_is_done({**existing_result, **patch})
+                        # 更新order数据
                         upsert_parser_result_by_ordering_id(
-                            ordering_id, patch,
-                            broker_name=detail.get("broker_name"),
-                            is_done=new_is_done,
-                            master_bill_no=target_mbl,
-                            house_bill_no=target_hbl,
-                            operator=operator,
+                        ordering_id, patch,
+                        broker_name=detail.get("broker_name"),
+                        is_done=new_is_done,
+                        master_bill_no=target_mbl,
+                        house_bill_no=target_hbl,
+                        operator=operator,
                         )
+                        # 如果原始状态为非下单，并且修改后的new_is_done不等于1（下单失败），后续无需任何操作
+                        if row.get("is_done") in (0, 2) and new_is_done != 1:
+                            print("===不满足下单条件（0，1），不推送到PLT系统中===")
+                            return jsonify({"code": 200, "message": "修改成功,但仍然不满足下单"}),200
+                        
+                        # 其他情况下需要推送PLT
+                        # 1. 原始状态已经下单（1，3），直接推送PLT
+                        # 2. 原始状态未下单，但是new_is_done = 1，直接推送PLT
+                        push_plt()
+                        print("===满足下单条件（1，3），开始推送到PLT系统中===")
+                        return jsonify({"code": 200, "message": "修改成功，已成功推送至PLT系统"}),200
 
+                        
+                    # mbl+hbl 已被另一个 ordering_id 占用，禁止在当前 ordering_id 下写入，避免产生重复记录
                     else:
-                        # mbl+hbl 已被另一个 ordering_id 占用，禁止在当前 ordering_id 下写入，避免产生重复记录
                         log_create_failure(
                             f"此mbl、hbl已被另一个ordering-id绑定，请勿再次创建，mbl={row_mbl} hbl={row_hbl}, order_id={ordering_id}",
                             ordering_id=ordering_id, email_id=email_id, request_body=patch,
                         )
                         return jsonify({"code": 409, "message": "该 mbl/hbl 已被其它订单占用，无法保存"}), 409
-                    
+     
                 # 如果没有ordering_id，复用row的ordering-id
                 else:
-                    ordering_id = row.get("ordering_id")
+                    print("该email没有orderin_id")
+                    # ordering_id = row.get("ordering_id")
+                    payload = {
+                        "ordering_id": ordering_id
+                    }
+                    # 将这mbl、hbl对应的ordering_id写入到这个email的ordering_id中
+                    update_email(email_id, payload, operator="用户对该email新增了一个订单信息")
+                    # 更新下单数据
+                    target_mbl = row_mbl
+                    if target_mbl in (None, ""):
+                        target_mbl = patch.get("masterBillNo")
+
+                    target_hbl = row_hbl
+                    if target_hbl in (None, ""):
+                        target_hbl = patch.get("houseBillNo")
+
+                    # 获取该ordering_id的详细信息（因此可以存在多条）
+                    existing_list = get_parser_result_by_ordering_id(ordering_id) or []
+                    existing_result = {}
+                    all_results = []
+
+                    for item in existing_list:
+                        pr = item.get("parser_result") or {}
+                        mbl_match = (pr.get("masterBillNo") or None) == (target_mbl or None)
+                        hbl_match = (pr.get("houseBillNo") or None) == (target_hbl or None)
+                        if not existing_result and mbl_match and hbl_match:
+                            existing_result = pr
+                            merged = dict(pr)
+                            merged.update(patch)
+                            all_results.append(merged)
+                        else:
+                            all_results.append(pr)
+                    if not existing_result:
+                        all_results.append(patch)
                     
+                    if row.get("is_done") in (1,3):
+                        new_is_done = 3
+                    else:
+                        new_is_done = compute_is_done({**existing_result, **patch})
+                    # 按 (ordering_id, masterBillNo, houseBillNo) 匹配到具体那条记录，避免定位错行/新增重复
+                    upsert_parser_result_by_ordering_id(
+                        ordering_id, patch,
+                        broker_name=detail.get("broker_name"),
+                        is_done=new_is_done,
+                        master_bill_no=target_mbl,
+                        house_bill_no=target_hbl,
+                        operator=operator,
+                    )
+                    # 判断下单状态 new_is_done in (0,2);这是更新后的下单状态，不是更新前。
+
             # 不存在记录：沿用邮件自身的 ordering_id（若也没有，下面会因 ordering_id 为空而报错）
             else:
-                pass
-            
+                # email有ordering_id
+                if email_ordering_id:
 
+                    pass
 
-            if not ordering_id:
-                return jsonify({"code": 400, "message": "该邮件未关联 ordering_id，无法保存解析结果"}), 400
-            # 用改动前的提单号定位到本次编辑的那条解析结果（未指定时回退到 patch 自身的提单号）
-            target_mbl = row_mbl if row_mbl not in (None, "") else patch.get("masterBillNo")
-            target_hbl = row_hbl if row_hbl not in (None, "") else patch.get("houseBillNo")
-            existing_list = get_parser_result_by_ordering_id(ordering_id) or []
-            existing_result = {}
-            all_results = []
-            for item in existing_list:
-                pr = item.get("parser_result") or {}
-                if (not existing_result
-                        and (pr.get("masterBillNo") or None) == (target_mbl or None)
-                        and (pr.get("houseBillNo") or None) == (target_hbl or None)):
-                    existing_result = pr
-                    all_results.append({**pr, **patch})
+                # email没有ordering_id
                 else:
-                    all_results.append(pr)
-            if not existing_result:
-                all_results.append(patch)
-            # email 表单行的 is_done 汇总全部解析结果；单条记录的 is_done 只看合并后的自身
-            if body.get("is_done") is None:
-                body["is_done"] = compute_is_done_multi(all_results)
-            # 按 (ordering_id, masterBillNo, houseBillNo) 匹配到具体那条记录，避免定位错行/新增重复
-            upsert_parser_result_by_ordering_id(
-                ordering_id, patch,
-                broker_name=detail.get("broker_name"),
-                is_done=compute_is_done({**existing_result, **patch}),
-                master_bill_no=target_mbl,
-                house_bill_no=target_hbl,
-                operator=operator,
-            )
+                    pass
 
-        ok = update_email(email_id, body, operator=operator) if body else True
-        if not ok:
-            return jsonify({"code": 404, "message": "未找到该邮件或无可更新字段"}), 404
-        return jsonify({"code": 200, "message": "更新成功"})
+        
     except Exception as e:
         logger.exception("update_email error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
@@ -385,14 +485,111 @@ def upload_eml():
             return jsonify({"code": 400, "message": "仅支持 .eml 文件"}), 400
         if not brokerName:
             return jsonify({"code": 400, "message": "缺少代理名称"}), 400
-        eml_url = upload_file_to_oss(file.filename, file.read())
+
+        filename = f"{uuid.uuid4().hex}.eml"
+        eml_url = upload_file_to_oss(filename, file.read())
         resp = submit_parse_async(eml_url, brokerName)
         if not resp or not resp.get("task_id"):
             return jsonify({"code": 502, "message": "提交解析任务失败", "data": {"eml_url": eml_url}}), 502
-        return jsonify({"code": 200, "message": "上传成功", "data": {"task_id": resp["task_id"], "eml_url": eml_url}})
+        task_id = resp["task_id"]
+        _upsert_email_status(task_id, order_id=None)
+        threading.Thread(target=_poll_task_in_background, args=(task_id,), daemon=True).start()
+        return jsonify({"code": 200, "message": "上传成功", "data": {"task_id": task_id, "eml_url": eml_url}})
     except Exception as e:
         logger.exception("upload_eml error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
+def _resolve_task_result(task_id: str) -> dict | None:
+    """查询邮件解析状态并确定 order_id；解析服务还没出结果时返回 None。
+
+    若该 task_id 此前已经解析完成（记录里已有 order_id），直接复用已持久化的
+    order_id，避免重复触发手动推送订单解析。
+    """
+    existing = _find_email_status(task_id)
+    if existing and existing.get("order_id"):
+        resp = email_parse_status(task_id)
+        if not resp:
+            return None
+        order_id = existing["order_id"]
+        order_detail = (get_order_result(order_id) or {}).get("result") or [
+            {"masterBillNo": "等待解析中，请稍后点击查看"}
+        ]
+        return {
+            "task_id": task_id,
+            "email_id": existing.get("email_id"),
+            "email_detail": resp,
+            "order_id": order_id,
+            "order_detail": order_detail,
+        }
+
+    resp = email_parse_status(task_id)
+    if not resp:
+        return None
+    email_id = resp["email_id"]
+    # ordering_id 以解析服务返回的为准，缺失时回退本地 email 表
+    email_detail = get_email_result(email_id)
+    ordering_id = email_detail.get("ordering_id")[12:] or ""
+    if ordering_id:
+        order_detail = get_order_result(ordering_id)["result"]
+    else:
+        # 没有order-id，手动推送一次订单解析
+        print("没有order-id，开始手动推送")
+        brokerName = email_detail.get("brokerName")
+        subject = email_detail.get("subject")
+        references = email_detail.get("references")
+        content = email_detail.get("body") or ""
+        email_attachments = email_detail.get("attachments") or []
+        attachments = []
+        for attachment in email_attachments:
+            if not attachment.get("content_id"):
+                attachments.append({
+                    "attachmentName": attachment.get("filename"),
+                    "attachmentTypeUrl": attachment.get("oss_url"),
+                    "attachmentType": "attachment",
+                    })
+        print(attachments)
+        data = {
+            "taskType": "orderParse",
+            "orderInter": "new",  # 每个都当作新下单
+            "subject": subject,
+            "brokerName": brokerName,
+            "references": references,
+            "content": content,
+            "attachments": attachments,
+        }
+        response = requests.post(os.getenv("ORDER_PARSE_URL", "http://36.103.199.11:5010/process/async"), json=data)
+        result = json.loads(response.content)
+        ordering_id = result.get("task_id")
+        print(f"Status Code: {result}")
+        order_detail = [{
+            "masterBillNo": "等待解析中，请稍后点击查看"
+        }]
+
+    _upsert_email_status(task_id, email_id=email_id, order_id=ordering_id)
+    return {
+        "task_id": task_id,
+        "email_id": email_id,
+        "email_detail": resp,
+        "order_id": ordering_id,
+        "order_detail": order_detail,
+    }
+
+
+def _poll_task_in_background(task_id: str) -> None:
+    """上传成功后在后台持续轮询解析状态，即使前端页面关闭也能把结果落到 email_status.json。"""
+    lock = _get_task_lock(task_id)
+    for _ in range(POLL_MAX_ATTEMPTS):
+        time.sleep(POLL_INTERVAL_SECONDS)
+        with lock:
+            try:
+                detail = _resolve_task_result(task_id)
+            except Exception:
+                logger.exception("后台轮询 task_id=%s 失败", task_id)
+                detail = None
+        if detail is not None:
+            return
+    logger.warning("task_id=%s 后台轮询超时，仍未解析完成", task_id)
 
 
 @bp.route("/email/status/<task_id>", methods=["GET"])
@@ -400,73 +597,51 @@ def status_eml(task_id):
     try:
         if not task_id:
             return jsonify({"code": 400, "message": "缺少 task_id 参数"}), 400
-        resp = email_parse_status(task_id)
-        if not resp:
+        lock = _get_task_lock(task_id)
+        with lock:
+            detail = _resolve_task_result(task_id)
+        if detail is None:
             return jsonify({"code": 502, "message": "解析服务无响应或返回异常"}), 502
-        email_id = resp["email_id"]
-        # ordering_id 以解析服务返回的为准，缺失时回退本地 email 表
-        email_detail = get_email_result(email_id)
-        ordering_id = email_detail.get("ordering_id")[12:] or ""
-        if ordering_id:
-            order_detail = get_order_result(ordering_id)["result"]
-        else:
-            # 没有order-id
-            print("没有order-id，开始手动推送")
-            brokerName = email_detail.get("brokerName")
-            subject = email_detail.get("subject")
-            references = email_detail.get("references")
-            content = email_detail.get("body") or ""
-            email_attachments = email_detail.get("attachments") or []
-            attachments = []
-            for attachment in email_attachments:
-                if not attachment.get("content_id"):
-                    attachments.append({
-                        "attachmentName": attachment.get("filename"),
-                        "attachmentTypeUrl": attachment.get("oss_url"),
-                        "attachmentType": "attachment",
-                        })
-            print(attachments) 
-            # 获取相关信息
-            data = {
-                "taskType":"orderParse",
-                "orderInter": "new", # 每个都当作新下单
-                "subject": subject,
-                "brokerName":brokerName,
-                "references": references,
-                "content": content,
-                "attachments":attachments,
-            }
-            response = requests.post(os.getenv("ORDER_PARSE_URL", "http://36.103.199.11:5010/process/async"), json=data)
-            result = json.loads(response.content)
-            ordering_id = result.get("task_id")
-            print(f"Status Code: {result}")
-            order_detail = [{
-                "masterBillNo": "等待解析中，请稍后点击查看"
-            }]
-
-        # 组成数据
-        detail = {
-            "email_id": email_id,
-            "email_detail": email_detail,
-            "order_id": ordering_id,
-            "order_detail": order_detail,
-        }
-        # 持久化保存
         return jsonify({"code": 200, "message": "查询成功", "data": detail})
     except Exception as e:
         logger.exception("status_eml error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
+
+@bp.route("/email/status/list", methods=["GET"])
+def list_email_status():
+    """读取 email_status.json 历史记录，仅返回 task_id/email_id/order_id 供前端历史任务列表展示。"""
+    try:
+        save_path = "data/email_status.json"
+        if not os.path.exists(save_path):
+            return jsonify({"code": 200, "message": "查询成功", "data": []})
+        with open(save_path, "r", encoding="utf-8") as f:
+            try:
+                records = json.load(f)
+            except json.JSONDecodeError:
+                records = []
+        data = [
+            {
+                "task_id": r.get("task_id"),
+                "email_id": r.get("email_id"),
+                "order_id": r.get("order_id"),
+            }
+            for r in reversed(records)
+        ]
+        return jsonify({"code": 200, "message": "查询成功", "data": data})
+    except Exception as e:
+        logger.exception("list_email_status error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
 @bp.route("/email/upload/result", methods=["GET"])
 def get_result():
-    """按 email_id / order_id 直接取解析结果，供上传历史任务回看，不再依赖 task_id。"""
+    """按 task_id / order_id 直接取解析结果，供上传历史任务回看，不再依赖 email_id。"""
     try:
-        email_id = (request.args.get("email_id") or "").strip()
         order_id = (request.args.get("order_id") or "").strip()
-        if not email_id:
-            return jsonify({"code": 400, "message": "缺少 email_id 参数"}), 400
-        email_detail = get_email_detail(email_id)
+        task_id = (request.args.get("task_id") or "").strip()
 
+        email_detail = email_parse_status(task_id).get("result")
         if email_detail is None:
             return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
         order_detail = (get_order_result(order_id) or {}).get("result") if order_id else None
@@ -477,7 +652,7 @@ def get_result():
                 }
             ]
         return jsonify({"code": 200, "message": "查询成功", "data": {
-            "email_id": email_id,
+            "task_id": task_id,
             "email_detail": email_detail,
             "order_id": order_id,
             "order_detail": order_detail,
@@ -815,3 +990,7 @@ def _strip_scac(bill: str | None) -> str | None:
     if bill[:4].upper() in _SCAC_CODES:
         return bill[4:] # 返回剔除SCAC
     return bill # 原始无SCAC，原样返回
+
+def push_plt():
+    """推送到PLT系统中"""
+    pass

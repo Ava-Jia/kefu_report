@@ -1,8 +1,18 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Button, Spin, Modal, message, Pagination, Input } from 'antd';
+import { Button, Spin, Modal, message, Pagination, Input, Tag } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined, ZoomInOutlined, CheckOutlined, DownloadOutlined, PlusOutlined, SearchOutlined} from '@ant-design/icons';
 import { fetchEmailPreview, updateEmail, updateEmailCheck, fetchAdjacentEmail, fetchEmailList, checkOrderByMBL } from '../api';
+import {
+  EXCHANGE_OF_PORT,
+  INTENT_COLOR,
+  INTENT_LABEL,
+  IS_DONE_MAP,
+  PARSE_STATUS_MAP,
+  getSecondaryIntentLabel,
+  parseIntentType2,
+  splitValues,
+} from '../constants/intent';
 
 function EditableText({ value, onChange, style, renderValue }) {
   const [editing, setEditing] = useState(false);
@@ -274,6 +284,67 @@ function ResultField({ label, value, onChange, linkUrl }) {
   );
 }
 
+const META_LABEL_STYLE = {
+  flexShrink: 0,
+  fontSize: 11,
+  fontWeight: 600,
+  color: '#aaa',
+};
+
+const EMPTY_META = <span style={{ color: '#ccc' }}>—</span>;
+
+function MetaItem({ label, children }) {
+  return (
+    <div style={{ display: 'flex', gap: 4, alignItems: 'center', minWidth: 0 }}>
+      <span style={META_LABEL_STYLE}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', fontSize: 13, color: '#1a1a1a', whiteSpace: 'nowrap' }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// 邮件自身的属性（意图 / 下单状态 等），横向排在顶栏，与第三列的解析结果分开展示
+function EmailMetaPanel({ info }) {
+  if (!info) return null;
+
+  const intents1 = splitValues(info.intentType1);
+  const intents2 = parseIntentType2(info.intentType2);
+
+  // 下单状态仅对「预报/换单」且已解析出结果的邮件有意义，与列表页保持一致
+  const doneStatus = intents1.includes(EXCHANGE_OF_PORT) && info.status && info.isDone
+    ? IS_DONE_MAP[info.isDone]
+    : null;
+  const parseStatus = info.status ? PARSE_STATUS_MAP[info.status] : null;
+
+  return (
+    <div
+      className="scrollbar-hidden"
+      style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0, overflowX: 'auto' }}
+    >
+      <MetaItem label="一级意图">
+        {intents1.length
+          ? intents1.map((i) => <Tag key={i} color={INTENT_COLOR[i] ?? 'blue'}>{INTENT_LABEL[i] ?? i}</Tag>)
+          : EMPTY_META}
+      </MetaItem>
+      <MetaItem label="二级意图">
+        {intents2.length
+          ? intents2.map((i) => <Tag key={i}>{getSecondaryIntentLabel(i)}</Tag>)
+          : EMPTY_META}
+      </MetaItem>
+      <MetaItem label="下单状态">
+        {doneStatus ? <Tag color={doneStatus.color}>{doneStatus.label}</Tag> : EMPTY_META}
+      </MetaItem>
+      <MetaItem label="解析状态">
+        {parseStatus
+          ? <Tag color={parseStatus.color}>{parseStatus.label}</Tag>
+          : <span style={{ color: '#ccc' }}>{info.status || '—'}</span>}
+      </MetaItem>
+      <MetaItem label="MBL">{info.mblNumber || EMPTY_META}</MetaItem>
+    </div>
+  );
+}
+
 export default function EmailDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -286,6 +357,8 @@ export default function EmailDetail() {
   const [html, setHtml] = useState('');
   const [htmlLoading, setHtmlLoading] = useState(true);
   const [subject, setSubject] = useState(location.state?.subject ?? '');
+  // 邮件本身的属性（意图、下单状态等），区别于第三列的解析结果
+  const [emailInfo, setEmailInfo] = useState(null);
   const [dataId, setDataId] = useState(null);
   const [isCheck, setIsCheck] = useState(0);
   const [checking, setChecking] = useState(false);
@@ -496,6 +569,7 @@ export default function EmailDetail() {
         try {
           const res = await updateEmail(id, { is_done: 4 });
           if (res?.code === 200) {
+            setEmailInfo((prev) => (prev ? { ...prev, isDone: 4 } : prev));
             message.success('已作废');
           } else {
             message.error(res?.message || '作废失败');
@@ -659,6 +733,7 @@ export default function EmailDetail() {
     setResultLoading(true);
     setResultDirty(false);
     setResultPage(0);
+    setEmailInfo(null);
     changedFieldsRef.current = {};
     setSubject(location.state?.subject ?? '');
     fetchEmailPreview(id)
@@ -668,6 +743,14 @@ export default function EmailDetail() {
           setDataId(emailDataId ?? null);
           setIsCheck(emailIsCheck ?? 0);
           setSubject(emailSubject ?? '');
+          setEmailInfo({
+            intentType1: res.data.intent_type1,
+            intentType2: res.data.intent_type2,
+            isDone: res.data.is_done,
+            status: res.data.status,
+            mblNumber: res.data.mbl_number,
+            summary: res.data.email_summary,
+          });
 
           // html_content 可能是字符串或字符串数组，统一拼成字符串
           const htmlStr = Array.isArray(htmlContent) ? htmlContent.join('') : (htmlContent || '');
@@ -749,9 +832,12 @@ export default function EmailDetail() {
           返回
         </Button>
 
+        <EmailMetaPanel info={emailInfo} />
+
         <div
           style={{
             marginLeft: 'auto',
+            flexShrink: 0,
             display: 'flex',
             alignItems: 'center',
             gap: 8,
@@ -828,6 +914,7 @@ export default function EmailDetail() {
             <div style={{ fontSize: 13, color: '#ccc' }}>—</div>
           )}
         </div>
+
         <div style={{ padding: '8px 14px 4px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: '#aaa', letterSpacing: '0.06em', textTransform: 'uppercase' }}>邮件内容</div>
           <ZoomInOutlined

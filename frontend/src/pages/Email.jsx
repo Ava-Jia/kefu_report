@@ -19,58 +19,26 @@ import {
   updateEmail,
   uploadEmailEml,
   fetchEmailParseStatus,
+  fetchUploadResult,
   fetchBrokerNames,
 } from '../api';
+import {
+  EXCHANGE_OF_PORT,
+  EXCHANGE_INTENT,
+  INTENT_COLOR,
+  INTENT_LABEL,
+  IS_DONE_MAP,
+  PARSE_STATUS_MAP,
+  getSecondaryIntentLabel,
+  parseIntentType2,
+  splitValues,
+} from '../constants/intent';
 
 const { Text } = Typography;
 
 // 悬浮提示统一延迟：比 antd 默认 0.1s 的呈现更跟手，浏览器原生 title 无法调速
 const TIP_DELAY = 0.1;
 const ROW_REMOVE_DELAY = 150;
-
-const EXCHANGE_OF_PORT = 'EXCHANGE_OF_PORT';
-
-const INTENT_COLOR = {
-  CANCEL_IT: 'red',
-  REEXPORT_RETURN: 'volcano',
-  RELEASE: 'green',
-  ARRIVAL_PICKUP_LFD: 'orange',
-  CUSTOMS_EXAM_CLEARANCE: 'purple',
-  TRANSPORT_STATUS: 'blue',
-  EMPTY_RETURN_EQUIPMENT: 'cyan',
-  PAYMENT_FINANCE: 'gold',
-  DOCUMENT_BL: 'geekblue',
-  SHIPPING_COMPANY_REPLY: 'lime',
-  EXCHANGE_OF_PORT: 'magenta',
-  OTHER: 'default',
-  AGENT_REPLY: 'default',
-};
-
-const INTENT_LABEL = {
-  CANCEL_IT: 'CANCEL_IT',
-  REEXPORT_RETURN: '退运',
-  RELEASE: '放行',
-  ARRIVAL_PICKUP_LFD: '到港/提货/LFD',
-  CUSTOMS_EXAM_CLEARANCE: '海关查验/清关',
-  TRANSPORT_STATUS: '铁路运输',
-  EMPTY_RETURN_EQUIPMENT: '空箱归还',
-  PAYMENT_FINANCE: '费用相关',
-  DOCUMENT_BL: '提单业务',
-  SHIPPING_COMPANY_REPLY: '船公司回复',
-  EXCHANGE_OF_PORT: '预报/换单',
-  OTHER: '其他',
-  AGENT_REPLY: '代理回复',
-  OTHER_AGENT_REQUEST: '代理回复',
-};
-
-const EXCHANGE_INTENT = {
-  PRE_ALERT_NEW: '首次预报',
-  PRE_ALERT_UPDATE: '补充/更新预报',
-  PRE_ALERT_CANCEL: '预报作废',
-  OTHER: '其他',
-};
-
-const getSecondaryIntentLabel = (intent) => EXCHANGE_INTENT[intent] ?? intent;
 
 const EXCHANGE_INTENT_OPTIONS = Object.entries(EXCHANGE_INTENT).map(([value, label]) => ({
   value,
@@ -101,32 +69,6 @@ const INTENT_OPTIONS = Object.keys(INTENT_COLOR).map((value) => ({
   value,
 }));
 
-const splitValues = (v) => {
-  if (!v) return [];
-  if (Array.isArray(v)) return v.map((s) => String(s).trim()).filter(Boolean);
-  return String(v).split(',').map((s) => s.trim()).filter(Boolean);
-};
-
-const parseIntentType2 = (v) => {
-  if (!v) return [];
-  if (Array.isArray(v)) return v.map((s) => String(s).trim()).filter(Boolean);
-
-  const trimmed = String(v).trim();
-  let items = [];
-
-  if (trimmed.startsWith('[')) {
-    try {
-      items = JSON.parse(trimmed.replace(/'/g, '"'));
-    } catch {
-      items = trimmed.slice(1, -1).split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, ''));
-    }
-  } else {
-    items = splitValues(trimmed);
-  }
-
-  return items.filter((s) => s && s.trim());
-};
-
 const copyText = (text) => {
   if (!text) return;
 
@@ -155,11 +97,18 @@ const PARSE_TASK_STATUS = {
   timeout: { label: '超时', color: 'orange' },
 };
 
+// 旧缓存整条 result 都存了下来，容易撑爆 localStorage：读取时抽出 ID 后丢弃
+const stripParseTask = ({ result, ...task }) => ({
+  ...task,
+  emailId: task.emailId || result?.email_id || result?.email_detail?.id,
+  orderId: task.orderId || result?.order_id,
+});
+
 const loadParseTasks = () => {
   try {
     const raw = localStorage.getItem(PARSE_TASKS_KEY);
     const list = raw ? JSON.parse(raw) : [];
-    return Array.isArray(list) ? list : [];
+    return Array.isArray(list) ? list.map(stripParseTask) : [];
   } catch {
     return [];
   }
@@ -420,20 +369,6 @@ const SecondaryIntent = ({ value, intentType1, emailId, onSaved }) => {
       />
     </>
   );
-};
-
-const PARSE_STATUS_MAP = {
-  PENDING_TRACK: { label: '解析中', color: 'gold' },
-  COMPLETED: { label: '完成', color: 'green' },
-  FAILED: { label: '失败', color: 'red' },
-};
-
-// 0=待处理（尚未解析完成，展示为 -） 1=新建下单 2=新建失败 3=修改订单 4=作废
-const IS_DONE_MAP = {
-  1: { label: '新建下单', color: 'green' },
-  2: { label: '新建失败', color: 'red' },
-  3: { label: '修改订单', color: 'blue' },
-  4: { label: '作废', color: 'default' },
 };
 
 const CHECK_OPTIONS = [
@@ -1129,7 +1064,15 @@ export default function Email() {
   const [showRawResult, setShowRawResult] = useState(false);
   const [uploadBrokerName, setUploadBrokerName] = useState('');
   const [parseTasks, setParseTasks] = useState(loadParseTasks); // 历史任务（含 taskId）
-  const pollTokenRef = useRef(0); // 自增令牌，切换文件/关弹窗时使旧轮询失效
+  // 每个 taskId 一条独立轮询：taskId -> 代次号。多个任务可同时在跑，
+  // 关弹窗/切换查看都不会打断它们，只有组件卸载或删除任务才停。
+  const pollingRef = useRef(new Map());
+  // 弹窗当前展示的是哪个任务的结果，只有它的轮询结果会写进 UI
+  const viewTaskIdRef = useRef(null);
+  // 上传请求的先后序号，防止先发后到的上传抢占视图
+  const uploadSeqRef = useRef(0);
+
+  useEffect(() => () => pollingRef.current.clear(), []);
 
   // 新增/更新某个 taskId 的历史记录并持久化
   const upsertParseTask = (taskId, patch) => {
@@ -1144,6 +1087,8 @@ export default function Email() {
   };
 
   const removeParseTask = (taskId) => {
+    pollingRef.current.delete(taskId); // 删掉的任务不再轮询
+    if (viewTaskIdRef.current === taskId) viewTaskIdRef.current = null;
     setParseTasks((prev) => {
       const next = prev.filter((t) => t.taskId !== taskId);
       saveParseTasks(next);
@@ -1152,126 +1097,150 @@ export default function Email() {
   };
 
   const POLL_INTERVAL = 10000;
-  const POLL_MAX = 90; // 最多轮询约 3 分钟
+  const POLL_MAX = 90; // 10s × 90，最多轮询约 15 分钟
+  const RESUME_MAX_AGE = 30 * 60 * 1000; // 超过这个时长的「解析中」任务不再自动续查
 
-  // 查到 email_detail 即视为解析完成；查不到（后端返回非 200）则继续轮询
-  const pollStatus = async (taskId, token, attempt) => {
-    if (pollTokenRef.current !== token) return;
+  const isPollAlive = (taskId, gen) => pollingRef.current.get(taskId) === gen;
+
+  // 查到 email_detail 即视为解析完成；查不到（后端返回非 200）则继续轮询。
+  // 无论弹窗当前看的是哪个任务，历史记录都会被更新；UI 只在看着本任务时才动。
+  const pollStatus = async (taskId, gen, attempt) => {
+    if (!isPollAlive(taskId, gen)) return;
     try {
       const res = await fetchEmailParseStatus(taskId);
-      if (pollTokenRef.current !== token) return;
+      if (!isPollAlive(taskId, gen)) return;
       if (res?.code === 200 && res.data?.email_detail) {
-        setParseResult(res.data);
-        setUploadPhase('done');
+        pollingRef.current.delete(taskId);
+        // 只留 ID 和元信息，完整结果需要时用状态接口回查
         upsertParseTask(taskId, {
           status: 'done',
-          result: res.data,
           emailId: res.data.email_id,
           orderId: res.data.order_id,
         });
+        if (viewTaskIdRef.current === taskId) {
+          setParseResult(res.data);
+          setUploadPhase('done');
+        }
         return;
       }
     } catch {
       // 单次查询失败忽略，继续重试
     }
+    if (!isPollAlive(taskId, gen)) return;
     if (attempt + 1 >= POLL_MAX) {
-      if (pollTokenRef.current === token) {
+      pollingRef.current.delete(taskId);
+      upsertParseTask(taskId, { status: 'timeout', error: '解析超时' });
+      if (viewTaskIdRef.current === taskId) {
         setParseError('解析超时，请稍后重试');
         setUploadPhase('failed');
       }
-      upsertParseTask(taskId, { status: 'timeout', error: '解析超时' });
       return;
     }
-    setTimeout(() => pollStatus(taskId, token, attempt + 1), POLL_INTERVAL);
+    setTimeout(() => pollStatus(taskId, gen, attempt + 1), POLL_INTERVAL);
+  };
+
+  // 已在轮询的任务不重复启动，避免同一 taskId 叠加多条定时器链
+  const startPolling = (taskId) => {
+    if (pollingRef.current.has(taskId)) return;
+    const gen = Date.now();
+    pollingRef.current.set(taskId, gen);
+    pollStatus(taskId, gen, 0);
   };
 
   const handleUploadEml = async (file) => {
-    const token = ++pollTokenRef.current;
+    const seq = ++uploadSeqRef.current;
+    const brokerName = uploadBrokerName.trim();
     setParseResult(null);
     setParseError('');
     setShowRawResult(false);
     setUploadPhase('uploading');
+    viewTaskIdRef.current = null;
     try {
-      const res = await uploadEmailEml(file, uploadBrokerName.trim());
-      if (pollTokenRef.current !== token) return false;
+      const res = await uploadEmailEml(file, brokerName);
       if (res?.code === 200 && res.data?.task_id) {
-        setUploadPhase('polling');
-        upsertParseTask(res.data.task_id, {
+        const taskId = res.data.task_id;
+        upsertParseTask(taskId, {
           fileName: file.name,
-          brokerName: uploadBrokerName.trim(),
+          brokerName,
           createdAt: Date.now(),
           status: 'polling',
         });
-        pollStatus(res.data.task_id, token, 0);
-      } else {
+        startPolling(taskId);
+        // 期间又传了新文件时，视图归最后一次上传，本次只在后台跑
+        if (uploadSeqRef.current === seq) {
+          viewTaskIdRef.current = taskId;
+          setUploadPhase('polling');
+        }
+      } else if (uploadSeqRef.current === seq) {
         setParseError(res?.message || '上传失败');
         setUploadPhase('failed');
       }
     } catch (e) {
-      if (pollTokenRef.current !== token) return false;
-      setParseError(e.message || '上传失败');
-      setUploadPhase('failed');
+      if (uploadSeqRef.current === seq) {
+        setParseError(e.message || '上传失败');
+        setUploadPhase('failed');
+      }
     }
     return false;
   };
 
+  // 关弹窗不打断轮询，任务继续在后台跑完并回写历史记录
   const closeUploadModal = () => {
-    pollTokenRef.current += 1; // 让进行中的轮询失效
+    viewTaskIdRef.current = null;
     setUploadModalOpen(false);
   };
 
   const openUploadModal = () => {
-    pollTokenRef.current += 1;
+    viewTaskIdRef.current = null;
     setUploadPhase('idle');
     setParseResult(null);
     setParseError('');
     setShowRawResult(false);
     setUploadModalOpen(true);
     setUploadBrokerName('');
+    // 刷新页面会中断轮询，这里把仍在解析中的近期任务接着跑起来
+    const resumeSince = Date.now() - RESUME_MAX_AGE;
+    parseTasks
+      .filter((t) => t.status === 'polling' && (t.createdAt ?? 0) > resumeSince)
+      .forEach((t) => startPolling(t.taskId));
   };
 
-  // 查看历史任务：用状态接口回查，查到 email_detail 即展示，否则回退本地缓存或继续轮询
+  // 查看历史任务：已解析出 email_id 的直接按 ID 取结果，
+  // 还没解析完的（无 ID）才回到 task_id 轮询。
   const handleViewParseTask = async (task) => {
-    const token = ++pollTokenRef.current;
+    const seq = ++uploadSeqRef.current;
+    const isCurrentView = () => uploadSeqRef.current === seq;
     setUploadBrokerName(task.brokerName || '');
     setParseError('');
     setShowRawResult(false);
     setParseResult(null);
     setUploadPhase('polling');
+    viewTaskIdRef.current = task.taskId;
+
+    if (!task.emailId) {
+      startPolling(task.taskId);
+      return;
+    }
+
     try {
-      const res = await fetchEmailParseStatus(task.taskId);
-      if (pollTokenRef.current !== token) return;
+      const res = await fetchUploadResult(task.emailId, task.orderId);
+      if (!isCurrentView()) return;
       if (res?.code === 200 && res.data?.email_detail) {
         setParseResult(res.data);
         setUploadPhase('done');
-        upsertParseTask(task.taskId, {
-          status: 'done',
-          result: res.data,
-          emailId: res.data.email_id,
-          orderId: res.data.order_id,
-        });
-        return;
-      }
-      // 上游还没查到：有本地缓存结果先展示，否则继续轮询
-      if (task.result?.email_detail) {
-        setParseResult(task.result);
-        setUploadPhase('done');
-        return;
-      }
-      pollStatus(task.taskId, token, 0);
-    } catch {
-      if (pollTokenRef.current !== token) return;
-      if (task.result?.email_detail) {
-        setParseResult(task.result);
-        setUploadPhase('done');
       } else {
-        setParseError('查询任务失败');
+        setParseError(res?.message || '查询任务失败');
         setUploadPhase('failed');
       }
+    } catch {
+      if (!isCurrentView()) return;
+      setParseError('查询任务失败');
+      setUploadPhase('failed');
     }
   };
 
-  const uploadBusy = uploadPhase === 'uploading' || uploadPhase === 'polling';
+  // 上传请求本身是串行的，但解析中允许继续传下一个文件
+  const uploadBusy = uploadPhase === 'uploading';
 
   return (
     <div>
@@ -1388,17 +1357,15 @@ export default function Email() {
         >
           <p style={{ fontSize: 32, color: '#1677ff', margin: '8px 0' }}><UploadOutlined /></p>
           <p style={{ margin: 0 }}>
-            {uploadPhase === 'uploading' ? '上传中...'
-              : uploadPhase === 'polling' ? '解析中...'
-              : '点击或拖拽 .eml 文件到此区域上传'}
+            {uploadPhase === 'uploading' ? '上传中...' : '点击或拖拽 .eml 文件到此区域上传'}
           </p>
         </Upload.Dragger>
 
-        {uploadBusy && (
+        {(uploadPhase === 'uploading' || uploadPhase === 'polling') && (
           <div style={{ marginTop: 16, textAlign: 'center' }}>
             <Spin />
             <span style={{ marginLeft: 8, color: '#999' }}>
-              {uploadPhase === 'uploading' ? '正在上传文件…' : '正在解析邮件，请稍候…'}
+              {uploadPhase === 'uploading' ? '正在上传文件…' : '正在解析邮件，可继续上传其他文件…'}
             </span>
           </div>
         )}
@@ -1426,13 +1393,6 @@ export default function Email() {
                 type="link"
                 size="small"
                 style={{ paddingLeft: 0 }}
-                onClick={() => navigate(`/email/${parseResult.email_detail.id}`)}
-              >
-                查看邮件详情
-              </Button>
-              <Button
-                type="link"
-                size="small"
                 onClick={() => copyText(JSON.stringify(parseResult, null, 2))}
               >
                 复制完整结果
@@ -1451,7 +1411,12 @@ export default function Email() {
                 size="small"
                 style={{ marginLeft: 'auto' }}
                 disabled={uploadBusy}
-                onClick={() => { setParseTasks([]); saveParseTasks([]); }}
+                onClick={() => {
+                  pollingRef.current.clear();
+                  viewTaskIdRef.current = null;
+                  setParseTasks([]);
+                  saveParseTasks([]);
+                }}
               >
                 清空
               </Button>
@@ -1459,9 +1424,7 @@ export default function Email() {
             <div style={{ maxHeight: 220, overflow: 'auto' }}>
               {parseTasks.map((task) => {
                 const meta = PARSE_TASK_STATUS[task.status] || { label: task.status, color: 'default' };
-                // 兼容旧缓存：老记录只存了 result，没有单独的 emailId/orderId 字段
-                const emailId = task.emailId || task.result?.email_id || task.result?.email_detail?.id;
-                const orderId = task.orderId || task.result?.order_id;
+                const { emailId, orderId } = task;
                 return (
                   <div
                     key={task.taskId}

@@ -744,12 +744,14 @@ def _create_by_ordering_id(body, ordering_id):
     3. 作废单——
     """
     status = body.get("status")
+    email_id = body.get("email_id")
     if not status:
         log_create_failure("缺少 status 参数", status_code=400,
                            ordering_id=ordering_id, request_body=body)
         return jsonify({"code": 400, "message": "缺少 status 参数"}), 400
     # 找到 ordering-id 对应的 email 解析结果
-    email_result = get_email_id_by_ordering_id(ordering_id)
+    email_result = get_email_detail(email_id)
+    # email_result = get_email_id_by_ordering_id(ordering_id)
     data_email_id = email_result.get("id") if email_result else None
     if not data_email_id:
         log_create_failure("未找到对应邮件", status_code=404,

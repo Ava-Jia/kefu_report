@@ -498,6 +498,12 @@ export default function EmailDetail() {
           const arr = Array.isArray(prev) ? prev.slice() : (prev ? [prev] : []);
           return [...arr, ...raws];
         });
+        // 检索出的记录即使不再手动编辑字段，保存时也要把整条记录回传给后端
+        const newChanges = { ...changedFieldsRef.current };
+        raws.forEach((r, i) => {
+          newChanges[newIndex + i] = { ...(r || {}) };
+        });
+        changedFieldsRef.current = newChanges;
         setResultPage(newIndex);
         setResultDirty(true);
       } else {

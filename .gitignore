@@ -36,3 +36,4 @@ frontend/vite-dev.err.log
 frontend/vite-dev.out.log
 .DS_Store
 backend/db
+backend/.env.example

@@ -20,6 +20,8 @@ from services.parser_result_service import (
 )
 import json
 import logging
+import os
+import requests
 
 bp = Blueprint("email", __name__, url_prefix="/api")
 logger = logging.getLogger(__name__)
@@ -57,59 +59,6 @@ def create_email():
                            request_body=body if isinstance(body, dict) else None)
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
-
-@bp.route("/email/upload", methods=["POST"])
-def upload_eml():
-    """把上传的 .eml 文件传到 OSS，并提交进行解析等待结果"""
-    try:
-        file = request.files.get("file")
-        brokerName = request.form.get("brokerName")
-        if not file or not file.filename:
-            return jsonify({"code": 400, "message": "请上传 .eml 文件"}), 400
-        if not file.filename.lower().endswith(".eml"):
-            return jsonify({"code": 400, "message": "仅支持 .eml 文件"}), 400
-        if not brokerName:
-            return jsonify({"code": 400, "message": "缺少代理名称"}), 400
-        eml_url = upload_file_to_oss(file.filename, file.read())
-        resp = submit_parse_async(eml_url, brokerName)
-        if not resp or not resp.get("task_id"):
-            return jsonify({"code": 502, "message": "提交解析任务失败", "data": {"eml_url": eml_url}}), 502
-        return jsonify({"code": 200, "message": "上传成功", "data": {"task_id": resp["task_id"], "eml_url": eml_url}})
-    except Exception as e:
-        logger.exception("upload_eml error")
-        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
-
-
-@bp.route("/email/status/<task_id>", methods=["GET"])
-def status_eml(task_id):
-    try:
-        if not task_id:
-            return jsonify({"code": 400, "message": "缺少 task_id 参数"}), 400
-        resp = email_parse_status(task_id)
-        if not resp:
-            return jsonify({"code": 502, "message": "解析服务无响应或返回异常"}), 502
-        email_id = resp["email_id"]
-        # ordering_id 以解析服务返回的为准，缺失时回退本地 email 表
-        email_detail = get_email_result(email_id)
-        ordering_id = email_detail.get("ordering_id")[12:] or ""
-        if ordering_id:
-            order_detail = get_order_result(ordering_id)["result"]
-        else:
-            order_detail = None
-        detail = {
-            "email_id": email_id,
-            "email_detail": email_detail,
-            "order_id": ordering_id,
-            "order_detail": order_detail,
-        }
-        # 持久化保存
-        
-
-        return jsonify({"code": 200, "message": "查询成功", "data": detail})
-    except Exception as e:
-        logger.exception("status_eml error")
-        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
-    
 
 @bp.route("/email/broker-names", methods=["GET"])
 def list_broker_names():
@@ -173,7 +122,7 @@ def get_email_preview(email_id):
         ordering_id = detail.get("ordering_id")
         parser_rows = get_parser_result_by_ordering_id(ordering_id) if ordering_id else None
         results = [row.get("parser_result") for row in (parser_rows or [])]
-
+        is_dones = [row.get("is_done") for row in (parser_rows or [])]
 
         return jsonify({
             "code": 200,
@@ -185,6 +134,12 @@ def get_email_preview(email_id):
                 "data_id": detail["data_id"],
                 "is_check": detail["is_check"],
                 "subject": detail["subject"],
+                "intent_type1": detail["intent_type1"],
+                "intent_type2": detail["intent_type2"],
+                "is_done": is_dones,
+                "status": detail["status"],
+                "mbl_number": detail["mbl_number"],
+                "email_summary": detail["email_summary"],
             }
         })
     except Exception as e:
@@ -346,6 +301,161 @@ def get_email_result_route(email_id):
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
 
 
+@bp.route("/email/upload", methods=["POST"])
+def upload_eml():
+    """把上传的 .eml 文件传到 OSS，并提交进行解析等待结果"""
+    try:
+        file = request.files.get("file")
+        brokerName = request.form.get("brokerName")
+        if not file or not file.filename:
+            return jsonify({"code": 400, "message": "请上传 .eml 文件"}), 400
+        if not file.filename.lower().endswith(".eml"):
+            return jsonify({"code": 400, "message": "仅支持 .eml 文件"}), 400
+        if not brokerName:
+            return jsonify({"code": 400, "message": "缺少代理名称"}), 400
+        eml_url = upload_file_to_oss(file.filename, file.read())
+        resp = submit_parse_async(eml_url, brokerName)
+        if not resp or not resp.get("task_id"):
+            return jsonify({"code": 502, "message": "提交解析任务失败", "data": {"eml_url": eml_url}}), 502
+        return jsonify({"code": 200, "message": "上传成功", "data": {"task_id": resp["task_id"], "eml_url": eml_url}})
+    except Exception as e:
+        logger.exception("upload_eml error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+
+@bp.route("/email/status/<task_id>", methods=["GET"])
+def status_eml(task_id):
+    try:
+        if not task_id:
+            return jsonify({"code": 400, "message": "缺少 task_id 参数"}), 400
+        resp = email_parse_status(task_id)
+        if not resp:
+            return jsonify({"code": 502, "message": "解析服务无响应或返回异常"}), 502
+        email_id = resp["email_id"]
+        # ordering_id 以解析服务返回的为准，缺失时回退本地 email 表
+        email_detail = get_email_result(email_id)
+        ordering_id = email_detail.get("ordering_id")[12:] or ""
+        if ordering_id:
+            order_detail = get_order_result(ordering_id)["result"]
+        else:
+            # 没有order-id
+            print("没有order-id，开始手动推送")
+            brokerName = email_detail.get("brokerName")
+            subject = email_detail.get("subject")
+            references = email_detail.get("references")
+            content = email_detail.get("body") or ""
+            email_attachments = email_detail.get("attachments") or []
+            attachments = []
+            for attachment in email_attachments:
+                if not attachment.get("content_id"):
+                    attachments.append({
+                        "attachmentName": attachment.get("filename"),
+                        "attachmentTypeUrl": attachment.get("oss_url"),
+                        "attachmentType": "attachment",
+                        })
+            print(attachments) 
+            # 获取相关信息
+            data = {
+                "taskType":"orderParse",
+                "orderInter": "new", # 每个都当作新下单
+                "subject": subject,
+                "brokerName":brokerName,
+                "references": references,
+                "content": content,
+                "attachments":attachments,
+            }
+            response = requests.post(os.getenv("ORDER_PARSE_URL", "http://36.103.199.11:5010/process/async"), json=data)
+            result = json.loads(response.content)
+            ordering_id = result.get("task_id")
+            print(f"Status Code: {result}")
+            order_detail = [{
+                "masterBillNo": "等待解析中，请稍后点击查看"
+            }]
+
+        # 组成数据
+        detail = {
+            "email_id": email_id,
+            "email_detail": email_detail,
+            "order_id": ordering_id,
+            "order_detail": order_detail,
+        }
+        # 持久化保存
+        return jsonify({"code": 200, "message": "查询成功", "data": detail})
+    except Exception as e:
+        logger.exception("status_eml error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+@bp.route("/email/upload/result", methods=["GET"])
+def get_result():
+    """按 email_id / order_id 直接取解析结果，供上传历史任务回看，不再依赖 task_id。"""
+    try:
+        email_id = (request.args.get("email_id") or "").strip()
+        order_id = (request.args.get("order_id") or "").strip()
+        if not email_id:
+            return jsonify({"code": 400, "message": "缺少 email_id 参数"}), 400
+        email_detail = get_email_detail(email_id)
+
+        if email_detail is None:
+            return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
+        order_detail = (get_order_result(order_id) or {}).get("result") if order_id else None
+        if order_detail is None:
+            order_detail = [
+                {
+                "masterBillNo": "等待解析中，请稍后点击查看"
+                }
+            ]
+        return jsonify({"code": 200, "message": "查询成功", "data": {
+            "email_id": email_id,
+            "email_detail": email_detail,
+            "order_id": order_id,
+            "order_detail": order_detail,
+        }})
+    except Exception as e:
+        logger.exception("get_result error")
+        return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
+
+@bp.route("/email/upload/order", methods=["POST"])
+def put_order():
+    """手动发起plt解析任务"""
+    try:
+        body = request.get_json(force=True) or {}
+        email_id = body.get("email_id")
+        email_detail = get_email_result(email_id)
+        if not email_detail:
+            return jsonify({"code": 404, "message":"找不到该邮件的相关信息"}), 404
+        brokerName = email_detail.get("brokerName")
+        subject = email_detail.get("subject")
+        references = email_detail.get("references")
+        content = email_detail.get("body") or ""
+        email_attachments = email_detail.get("attachments") or []
+        attachments = []
+        for attachment in email_attachments:
+            if not attachment.get("content_id"):
+                attachments.append({
+                    "attachmentName": attachment.get("filename"),
+                    "attachmentTypeUrl": attachment.get("oss_url"),
+                    "attachmentType": "attachment",
+                    })
+        print(attachments) 
+        # 获取相关信息
+        data = {
+            "taskType":"orderParse",
+            "orderInter": "new", # 每个都当作新下单
+            "subject": subject,
+            "brokerName":brokerName,
+            "references": references,
+            "content": content,
+            "attachments":attachments,
+        }
+        response = requests.post(os.getenv("ORDER_PARSE_URL"), json=data)
+
+        result = json.loads(response.content)
+        order_id = result.get("task_id")
+        print(f"Status Code: {result}")
+        return jsonify({"code": 200, "message": "发起成功", "order_id": order_id}), 200
+    except Exception as e:
+        logger.exception("put_order error")
+        return jsonify({"code": 500, "message":"发起解析任务错误", "error": str(e)}), 500
 
 
 # 常见船公司 SCAC 代码，用于判断 masterBillNo 前四位是否已带船公司代码

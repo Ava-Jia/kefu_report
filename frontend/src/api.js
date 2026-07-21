@@ -295,6 +295,18 @@ export const fetchEmailParseStatus = async (taskId) => {
   }
 };
 
+/** 按 email_id / order_id 直接回看上传解析结果 */
+export const fetchUploadResult = async (emailId, orderId) => {
+  try {
+    const params = { email_id: emailId };
+    if (orderId) params.order_id = orderId;
+    const { data } = await client.get('/email/upload/result', { params });
+    return data;
+  } catch (error) {
+    return unwrapCompanyError(error);
+  }
+};
+
 /** 获取本地邮件列表 */
 export const fetchEmailList = async ({ page = 1, page_size = 50, intent_type1 = '', date_from = '', date_to = '', is_check = null, mbl_number = '', broker_name = '', order = '' } = {}) => {
   try {

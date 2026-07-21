@@ -189,42 +189,114 @@ def update_email_route(email_id):
                 except json.JSONDecodeError:
                     patch = None
             patch = normalize_parser_result(patch)
-            if patch:
-                detail = get_email_detail(email_id)
-                if detail is None:
-                    return jsonify({"code": 404, "message": "未找到该邮件"}), 404
-                ordering_id = detail.get("ordering_id")
-                if not ordering_id:
-                    return jsonify({"code": 400, "message": "该邮件未关联 ordering_id，无法保存解析结果"}), 400
-                # 用改动前的提单号定位到本次编辑的那条解析结果（未指定时回退到 patch 自身的提单号）
-                target_mbl = row_mbl if row_mbl not in (None, "") else patch.get("masterBillNo")
-                target_hbl = row_hbl if row_hbl not in (None, "") else patch.get("houseBillNo")
-                existing_list = get_parser_result_by_ordering_id(ordering_id) or []
-                existing_result = {}
-                all_results = []
-                for item in existing_list:
-                    pr = item.get("parser_result") or {}
-                    if (not existing_result
-                            and (pr.get("masterBillNo") or None) == (target_mbl or None)
-                            and (pr.get("houseBillNo") or None) == (target_hbl or None)):
-                        existing_result = pr
-                        all_results.append({**pr, **patch})
+
+            no_scac_mbl = _strip_scac(row_mbl)
+            # 根据mbl和hbl找到被修改的订单单
+            row = find_parser_result_by_bill(no_scac_mbl, row_hbl)
+            
+            # 这封邮件的相关信息，如detail和ordering_id
+            detail = get_email_detail(email_id)
+            if detail is None:
+                return jsonify({"code": 404, "message": "未找到该邮件"}), 404
+            ordering_id = detail.get("ordering_id")
+            # 存在记录，判断当前这个email是否有ordering_id
+            if row:
+                # 如果有ordering_id
+                if ordering_id:
+                    # 判断email的order_id和数据库中的order_id是否相同
+                    if ordering_id == row.get("ordering_id"):
+                        # 已作废的单不允许再被编辑覆盖
+                        if row.get("is_done") == 4:
+                            log_create_failure(
+                                f"该订单已作废，不允许再编辑，mbl={row_mbl} hbl={row_hbl}, order_id={ordering_id}",
+                                ordering_id=ordering_id, email_id=email_id, request_body=patch,
+                            )
+                            return jsonify({"code": 409, "message": "该订单已作废，不允许再编辑"}), 409
+                        # is_done 为 (1,3)/(0,2) 时均允许编辑，写入逻辑走下面统一的 upsert
+                        
+                        # 用改动前的提单号定位到本次编辑的那条解析结果（未指定时回退到 patch 自身的提单号）
+                        # 判断row和detail
+                        target_mbl = row_mbl if row_mbl not in (None, "") else patch.get("masterBillNo")
+                        target_hbl = row_hbl if row_hbl not in (None, "") else patch.get("houseBillNo")
+                        existing_list = get_parser_result_by_ordering_id(ordering_id) or []
+                        existing_result = {}
+                        all_results = []
+                       
+                        for item in existing_list:
+                            pr = item.get("parser_result") or {}
+                            if (not existing_result
+                                    and (pr.get("masterBillNo") or None) == (target_mbl or None)
+                                    and (pr.get("houseBillNo") or None) == (target_hbl or None)):
+                                existing_result = pr
+                                all_results.append({**pr, **patch})
+                            else:
+                                all_results.append(pr)
+                        if not existing_result:
+                            all_results.append(patch)
+                        
+                        if row.get("is_done") in (1,3):
+                            new_is_done = 3
+                        else:
+                            new_is_done = compute_is_done({**existing_result, **patch}),
+                        # 按 (ordering_id, masterBillNo, houseBillNo) 匹配到具体那条记录，避免定位错行/新增重复
+                        upsert_parser_result_by_ordering_id(
+                            ordering_id, patch,
+                            broker_name=detail.get("broker_name"),
+                            is_done=new_is_done,
+                            master_bill_no=target_mbl,
+                            house_bill_no=target_hbl,
+                            operator=operator,
+                        )
+
                     else:
-                        all_results.append(pr)
-                if not existing_result:
-                    all_results.append(patch)
-                # email 表单行的 is_done 汇总全部解析结果；单条记录的 is_done 只看合并后的自身
-                if body.get("is_done") is None:
-                    body["is_done"] = compute_is_done_multi(all_results)
-                # 按 (ordering_id, masterBillNo, houseBillNo) 匹配到具体那条记录，避免定位错行/新增重复
-                upsert_parser_result_by_ordering_id(
-                    ordering_id, patch,
-                    broker_name=detail.get("broker_name"),
-                    is_done=compute_is_done({**existing_result, **patch}),
-                    master_bill_no=target_mbl,
-                    house_bill_no=target_hbl,
-                    operator=operator,
-                )
+                        # mbl+hbl 已被另一个 ordering_id 占用，禁止在当前 ordering_id 下写入，避免产生重复记录
+                        log_create_failure(
+                            f"此mbl、hbl已被另一个ordering-id绑定，请勿再次创建，mbl={row_mbl} hbl={row_hbl}, order_id={ordering_id}",
+                            ordering_id=ordering_id, email_id=email_id, request_body=patch,
+                        )
+                        return jsonify({"code": 409, "message": "该 mbl/hbl 已被其它订单占用，无法保存"}), 409
+                    
+                # 如果没有ordering_id，复用row的ordering-id
+                else:
+                    ordering_id = row.get("ordering_id")
+                    
+            # 不存在记录：沿用邮件自身的 ordering_id（若也没有，下面会因 ordering_id 为空而报错）
+            else:
+                pass
+            
+
+
+            if not ordering_id:
+                return jsonify({"code": 400, "message": "该邮件未关联 ordering_id，无法保存解析结果"}), 400
+            # 用改动前的提单号定位到本次编辑的那条解析结果（未指定时回退到 patch 自身的提单号）
+            target_mbl = row_mbl if row_mbl not in (None, "") else patch.get("masterBillNo")
+            target_hbl = row_hbl if row_hbl not in (None, "") else patch.get("houseBillNo")
+            existing_list = get_parser_result_by_ordering_id(ordering_id) or []
+            existing_result = {}
+            all_results = []
+            for item in existing_list:
+                pr = item.get("parser_result") or {}
+                if (not existing_result
+                        and (pr.get("masterBillNo") or None) == (target_mbl or None)
+                        and (pr.get("houseBillNo") or None) == (target_hbl or None)):
+                    existing_result = pr
+                    all_results.append({**pr, **patch})
+                else:
+                    all_results.append(pr)
+            if not existing_result:
+                all_results.append(patch)
+            # email 表单行的 is_done 汇总全部解析结果；单条记录的 is_done 只看合并后的自身
+            if body.get("is_done") is None:
+                body["is_done"] = compute_is_done_multi(all_results)
+            # 按 (ordering_id, masterBillNo, houseBillNo) 匹配到具体那条记录，避免定位错行/新增重复
+            upsert_parser_result_by_ordering_id(
+                ordering_id, patch,
+                broker_name=detail.get("broker_name"),
+                is_done=compute_is_done({**existing_result, **patch}),
+                master_bill_no=target_mbl,
+                house_bill_no=target_hbl,
+                operator=operator,
+            )
 
         ok = update_email(email_id, body, operator=operator) if body else True
         if not ok:

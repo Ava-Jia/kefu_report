@@ -542,6 +542,22 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
       <EditableField row={record} field="broker_name" title="代理名称" value={v || record['broker-name']} onSaved={onFieldSaved} />
     ),
   },
+   {
+    title: '地区',
+    dataIndex: 'region',
+    key: 'region',
+    width: 80,
+    ellipsis: true,
+    render: (v) => v || <EmptyDash />,
+  },
+  {
+    title: '任务类别',
+    dataIndex: 'task',
+    key: 'task',
+    width: 80,
+    ellipsis: true,
+    render: (v) => v || <EmptyDash />,
+  },
   {
     title: '发件人',
     dataIndex: 'from',

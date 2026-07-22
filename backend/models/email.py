@@ -41,6 +41,8 @@ class Email(Base):
     broker_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     role: Mapped[str | None] = mapped_column(String(50), nullable=True)
     message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    region: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    task: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class AuditLog(Base):

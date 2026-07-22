@@ -227,6 +227,7 @@ def get_adjacent_email(email_id):
 
 @bp.route("/email/<email_id>", methods=["PUT"])
 def update_email_route(email_id):
+    """前端保存邮件：普通字段写 email 表，parser_result 写 email_parser_result 表，两者可同时提交。"""
     try:
         body = request.get_json(force=True) or {}
         if not body:
@@ -240,269 +241,24 @@ def update_email_route(email_id):
         # 一封邮件可能有多条解析结果，前端带上改动前的提单号用于定位到具体那条记录
         row_mbl = body.pop("parser_master_bill_no", None)
         row_hbl = body.pop("parser_house_bill_no", None)
-        if patch is not None:
-            if isinstance(patch, str):
-                try:
-                    patch = json.loads(patch)
-                except json.JSONDecodeError:
-                    patch = None
-            patch = normalize_parser_result(patch)
 
-            no_scac_mbl = _strip_scac(row_mbl)
-            # 根据mbl和hbl找到被修改的订单单
-            row = find_parser_result_by_bill(no_scac_mbl, row_hbl)
+        detail = get_email_detail(email_id)
+        if detail is None:
+            print(f"[update_email] email_id={email_id} 未找到该邮件")
+            return jsonify({"code": 404, "message": "未找到该邮件"}), 404
 
-            # 这封邮件的相关信息，如detail和ordering_id
-            detail = get_email_detail(email_id)
-            if detail is None:
-                print(f"[update_email] email_id={email_id} 未找到该邮件")
-                return jsonify({"code": 404, "message": "未找到该邮件"}), 404
-            email_ordering_id = detail["ordering_id"]
-            print(
-                f"[update_email] email_id={email_id} email_ordering_id={email_ordering_id} "
-                f"row_mbl={row_mbl} row_hbl={row_hbl} no_scac_mbl={no_scac_mbl} "
-                f"patch_mbl={patch.get('masterBillNo')} patch_hbl={patch.get('houseBillNo')} "
-                f"row_ordering_id={row.get('ordering_id') if row else None} "
-                f"row_is_done={row.get('is_done') if row else None}"
-            )
-            # 存在记录，判断当前这个email是否有ordering_id
-            if row:
-                ordering_id = row.get("ordering_id")
-                # 如果有email_ordering_id
-                if email_ordering_id:
-                    # 判断email的order_id和数据库中的order_id是否相同
-                    if email_ordering_id == ordering_id:
-                        print("[update_email] 分支A：订单已存在且order-id一致 -> 编辑该订单")
-                        # 已作废的单不允许再被编辑覆盖
-                        if row.get("is_done") == 4:
-                            print("[update_email] 分支A：该订单已作废，拒绝编辑")
-                            log_create_failure(
-                                f"该订单已作废，不允许再编辑，mbl={row_mbl} hbl={row_hbl}, order_id={ordering_id}",
-                                ordering_id=ordering_id, email_id=email_id, request_body=patch,
-                            )
-                            return jsonify({"code": 409, "message": "该订单已作废，不允许再编辑"}), 409
-                        
-                        # is_done 为 (1,3)/(0,2) 时均允许编辑，写入逻辑走下面统一的 upsert
-                        target_mbl = row_mbl
-                        if target_mbl in (None, ""):
-                            target_mbl = patch.get("masterBillNo")
+        # 代理名称/意图/MBL 等普通字段，可更新范围见 email_service._UPDATABLE_FIELDS
+        if body:
+            update_email(email_id, body, operator=operator)
 
-                        target_hbl = row_hbl
-                        if target_hbl in (None, ""):
-                            target_hbl = patch.get("houseBillNo")
+        if patch is None:
+            print(f"[update_email] 分支F：请求体不带 parser_result，仅更新email字段 body={body}")
+            return jsonify({"code": 200, "message": "更新成功"}), 200
 
-                        # 获取该ordering_id的详细信息（因此可以存在多条）
-                        existing_list = get_parser_result_by_ordering_id(ordering_id) or []
-                        existing_result = {}
-                        all_results = []
-
-                        for item in existing_list:
-                            pr = item.get("parser_result") or {}
-                            mbl_match = (pr.get("masterBillNo") or None) == (target_mbl or None)
-                            hbl_match = (pr.get("houseBillNo") or None) == (target_hbl or None)
-                            if not existing_result and mbl_match and hbl_match:
-                                existing_result = pr
-                                merged = dict(pr)
-                                merged.update(patch)
-                                all_results.append(merged)
-                            else:
-                                all_results.append(pr)
-                        if not existing_result:
-                            all_results.append(patch)
-                        
-                        if row.get("is_done") in (1,3):
-                            new_is_done = 3
-                        else:
-                            new_is_done = compute_is_done({**existing_result, **patch})
-                        print(
-                            f"[update_email] 分支A：ordering_id={ordering_id} "
-                            f"target_mbl={target_mbl} target_hbl={target_hbl} "
-                            f"old_is_done={row.get('is_done')} new_is_done={new_is_done}"
-                        )
-                        # 更新order数据
-                        upsert_parser_result_by_ordering_id(
-                        ordering_id, patch,
-                        broker_name=detail.get("broker_name"),
-                        is_done=new_is_done,
-                        master_bill_no=target_mbl,
-                        house_bill_no=target_hbl,
-                        operator=operator,
-                        # from_addr=detail.get("from"),
-                        )
-                        # 如果原始状态为非下单，并且修改后的new_is_done不等于1（下单失败），后续无需任何操作
-                        if row.get("is_done") in (0, 2) and new_is_done != 1:
-                            print("[update_email] 分支A：===不满足下单条件（0，1），不推送到PLT系统中===")
-                            return jsonify({"code": 200, "message": "修改成功,但仍然不满足下单"}),200
-                        
-                        # 其他情况下需要推送PLT
-                        # 1. 原始状态已经下单（1，3），直接推送PLT
-                        # 2. 原始状态未下单，但是new_is_done = 1，直接推送PLT
-                        push_plt()
-                        print("[update_email] 分支A：===满足下单条件（1，3），开始推送到PLT系统中===")
-                        return jsonify({"code": 200, "message": "修改成功，已成功推送至PLT系统"}),200
-
-
-                    # mbl+hbl 已被另一个 ordering_id 占用，禁止在当前 ordering_id 下写入，避免产生重复记录
-                    else:
-                        print(
-                            f"[update_email] 分支B：mbl/hbl 已被另一个order-id占用 "
-                            f"email_ordering_id={email_ordering_id} row_ordering_id={ordering_id} -> 拒绝保存"
-                        )
-                        log_create_failure(
-                            f"此mbl、hbl已被另一个ordering-id绑定，请勿再次创建，mbl={row_mbl} hbl={row_hbl}, order_id={ordering_id}",
-                            ordering_id=ordering_id, email_id=email_id, request_body=patch,
-                        )
-                        return jsonify({"code": 409, "message": "该 mbl/hbl 已被其它订单占用，无法保存"}), 409
-     
-                # 如果没有ordering_id，复用row的ordering-id
-                else:
-                    print(f"[update_email] 分支C：该email没有ordering_id -> 复用订单的 ordering_id={ordering_id}")
-                    # ordering_id = row.get("ordering_id")
-                    payload = {
-                        "ordering_id": ordering_id
-                    }
-                    # 将这mbl、hbl对应的ordering_id写入到这个email的ordering_id中
-                    update_email(email_id, payload, operator="用户对该email新增了一个订单信息")
-                    # 更新下单数据
-                    target_mbl = row_mbl
-                    if target_mbl in (None, ""):
-                        target_mbl = patch.get("masterBillNo")
-
-                    target_hbl = row_hbl
-                    if target_hbl in (None, ""):
-                        target_hbl = patch.get("houseBillNo")
-
-                    # 获取该ordering_id的详细信息（因此可以存在多条）
-                    existing_list = get_parser_result_by_ordering_id(ordering_id) or []
-                    existing_result = {}
-                    all_results = []
-
-                    for item in existing_list:
-                        pr = item.get("parser_result") or {}
-                        mbl_match = (pr.get("masterBillNo") or None) == (target_mbl or None)
-                        hbl_match = (pr.get("houseBillNo") or None) == (target_hbl or None)
-                        if not existing_result and mbl_match and hbl_match:
-                            existing_result = pr
-                            merged = dict(pr)
-                            merged.update(patch)
-                            all_results.append(merged)
-                        else:
-                            all_results.append(pr)
-                    if not existing_result:
-                        all_results.append(patch)
-                    
-                    if row.get("is_done") in (1,3):
-                        new_is_done = 3
-                    else:
-                        new_is_done = compute_is_done({**existing_result, **patch})
-                    print(
-                        f"[update_email] 分支C：ordering_id={ordering_id} "
-                        f"target_mbl={target_mbl} target_hbl={target_hbl} "
-                        f"old_is_done={row.get('is_done')} new_is_done={new_is_done}"
-                    )
-                    # 按 (ordering_id, masterBillNo, houseBillNo) 匹配到具体那条记录，避免定位错行/新增重复
-                    upsert_parser_result_by_ordering_id(
-                        ordering_id, patch,
-                        broker_name=detail.get("broker_name"),
-                        is_done=new_is_done,
-                        master_bill_no=target_mbl,
-                        house_bill_no=target_hbl,
-                        operator=operator,
-                        # from_addr=detail.get("from"),
-                    )
-                    # 判断下单状态 new_is_done in (0,2);这是更新后的下单状态，不是更新前。
-                    print("[update_email] 分支C：保存完成（当前未做PLT推送判断）")
-                    return jsonify({"code": 200, "message": "保存成功，已成功推送至PLT系统"}), 200
-
-            # 不存在记录：沿用邮件自身的 ordering_id（若也没有，下面会因 ordering_id 为空而报错）
-            else:
-                # email有ordering_id
-                if email_ordering_id:
-                    print(f"[update_email] 分支D：订单不存在，复用email自身的 ordering_id={email_ordering_id} 新建订单")
-                    # mbl/hbl 优先用前端传来的原值，缺失时回退到本次提交的解析结果
-                    target_mbl = row_mbl or patch.get("masterBillNo")
-                    target_hbl = row_hbl or patch.get("houseBillNo")
-                    if not target_mbl and not target_hbl:
-                        print("[update_email] 分支D：mbl/hbl 都为空，拒绝新增")
-                        log_create_failure(
-                            "新增订单缺少 mbl/hbl，无法创建",
-                            ordering_id=email_ordering_id, email_id=email_id, request_body=patch,
-                        )
-                        return jsonify({"code": 400, "message": "缺少提单号，无法新增订单"}), 400
-
-                    # 全新一条订单，下单状态按本次解析结果重新计算
-                    new_is_done = compute_is_done(patch)
-                    print(
-                        f"[update_email] 分支D：target_mbl={target_mbl} target_hbl={target_hbl} "
-                        f"new_is_done={new_is_done}"
-                    )
-                    # 根据email的ordering_id创建一个新的订单
-                    create_parser_result_by_ordering_id(
-                        email_ordering_id, patch,
-                        broker_name=detail.get("broker_name"),
-                        is_done=new_is_done,
-                        master_bill_no=target_mbl,
-                        house_bill_no=target_hbl,
-                        operator=operator,
-                        from_addr=detail.get("from"),
-                    )
-                    # 新建单只有在字段齐全（is_done=1）时才推送 PLT
-                    if new_is_done != 1:
-                        print("[update_email] 分支D：===不满足下单条件，不推送到PLT系统中===")
-                        return jsonify({"code": 200, "message": "新增成功,但仍然不满足下单"}), 200
-
-                    push_plt()
-                    print("[update_email] 分支D：===满足下单条件，开始推送到PLT系统中===")
-                    return jsonify({"code": 200, "message": "新增成功，已成功推送至PLT系统"}), 200
-
-                # email没有ordering_id
-                else:
-                    print("[update_email] 分支E：订单不存在且email没有ordering_id -> 生成新的 ordering_id")
-                    # mbl/hbl 优先用前端传来的原值，缺失时回退到本次提交的解析结果
-                    target_mbl = row_mbl or patch.get("masterBillNo")
-                    target_hbl = row_hbl or patch.get("houseBillNo")
-                    if not target_mbl and not target_hbl:
-                        print("[update_email] 分支E：mbl/hbl 都为空，拒绝新增")
-                        log_create_failure(
-                            "新增订单缺少 mbl/hbl，无法创建",
-                            email_id=email_id, request_body=patch,
-                        )
-                        return jsonify({"code": 400, "message": "缺少提单号，无法新增订单"}), 400
-
-                    # 该email尚未绑定任何订单，本地生成一个ordering_id并回写到email
-                    email_ordering_id = uuid.uuid4().hex
-                    update_email(
-                        email_id, {"ordering_id": email_ordering_id},
-                        operator="用户对该email新增了一个订单信息",
-                    )
-
-                    # 全新一条订单，下单状态按本次解析结果重新计算
-                    new_is_done = compute_is_done(patch)
-                    print(
-                        f"[update_email] 分支E：新生成 ordering_id={email_ordering_id} "
-                        f"target_mbl={target_mbl} target_hbl={target_hbl} new_is_done={new_is_done}"
-                    )
-                    # 用新生成的ordering_id创建一个新的订单
-                    create_parser_result_by_ordering_id(
-                        email_ordering_id, patch,
-                        broker_name=detail.get("broker_name"),
-                        is_done=new_is_done,
-                        master_bill_no=target_mbl,
-                        house_bill_no=target_hbl,
-                        operator=operator,
-                        from_addr=detail.get("from"),
-                    )
-                    # 新建单只有在字段齐全（is_done=1）时才推送 PLT
-                    if new_is_done != 1:
-                        print("[update_email] 分支E：===不满足下单条件，不推送到PLT系统中===")
-                        return jsonify({"code": 200, "message": "新增成功,但仍然不满足下单"}), 200
-
-                    push_plt()
-                    print("[update_email] 分支E：===满足下单条件，开始推送到PLT系统中===")
-                    return jsonify({"code": 200, "message": "新增成功，已成功推送至PLT系统"}), 200
-
-        print(f"[update_email] 分支F：body 中没有 parser_result，本次请求未做任何订单处理 body={body}")
-
+        patch = _normalize_patch(patch)
+        if patch is None:
+            return jsonify({"code": 400, "message": "parser_result 不是合法的解析结果"}), 400
+        return _save_parser_result(email_id, detail, patch, row_mbl, row_hbl, operator)
     except Exception as e:
         logger.exception("update_email error")
         return jsonify({"code": 500, "message": "服务器错误", "error": str(e)}), 500
@@ -835,6 +591,166 @@ def _merge_mbl_numbers(email_id, parser_mbls):
             mbls.append(parser_mbl)
 
     return ",".join(mbls)
+
+
+def _normalize_patch(raw):
+    """请求体里的 parser_result 统一成 dict；非法 JSON / 非对象返回 None。"""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    patch = normalize_parser_result(raw)
+    return patch if isinstance(patch, dict) else None
+
+
+def _pick_target_bills(row_mbl, row_hbl, patch):
+    """定位本次编辑的那条订单用的 mbl/hbl：优先前端传的改动前提单号，缺失时回退 patch 自身。
+    1. 再原始就有mbl、hbl上进行修改，此时会找到这一单
+    2. 如果原始没有mbl、hbl，且没有order数据，那么就会将patch中的mbl、hbl作为target
+    """
+    target_mbl = row_mbl if row_mbl not in (None, "") else patch.get("masterBillNo")
+    target_hbl = row_hbl if row_hbl not in (None, "") else patch.get("houseBillNo")
+    return target_mbl, target_hbl
+
+
+def _find_existing_result(ordering_id, target_mbl, target_hbl) -> dict:
+    """同一个 ordering_id 下可能有多条解析结果，按 mbl+hbl 找出被编辑的那条。"""
+    for item in get_parser_result_by_ordering_id(ordering_id) or []:
+        pr = item.get("parser_result") or {}
+        if ((pr.get("masterBillNo") or None) == (target_mbl or None)
+                and (pr.get("houseBillNo") or None) == (target_hbl or None)):
+            return pr
+    return {}
+
+
+def _write_order_edit(ordering_id, row, patch, detail, row_mbl, row_hbl, operator):
+    """分支A/C 共用：把改动写进已存在的订单，返回 (改动前is_done, 改动后is_done)。"""
+    target_mbl, target_hbl = _pick_target_bills(row_mbl, row_hbl, patch)
+    old_is_done = row.get("is_done")
+    # 已经下单的情况下（1，3），new_is_done只能为3
+    if old_is_done in (1, 3):
+        new_is_done = IS_DONE_MODIFIED
+    # 否则（0，2，4），重新计算new_is_done
+    else:
+        # 前端只传改动过的字段，要和库里已有内容合并后再判断够不够下单
+        existing_result = _find_existing_result(ordering_id, target_mbl, target_hbl)
+        new_is_done = compute_is_done({**existing_result, **patch})
+    print(f"[update_email] 编辑订单 ordering_id={ordering_id} mbl={target_mbl} hbl={target_hbl} "
+          f"is_done {old_is_done} -> {new_is_done}")
+    # 按 (ordering_id, masterBillNo, houseBillNo) 匹配到具体那条记录，避免定位错行/新增重复
+    upsert_parser_result_by_ordering_id(
+        ordering_id, patch,
+        broker_name=detail.get("broker_name"),
+        is_done=new_is_done,
+        master_bill_no=target_mbl,
+        house_bill_no=target_hbl,
+        operator=operator,
+    )
+    return old_is_done, new_is_done
+
+
+def _write_order_create(ordering_id, patch, detail, target_mbl, target_hbl, operator):
+    """分支D/E 共用：给该 email 新建一条订单，返回新订单的 is_done。"""
+    # 全新一条订单，下单状态按本次解析结果重新计算
+    new_is_done = compute_is_done(patch)
+    print(f"[update_email] 新建订单 ordering_id={ordering_id} mbl={target_mbl} hbl={target_hbl} "
+          f"is_done={new_is_done}")
+    create_parser_result_by_ordering_id(
+        ordering_id, patch,
+        broker_name=detail.get("broker_name"),
+        is_done=new_is_done,
+        master_bill_no=target_mbl,
+        house_bill_no=target_hbl,
+        operator=operator,
+        from_addr=detail.get("from"),
+    )
+    return new_is_done
+
+
+def _save_parser_result(email_id, detail, patch, row_mbl, row_hbl, operator):
+    """解析结果落库，按「订单是否已存在 / email 是否已有 ordering_id」分成 A~E 五条分支。"""
+    email_ordering_id = detail["ordering_id"]
+    # 根据改动前的 mbl 和 hbl 找到被修改的那张订单
+    row = find_parser_result_by_bill(_strip_scac(row_mbl), row_hbl)
+    print(f"[update_email] email_id={email_id} email_ordering_id={email_ordering_id} "
+          f"row_mbl={row_mbl} row_hbl={row_hbl} "
+          f"row_ordering_id={row.get('ordering_id') if row else None} "
+          f"row_is_done={row.get('is_done') if row else None}")
+
+    if row:
+        ordering_id = row.get("ordering_id")
+
+        # 分支C：该email还没有ordering_id，复用这张订单的ordering_id并写回email
+        if not email_ordering_id:
+            print(f"[update_email] 分支C：该email没有ordering_id -> 复用订单的 ordering_id={ordering_id}")
+            update_email(email_id, {"ordering_id": ordering_id},
+                         operator="用户对该email新增了一个订单信息")
+            _write_order_edit(ordering_id, row, patch, detail, row_mbl, row_hbl, operator)
+            return jsonify({"code": 200, "message": "保存成功，已成功推送至PLT系统"}), 200
+
+        # 分支B：mbl+hbl 已被另一个 ordering_id 占用，禁止在当前 ordering_id 下写入，避免产生重复记录
+        if email_ordering_id != ordering_id:
+            print(f"[update_email] 分支B：mbl/hbl 已被另一个order-id占用 "
+                  f"email_ordering_id={email_ordering_id} row_ordering_id={ordering_id} -> 拒绝保存")
+            log_create_failure(
+                f"此mbl、hbl已被另一个ordering-id绑定，请勿再次创建，mbl={row_mbl} hbl={row_hbl}, order_id={ordering_id}",
+                ordering_id=ordering_id, email_id=email_id, request_body=patch,
+            )
+            return jsonify({"code": 409, "message": "该 mbl/hbl 已被其它订单占用，无法保存"}), 409
+
+        # 分支A：订单已存在且order-id一致 -> 编辑该订单
+        print("[update_email] 分支A：订单已存在且order-id一致 -> 编辑该订单")
+        # 已作废的单不允许再被编辑覆盖
+        if row.get("is_done") == IS_DONE_VOIDED:
+            print("[update_email] 分支A：该订单已作废，拒绝编辑")
+            log_create_failure(
+                f"该订单已作废，不允许再编辑，mbl={row_mbl} hbl={row_hbl}, order_id={ordering_id}",
+                ordering_id=ordering_id, email_id=email_id, request_body=patch,
+            )
+            return jsonify({"code": 409, "message": "该订单已作废，不允许再编辑"}), 409
+
+        old_is_done, new_is_done = _write_order_edit(
+            ordering_id, row, patch, detail, row_mbl, row_hbl, operator)
+        # 原始状态为非下单，且改完 new_is_done 仍不等于1（下单失败），后续无需任何操作
+        if old_is_done in (0, 2) and new_is_done != 1:
+            print("[update_email] 分支A：===不满足下单条件（0，1），不推送到PLT系统中===")
+            return jsonify({"code": 200, "message": "修改成功,但仍然不满足下单"}), 200
+        # 其他情况下需要推送PLT
+        # 1. 原始状态已经下单（1，3），直接推送PLT
+        # 2. 原始状态未下单，但是new_is_done = 1，直接推送PLT
+        push_plt()
+        print("[update_email] 分支A：===满足下单条件（1，3），开始推送到PLT系统中===")
+        return jsonify({"code": 200, "message": "修改成功，已成功推送至PLT系统"}), 200
+
+    # 订单不存在：给这封邮件新建一条订单（分支D/E）
+    # mbl/hbl 优先用前端传来的原值，缺失时回退到本次提交的解析结果
+    target_mbl, target_hbl = _pick_target_bills(row_mbl, row_hbl, patch)
+    if not target_mbl and not target_hbl:
+        print("[update_email] 分支D/E：mbl/hbl 都为空，拒绝新增")
+        log_create_failure("新增订单缺少 mbl/hbl，无法创建",
+                           ordering_id=email_ordering_id, email_id=email_id, request_body=patch)
+        return jsonify({"code": 400, "message": "缺少提单号，无法新增订单"}), 400
+
+    if email_ordering_id:
+        print(f"[update_email] 分支D：订单不存在，复用email自身的 ordering_id={email_ordering_id} 新建订单")
+    else:
+        # 该email尚未绑定任何订单，本地生成一个ordering_id并回写到email
+        email_ordering_id = uuid.uuid4().hex
+        print(f"[update_email] 分支E：订单不存在且email没有ordering_id -> 新生成 ordering_id={email_ordering_id}")
+        update_email(email_id, {"ordering_id": email_ordering_id},
+                     operator="用户对该email新增了一个订单信息")
+
+    new_is_done = _write_order_create(
+        email_ordering_id, patch, detail, target_mbl, target_hbl, operator)
+    # 新建单只有在字段齐全（is_done=1）时才推送 PLT
+    if new_is_done != 1:
+        print("[update_email] 分支D/E：===不满足下单条件，不推送到PLT系统中===")
+        return jsonify({"code": 200, "message": "新增成功,但仍然不满足下单"}), 200
+
+    push_plt()
+    print("[update_email] 分支D/E：===满足下单条件，开始推送到PLT系统中===")
+    return jsonify({"code": 200, "message": "新增成功，已成功推送至PLT系统"}), 200
 
 
 def _create_by_ordering_id(body, ordering_id):

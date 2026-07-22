@@ -788,7 +788,8 @@ const OrderResultView = ({ orders }) => {
           ['毛重', o.grossWeight],
           ['体积', o.volume],
           ['费用', expense],
-          ['HBL 文件', o.hblUrl ? <a href={o.hblUrl} target="_blank" rel="noreferrer">查看 PDF</a> : ''],
+          ['HBL 文件', o.houseFileUrl ? <a href={o.houseFileUrl} target="_blank" rel="noreferrer">查看 PDF</a> : ''],
+          ['MBL 文件', o.masterFileUrl ? <a href={o.masterFileUrl} target="_blank" rel="noreferrer">查看 PDF</a> : ''],
         ];
         return (
           <div key={idx} style={{ marginBottom: 12, border: '1px solid #f0f0f0', borderRadius: 6, padding: 8 }}>

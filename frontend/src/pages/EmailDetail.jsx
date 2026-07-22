@@ -74,8 +74,8 @@ const RESULT_TEMPLATE = {
   customerType: '', descriptionOfGoods: '',
   expenseItem: { Fee: [{ feeName: '', feeAmount: '', type: '' }] },
 
-  grossWeight: '', hblUrl: '', houseBillNo: '',
-  isSuspicious: 0, mark: '', masterBillNo: '', masterBillNoFromEmail: '',
+  grossWeight: '', houseFileUrl: '', houseBillNo: '',
+  isSuspicious: 0, mark: '', masterBillNo: '', masterBillNoFromEmail: '', masterFileUrl: '',
   notifyAddress: '', notifyEmails: '', notifyName: '', notifyTel: '',
   orderType: '', packageUnit: '', pieces: '',
   shipperAddress: '', shipperEmail: '', shipperName: '', shipperTel: '',
@@ -105,8 +105,8 @@ const FIELD_LABEL = {
   containerType: 'COC/SOC', ctrNumber: '箱号',
   customerType: '客户类型', descriptionOfGoods: '货物描述',
   grossWeight: '毛重', houseBillNo: 'HBL Number',
-  hblUrl: 'HBL链接', isSuspicious: '是否可疑',
-  mark: '唛头', masterBillNo: 'MBL Number',
+  houseFileUrl: 'HBL链接', isSuspicious: '是否可疑',
+  mark: '唛头', masterBillNo: 'MBL Number', masterFileUrl: 'MBL链接',
   masterBillNoFromEmail: 'MBL(邮件)', notifyAddress: '通知方地址',
   notifyEmails: '通知方邮箱', notifyName: '通知方名称',
   notifyTel: '通知方电话', orderType: '单据类型',
@@ -1057,7 +1057,7 @@ export default function EmailDetail() {
         {sortedEntries(resultObj).map(([k, v, path]) => (
           <ResultField key={path.join('.')} label={k} value={v}
             onChange={(v === null || typeof v !== 'object') && !isUrl(String(v ?? '')) ? (val) => onFieldChange(path, val) : undefined}
-            linkUrl={k === 'houseBillNo' ? resultObj.hblUrl : k === 'masterBillNo' ? resultObj.mblUrl : undefined}
+            linkUrl={k === 'houseBillNo' ? resultObj.houseFileUrl : k === 'masterBillNo' ? resultObj.masterFileUrl : undefined}
           />
         ))}
       </div>

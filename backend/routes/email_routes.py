@@ -316,6 +316,7 @@ def update_email_route(email_id):
                         master_bill_no=target_mbl,
                         house_bill_no=target_hbl,
                         operator=operator,
+                        # from_addr=detail.get("from"),
                         )
                         # 如果原始状态为非下单，并且修改后的new_is_done不等于1（下单失败），后续无需任何操作
                         if row.get("is_done") in (0, 2) and new_is_done != 1:
@@ -387,6 +388,7 @@ def update_email_route(email_id):
                         master_bill_no=target_mbl,
                         house_bill_no=target_hbl,
                         operator=operator,
+                        # from_addr=detail.get("from"),
                     )
                     # 判断下单状态 new_is_done in (0,2);这是更新后的下单状态，不是更新前。
 
@@ -744,39 +746,35 @@ def _create_by_ordering_id(body, ordering_id):
     3. 作废单——
     """
     status = body.get("status")
-    email_id = body.get("email_id")
+    email_id = body.get("emailId")
+    intentType2 = body.get("intent_type2")
     if not status:
         log_create_failure("缺少 status 参数", status_code=400,
                            ordering_id=ordering_id, request_body=body)
         return jsonify({"code": 400, "message": "缺少 status 参数"}), 400
     # 找到 ordering-id 对应的 email 解析结果
     email_result = get_email_detail(email_id)
-    # email_result = get_email_id_by_ordering_id(ordering_id)
-    data_email_id = email_result.get("id") if email_result else None
-    if not data_email_id:
+    if not email_result:
         log_create_failure("未找到对应邮件", status_code=404,
-                           ordering_id=ordering_id, request_body=body)
+                           ordering_id=ordering_id, email_id=email_id, request_body=body)
         return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
-
-    if status == "failed":
+    if status == "FAILED":
         log_create_failure("解析失败", status_code=200,
                            ordering_id=ordering_id, request_body=body)
         payload = {
         "status": status
         }
-        update_email(data_email_id, payload, operator="order_callback") # 写入email表（无parser_result字段）
-        return jsonify({"code": 200, "message": "已记录解析失败"}), 200
-    brokerName = email_result.get("broker_name") if email_result else None 
-    # 意图处理，返回NEW、UPDATE、CANCEL、OTEHR
-    intentType1 = email_result.get("intent_type1")
+        update_email(email_id, payload, operator="order_callback")
 
+        return jsonify({"code": 200, "message": "已记录解析失败"}), 200
+    
+    brokerName = email_result.get("broker_name") if email_result else None 
+    intentType1 = email_result.get("intent_type1")
     # 获取解析结果中的意图，而非email中的意图
-    intentType2 = body.get("intent_type2")
     if not intentType2:
         log_create_failure("缺少intent_type2参数", status_code=400,
                            ordering_id=ordering_id, request_body=body)
         return jsonify({"code": 400, "message": "缺少intent_type2参数"}), 400
-
     intent_action = _classify_exchange_intent(intentType1, intentType2) # 最终判断出意图other、new、update
 
     # 获取解析结果
@@ -785,8 +783,9 @@ def _create_by_ordering_id(body, ordering_id):
     results = normalize_parser_results(parser_result) # 一个 ordering 可能有多份结果
     if not results:
         log_create_failure("缺少 result 参数", status_code=400,
-                           ordering_id=ordering_id, email_id=data_email_id, request_body=body)
+                           ordering_id=ordering_id, email_id=email_id, request_body=body)
         return jsonify({"code": 400, "message": "缺少 result 参数"}), 400
+
     # 每份解析结果按意图分别入库：以 mbl+hbl 判断是否已存在，避免不同提单互相覆盖
     new_ordering_id = None  # 修改单场景下，被改订单的ordering_id，回填到email
     for one in results:
@@ -806,18 +805,14 @@ def _create_by_ordering_id(body, ordering_id):
                         # pending和完成要更新之前的单
                         update_parser_result_by_bill(
                             master_bill_no=no_scac_mbl, house_bill_no=hbl, parser_result=one, broker_name=brokerName, is_done=is_done,
-                            operator="order_update",
+                            operator="order_update", from_addr=email_result.get("from"),
                         )
-                # # 同一 mbl+hbl 已存在，跳过并记录（后续补充去重逻辑）
-                # log_create_failure(
-                #     f"新建单 mbl+hbl 已存在，跳过 mbl={mbl} hbl={hbl}",
-                #     ordering_id=ordering_id, email_id=data_email_id, request_body=one,
-                # )
             else:
                 # 创建新的解析结果
                 create_parser_result_by_ordering_id(
                     ordering_id, one, broker_name=brokerName, is_done=is_done,
                     master_bill_no=mbl, house_bill_no=hbl, operator="order_new",
+                    from_addr=email_result.get("from"),
                 )
                 # 后续判断是否要下单
                 if status != "COMPLETED":
@@ -830,7 +825,7 @@ def _create_by_ordering_id(body, ordering_id):
                 # 没有对应新建单，修改无从下手，记日志跳过
                 log_create_failure(
                     f"修改单未找到对应新建单，修改被丢弃 mbl={mbl} hbl={hbl}",
-                    ordering_id=ordering_id, email_id=data_email_id, request_body=one,
+                    ordering_id=ordering_id, email_id=email_id, request_body=one,
                 )
                 continue
             # 先看该单是不是作废单
@@ -838,7 +833,7 @@ def _create_by_ordering_id(body, ordering_id):
                 # 订单已作废，不允许再被修改覆盖
                 log_create_failure(
                     f"修改单对应订单已作废，修改被丢弃 mbl={mbl} hbl={hbl}",
-                    ordering_id=ordering_id, email_id=data_email_id, request_body=one,
+                    ordering_id=ordering_id, email_id=email_id, request_body=one,
                 )
                 continue
             if row.get("is_done") in (1, 3):
@@ -847,7 +842,7 @@ def _create_by_ordering_id(body, ordering_id):
                 new_is_done = compute_is_done(one)
             update_parser_result_by_bill(
                 master_bill_no=no_scac_mbl, house_bill_no=hbl, parser_result=one, broker_name=brokerName, is_done=new_is_done,
-                operator="order_update",
+                operator="order_update", from_addr=email_result.get("from"),
             )
             new_ordering_id = row.get("ordering_id")
             # 推送plt的的情况
@@ -864,12 +859,13 @@ def _create_by_ordering_id(body, ordering_id):
                 # 没有对应的新建单，作废失败
                 log_create_failure(
                     f"作废单未找到对应新建单，作废被丢弃 mbl={mbl} hbl={hbl}",
-                    ordering_id=ordering_id, email_id=data_email_id, request_body=one,
+                    ordering_id=ordering_id, email_id=email_id, request_body=one,
                 )
                 continue
             if row.get("is_done") in (1, 3):
                 update_parser_result_by_bill(
                     master_bill_no=no_scac_mbl, house_bill_no=hbl, is_done=4, operator="order_cancel",
+                    from_addr=email_result.get("from"),
                 )
                 # 推送plt
                 
@@ -877,9 +873,8 @@ def _create_by_ordering_id(body, ordering_id):
                 # 0=待处理 2=新建失败 4=已作废，均非已下单状态，不允许作废
                 log_create_failure(
                     f"作废单对应订单非已下单状态，无法作废 mbl={mbl} hbl={hbl}",
-                    ordering_id=ordering_id, email_id=data_email_id, request_body=one,
+                    ordering_id=ordering_id, email_id=email_id, request_body=one,
                 )
-        
     payload = {
         "status": status
     }
@@ -889,12 +884,12 @@ def _create_by_ordering_id(body, ordering_id):
     # 更新Email的mbl，拿更加准确的解析mbl来替换email mbl
     parser_mbls = [r.get("masterBillNo") for r in results if r.get("masterBillNo")]
     if parser_mbls:
-        payload["mbl_number"] = _merge_mbl_numbers(data_email_id, parser_mbls)
+        payload["mbl_number"] = _merge_mbl_numbers(email_id, parser_mbls)
 
-    update_email(data_email_id, payload, operator="order_callback") # 写入email表（无parser_result字段）
+    update_email(email_id, payload, operator="order_callback") # 写入email表（无parser_result字段）
 
     return jsonify({"code": 200, "message": "写入成功",
-                    "data": {"ordering_id": ordering_id, "email_id": data_email_id,
+                    "data": {"ordering_id": ordering_id, "email_id": email_id,
                              "status": status, "count": len(results)}})
 
 
@@ -905,34 +900,6 @@ def _create_by_email_id(body, email_id):
         log_create_failure("未找到对应邮件", status_code=404,
                            email_id=email_id, request_body=body)
         return jsonify({"code": 404, "message": "未找到对应邮件"}), 404
-    # 判断该封Email是否为作废邮件
-    # intent_type2 = record.get("intent_type2") or ""
-    # if "PRE_ALERT_CANCEL" in intent_type2:
-    #     # 修改其订单状态
-    #     mbl = body.get("mbl")
-    #     hbl = body.get("hbl")
-    #     no_scac_mbl = _strip_scac(mbl)
-    #     # 看看有没有这一单
-    #     row = find_parser_result_by_bill(no_scac_mbl, hbl)
-    #     # 没有就退出，但是写入这封邮件
-    #     if row is None:
-    #         log_create_failure(
-    #             f"作废单未找到对应新建单，作废被丢弃 mbl={mbl} hbl={hbl}", email_id=email_id, 
-    #         )
-    #         upsert_emails([record])
-    #         return jsonify({"code": 200, "message": "Email写入成功，但是作废失败，找不到该mbl、hbl的订单", "data": {"id": record.get("id", email_id)}})
-
-    #     if row.get("is_done") in (1, 3):
-    #         # 进行作废
-    #         update_parser_result_by_bill(
-    #         master_bill_no=no_scac_mbl, house_bill_no=hbl, is_done=4, operator="order_cancel",
-    #         )
-    #     elif row.get("is_done") in (0, 2, 4):
-    #         log_create_failure(
-    #             f"作废单对应订单非已下单状态，无法作废 mbl={mbl} hbl={hbl}",
-    #             ordering_id=row.get("ordering_id"), email_id=email_id, 
-    #         )
-    # 将Email数据写入表中
     upsert_emails([record])
     return jsonify({"code": 200, "message": "写入成功", "data": {"id": record.get("id", email_id)}})
 

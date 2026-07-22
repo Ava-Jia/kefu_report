@@ -6,7 +6,9 @@ import json
 import logging
 
 from models.email import EmailParserResult, get_session
-from services.email_service import write_audit_logs, IS_DONE_VOIDED
+from services.email_service import (
+    write_audit_logs, IS_DONE_CREATED, IS_DONE_MODIFIED, IS_DONE_VOIDED,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,8 @@ FIELD_MAP = {
     "volume": "volume",
     "ctrNumber": "ctr_number",
     "summary": "summary",
-    "hblUrl": "hbl_url",
+    "houseFileUrl": "houseFileUrl",
+    "masterFileUrl": "masterFileUrl",
     "orderType": "order_type",
     "isSuspicious": "is_suspicious",
     "agentName": "agent_name",
@@ -90,6 +93,7 @@ def _serialize_one(row: EmailParserResult) -> dict:
         "id": row.id,
         "ordering_id": row.ordering_id,
         "broker_name": row.broker_name,
+        "from_addr": row.fromAddr,
         "is_done": row.is_done,
         "parser_result": parser_result,
         "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -169,8 +173,9 @@ def _apply_field_changes(session, row: EmailParserResult, fields: dict, record_i
 def upsert_parser_result_in_session(
     session, ordering_id: str, parser_result, broker_name: str | None, is_done: int,
     master_bill_no: str | None = None, house_bill_no: str | None = None, operator: str | None = None,
+    from_addr: str | None = None,
 ) -> EmailParserResult:
-    """在调用方给定的 session 内执行 upsert（不 commit），便于与其它写入共享同一事务。"""
+    """保存"""
     query = _filter_by_bill(
         session.query(EmailParserResult).filter(EmailParserResult.ordering_id == ordering_id),
         master_bill_no, house_bill_no,
@@ -180,8 +185,12 @@ def upsert_parser_result_in_session(
     fields = _parse_result_input(parser_result)
     fields.setdefault("master_bill_no", master_bill_no)
     fields.setdefault("house_bill_no", house_bill_no)
-    fields["broker_name"] = broker_name
+    
     fields["is_done"] = is_done
+    if broker_name is not None:
+        fields["broker_name"] = broker_name
+    if from_addr is not None:
+        fields["fromAddr"] = from_addr
     if row is None:
         row = EmailParserResult(ordering_id=ordering_id, **fields)
         session.add(row)
@@ -193,20 +202,23 @@ def upsert_parser_result_in_session(
 def upsert_parser_result_by_ordering_id(
     ordering_id: str, parser_result, broker_name: str | None, is_done: int,
     master_bill_no: str | None = None, house_bill_no: str | None = None, operator: str | None = None,
+    from_addr: str | None = None,
 ) -> dict:
 
     with get_session() as session:
         row = upsert_parser_result_in_session(
             session, ordering_id, parser_result, broker_name, is_done,
             master_bill_no = master_bill_no, house_bill_no = house_bill_no, operator = operator,
+            from_addr = from_addr,
         )
         session.commit()
         return _serialize(row)
 
+
 def create_parser_result_by_ordering_id(
     ordering_id, parser_result, broker_name: str | None = None, is_done: int = 0,
     master_bill_no: str | None = None, house_bill_no: str | None = None,
-    operator: str | None = None,
+    operator: str | None = None, from_addr: str | None = None,
 ):
     """
     如果二级意图是新建下单，就要写入一条parser-result
@@ -218,6 +230,7 @@ def create_parser_result_by_ordering_id(
         fields.setdefault("house_bill_no", house_bill_no)
         fields["broker_name"] = broker_name
         fields["is_done"] = is_done
+        fields["fromAddr"] = from_addr
         row = EmailParserResult(ordering_id=ordering_id, **fields)
         session.add(row)
         session.commit()
@@ -239,10 +252,10 @@ def find_parser_result_by_bill(master_bill_no: str | None, house_bill_no: str | 
         )
         return _serialize(row) if row else None
 
-
 def update_parser_result_by_bill(
-    master_bill_no: str | None, house_bill_no: str | None, parser_result,
-    broker_name: str | None, is_done: int, operator: str | None = None,
+    master_bill_no: str | None, house_bill_no: str | None, parser_result=None,
+    broker_name: str | None = None, is_done: int = 0, operator: str | None = None,
+    from_addr: str | None = None,
 ) -> dict | None:
     """修改单，需要根据mbl和hbl找到其新建单的解析结果"""
     if not master_bill_no and not house_bill_no:
@@ -260,8 +273,11 @@ def update_parser_result_by_bill(
             )
             return None
         fields = _parse_result_input(parser_result)
-        fields["broker_name"] = broker_name
+        if broker_name is not None:
+            fields["broker_name"] = broker_name
         fields["is_done"] = is_done
+        if from_addr is not None:
+            fields["fromAddr"] = from_addr
         _apply_field_changes(
             session, row, fields, f"{row.ordering_id}_{master_bill_no}_{house_bill_no}", operator,
         )

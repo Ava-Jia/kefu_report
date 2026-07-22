@@ -41,6 +41,8 @@ class Email(Base):
     broker_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     role: Mapped[str | None] = mapped_column(String(50), nullable=True)
     message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    region: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    task: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class AuditLog(Base):
@@ -84,7 +86,8 @@ class EmailParserResult(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ordering_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-
+    fromAddr: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    
     master_bill_no: Mapped[str | None] = mapped_column(Text, nullable=True)
     master_bill_no_from_email: Mapped[str | None] = mapped_column(Text, nullable=True)
     house_bill_no: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -115,7 +118,8 @@ class EmailParserResult(Base):
     volume: Mapped[str | None] = mapped_column(String(50), nullable=True)
     ctr_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    hbl_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    houseFileUrl: Mapped[str | None] = mapped_column(Text, nullable=True)
+    masterFileUrl: Mapped[str | None] = mapped_column(Text, nullable=True)
     order_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     is_suspicious: Mapped[int | None] = mapped_column(Integer, nullable=True)
     agent_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

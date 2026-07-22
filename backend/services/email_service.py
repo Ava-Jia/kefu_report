@@ -16,7 +16,7 @@ _VALID_STATUSES = {"PENDING_TRACK", "COMPLETED", "FAILED"}
 _UPDATABLE_FIELDS = {
     "mbl_number", "intent_type1", "subject", "intent_type2",
     "ordering_id", "email_summary", "is_done", "email_url", "status",
-    "broker_name", "role",
+    "broker_name", "role", "region", "task",
 }
 
 _BJT = datetime.timezone(datetime.timedelta(hours=8))
@@ -207,6 +207,8 @@ def get_local_emails(
                     "email_url": e.email_url,
                     "status": e.status,
                     "message_id": e.message_id,
+                    "region": e.region,
+                    "task": e.task,
                 }
                 for e in items
             ],
@@ -253,6 +255,8 @@ def upsert_emails(records: list[dict]) -> int:
                 email_url=r.get("email_url") or None,
                 is_done=0,
                 status=status,
+                region=r.get("region")
+
             ))
         session.commit()
     return len(records)
@@ -384,6 +388,8 @@ def get_email_id_by_ordering_id(ordering_id: str):
             "status": row.status,
             "broker_name": row.broker_name,
             "message_id": row.message_id,
+            "region": row.region,
+            "task": row.task,
         }
 
 
@@ -410,6 +416,8 @@ def get_email_detail(email_id: str) -> dict | None:
             "status": row.status,
             "broker_name": row.broker_name,
             "message_id": row.message_id,
+            "region": row.region,
+            "task": row.task,
         }
 
 # data_id 是全局唯一的自增排序号，根据当前 data_id 找排序上更靠后/靠前的一条邮件

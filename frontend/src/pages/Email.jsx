@@ -542,6 +542,22 @@ const buildTableColumns = (onCheckChange, onIntentSaved, onFieldSaved, listConte
       <EditableField row={record} field="broker_name" title="代理名称" value={v || record['broker-name']} onSaved={onFieldSaved} />
     ),
   },
+   {
+    title: '地区',
+    dataIndex: 'region',
+    key: 'region',
+    width: 80,
+    ellipsis: true,
+    render: (v) => v || <EmptyDash />,
+  },
+  {
+    title: '任务类别',
+    dataIndex: 'task',
+    key: 'task',
+    width: 80,
+    ellipsis: true,
+    render: (v) => v || <EmptyDash />,
+  },
   {
     title: '发件人',
     dataIndex: 'from',
@@ -788,7 +804,8 @@ const OrderResultView = ({ orders }) => {
           ['毛重', o.grossWeight],
           ['体积', o.volume],
           ['费用', expense],
-          ['HBL 文件', o.hblUrl ? <a href={o.hblUrl} target="_blank" rel="noreferrer">查看 PDF</a> : ''],
+          ['HBL 文件', o.houseFileUrl ? <a href={o.houseFileUrl} target="_blank" rel="noreferrer">查看 PDF</a> : ''],
+          ['MBL 文件', o.masterFileUrl ? <a href={o.masterFileUrl} target="_blank" rel="noreferrer">查看 PDF</a> : ''],
         ];
         return (
           <div key={idx} style={{ marginBottom: 12, border: '1px solid #f0f0f0', borderRadius: 6, padding: 8 }}>

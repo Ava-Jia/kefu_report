@@ -724,8 +724,15 @@ def _save_parser_result(email_id, detail, patch, row_mbl, row_hbl, operator):
         return jsonify({"code": 200, "message": "修改成功，已成功推送至PLT系统"}), 200
 
     # 订单不存在：给这封邮件新建一条订单（分支D/E）
-    # mbl/hbl 优先用前端传来的原值，缺失时回退到本次提交的解析结果
+    # 此时要判断是否修改了mbl和hbl
+    
+    # target_mbl = patch.get("masterBillNo")
+    # target_hbl = patch.get("houseBillNo")
+
+    # if target_mbl != row_mbl or target_hbl != row_hbl:
+    #     print(f"用户修改了mbl和hbl，原单为mbl:{target_mbl}hbl:{target_hbl};修改后mbl{row_mbl},hbl{row_hbl}")
     target_mbl, target_hbl = _pick_target_bills(row_mbl, row_hbl, patch)
+    # mbl/hbl 优先用前端传来的原值，缺失时回退到本次提交的解析结果
     if not target_mbl and not target_hbl:
         print("[update_email] 分支D/E：mbl/hbl 都为空，拒绝新增")
         log_create_failure("新增订单缺少 mbl/hbl，无法创建",
